@@ -14,6 +14,8 @@
 typedef struct sim_flags {
     bool opt_symb;   /// If true, loops will be simulated symbolically
     bool opt_info;   /// If true, time statistics will be collected for loop simulation
+    bool opt_update; /// If true, the result will be only update formulae (sim result won't be calculated)
+    const char *upd_filename; /// File for the update output
 } sim_flags_t;
 
 /// Additional simulation info (set during the simulation)

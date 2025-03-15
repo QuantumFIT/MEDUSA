@@ -84,5 +84,10 @@ bool symb_refine(mtbdd_symb_t *symbc, rdata_t *rdata);
  */
 void symb_eval(MTBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata);
 
+/**
+ * Writes the update formulae into the given file
+ */
+void print_update(const char *filename, upd_list_t *upd);
+
 #endif
 /* end of "symb_utils.h" */

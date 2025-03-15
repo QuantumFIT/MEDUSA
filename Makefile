@@ -18,6 +18,7 @@ N_JOBS=4
 OF_TYPE=pdf
 F_OUT_NAME=res
 LONG_NUMS_OUT_FILE=res-vars.txt
+UPDATE_OUT_FILE=update.txt
 BSCRIPT_PATH=benchmark-utils/scripts
 
 .DEFAULT : all
@@ -70,7 +71,7 @@ clean: clean-artifacts
 clean-all: clean-artifacts clean-deps clean-benchmark
 
 clean-artifacts:
-	rm -rf $(EXEC) $(F_OUT_NAME).dot $(F_OUT_NAME).$(OF_TYPE) $(LONG_NUMS_OUT_FILE) $(OBJ_DIR)
+	rm -rf $(EXEC) $(F_OUT_NAME).dot $(F_OUT_NAME).$(OF_TYPE) $(UPDATE_OUT_FILE) $(LONG_NUMS_OUT_FILE) $(OBJ_DIR)
 
 clean-deps:
 	rm -rf $(LIB_DIR)

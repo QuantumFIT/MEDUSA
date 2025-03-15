@@ -370,11 +370,22 @@ bool sim_file(FILE *in, MTBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                     if (symb_refine(&symbc, rdata)) {
                         // is final result
                         is_loop = false;
-                        clock_gettime(CLOCK_MONOTONIC, &t_eval_start);
-                        symb_eval(circ, &symbc, iters, rdata);
-                        clock_gettime(CLOCK_MONOTONIC, &t_loop_finish);
+                        if (flags->opt_update) {
+                            clock_gettime(CLOCK_MONOTONIC, &t_loop_finish);
+                            info->t_el_loop[info->n_loops] = get_time_el(t_loop_start, t_loop_finish);
+                            info->t_el_eval[info->n_loops] = 0; // eval not performed
+                            info->n_loops++;
+                            print_update(flags->upd_filename, rdata->upd);
+                            *circ = symbc.map; // result will be the map
+                            break;
+                        }
+                        else {
+                            clock_gettime(CLOCK_MONOTONIC, &t_eval_start);
+                            symb_eval(circ, &symbc, iters, rdata);
+                            clock_gettime(CLOCK_MONOTONIC, &t_loop_finish);
+                            info->t_el_eval[info->n_loops] = get_time_el(t_eval_start, t_loop_finish);
+                        }
                         info->t_el_loop[info->n_loops] = get_time_el(t_loop_start, t_loop_finish);
-                        info->t_el_eval[info->n_loops] = get_time_el(t_eval_start, t_loop_finish);
                         info->n_loops++;
                     }
                     else {

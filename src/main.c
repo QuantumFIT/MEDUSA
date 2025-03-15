@@ -12,6 +12,8 @@
 #define OUT_FILE "res"
 /// Name of the output file with the large numbers
 #define LONG_NUMS_OUT_FILE "res-vars.txt"
+/// Name of the output file with update formulae
+#define UPDATE_OUT_FILE "update.txt"
 /// Initial size of array for the separate output of large numbers
 #define LONG_NUMS_MAP_INIT_SIZE 5
 #define HELP_MSG \
@@ -21,7 +23,8 @@
  --help,        -h          show this message\n\
  --info,        -i          measure the simulation runtime and peak memory usage\n\
  --symbolic,    -s          perform symbolic simulation if possible\n\
- --probability, -p       show probabilities of measuring the basis state in the result MTBDD instead\n\
+ --probability, -p          show probabilities of measuring the basis state in the result MTBDD instead\n\
+ --update,      -u          the result will be the update formulae of the first loop encountered (symbolic simulation must be enabled)\n\
  \n\
  Options with a required argument:\n\
  --file,        -f          specify the input QASM file (default STDIN)\n\
@@ -60,7 +63,9 @@ int main(int argc, char *argv[])
     bool opt_measure = false;
     bool opt_probability = false;
     sim_flags_t flags = { .opt_symb = false,
-                          .opt_info = false };
+                          .opt_info = false,
+                          .opt_update = false,
+                          .upd_filename = UPDATE_OUT_FILE };
     unsigned long samples = 1024;
     
     int opt;
@@ -72,10 +77,11 @@ int main(int argc, char *argv[])
         {"nsamples", required_argument,  0, 'n'},
         {"symbolic", no_argument,        0, 's'},
         {"probability", no_argument,     0, 'p'},
+        {"update", no_argument,          0, 'u'},
         {0, 0, 0, 0}
     };
     char *endptr;
-    while((opt = getopt_long(argc, argv, "hif:m::n:sp", long_options, 0)) != -1) {
+    while((opt = getopt_long(argc, argv, "hif:m::n:spu", long_options, 0)) != -1) {
         switch(opt) {
             case 'h':
                 printf("%s\n", HELP_MSG);
@@ -111,6 +117,9 @@ int main(int argc, char *argv[])
                 break;
             case 'p':
                 opt_probability = true;
+                break;
+            case 'u':
+                flags.opt_update = true;
                 break;
             case '?':
                 exit(1); // error msg already printed by getopt_long

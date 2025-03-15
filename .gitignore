@@ -14,6 +14,7 @@ MEDUSA
 *.pdf
 *.dot
 res-vars.txt
+update.txt
 
 # For debug purposes
 gmon.out

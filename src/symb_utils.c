@@ -327,4 +327,22 @@ void symb_eval(MTBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata
     sylvan_gc(); // Clears both the operation cache and the node cache, needed as some expressions may reappear again
 }
 
+void print_update(const char *filename, upd_list_t *upd)
+{
+    FILE *out = fopen(filename, "w");
+    if (out == NULL) {
+        error_exit("Cannot open the update output file.\n");
+    }
+
+    for (int i = 0; i < upd->size; i++) {
+        symexp_list_t *expr = (symexp_list_t*)upd->arr[i];
+        if (expr == NULL) { // stop when unused variables are reached
+            break;
+        }
+        fprintf(out, "v[%d] = %s\n", i, symexp_to_str(expr));
+    }
+
+    fclose(out);
+}
+
 /* end of "symb_utils.c" */
