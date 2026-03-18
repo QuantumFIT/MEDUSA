@@ -149,6 +149,7 @@ TASK_IMPL_2(MTBDD, mtbdd_to_symb_map, MTBDD, a, size_t, raw_m)
         // initial vmap size does not count with 'mtbdd_false' leaves, so vmap needs to be resized
         m->map = my_realloc(m->map, sizeof(coef_t) * (m->msize + 4));
         m->msize += 4;
+        //TODO: consider extending vmap_add() with custom size parameter and using it here
         mpz_inits(m->map[var_a], m->map[var_b], m->map[var_c], m->map[var_d], 0);
     }
     else if (mtbdd_isleaf(a)) {

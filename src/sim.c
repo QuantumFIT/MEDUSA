@@ -200,6 +200,8 @@ static int skip_one_line_comments(char c, FILE *in)
 
 bool sim_file(FILE *in, MTBDD *circ, const sim_flags_t *flags, sim_info_t *info)
 {
+    //TODO: refactor the main parser
+    //TODO: add line counter for the parsed file to display where an error occured
     int c;
     char cmd[CMD_MAX_LEN]; // initialized to 0s in the loop
     char bit_reg[BIT_REG_ID_MAX_LEN] = {0};

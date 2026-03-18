@@ -4,6 +4,7 @@
 #include "htab.h"
 #include "error.h"
 
+//TODO: verify if htab is necessary to be global
 /// Global symbolic hash table
 static htab_t *symexp_table;
 
@@ -169,6 +170,7 @@ char* symexp_to_str(symexp_list_t *l)
     else {
         symexp_list_first(l);
         while (l->active != NULL) {
+            //TODO: stop printing plus sign before the first value of the expression
             // Append string
             chars_written = gmp_snprintf(buf + buflen, MAX_ST_TO_STR_LEN, "%+Zd[%ld]", l->active->data->coef, l->active->data->var);
             // Was string truncated?

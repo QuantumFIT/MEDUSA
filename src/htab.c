@@ -101,6 +101,10 @@ void htab_m_free(htab_t *t)
  */
 static size_t htab_s_hash_func(htab_key_t key_raw)
 {
+    //TODO: evaluate current hash design 
+    // - possible issue: vals and op may hash to same value often
+    // - additional simpler alternative: hash only first element + length
+    // - benchmark both approaches
     htab_s_key_t key = (htab_s_key_t) key_raw;
     size_t val = 0;
     symexp_list_first(key);
@@ -239,6 +243,7 @@ void htab_s_lookup_remove(htab_t *t, htab_s_key_t key)
 
     // Find the item
     while (item != NULL) {
+        //TODO: verify if key equality can be changed to just pointer comparison
         if (htab_s_get_key(item) == key) {
             item->data.value--;
             if (!item->data.value) {
