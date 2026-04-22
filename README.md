@@ -4,15 +4,19 @@ It is written in C and utilizes the [Sylvan](https://trolando.github.io/sylvan/)
 
 ## Build
 **Dependencies:**
-* `gmp` library
+* [`gmp`](https://gmplib.org/) library
 * [`Sylvan`](https://trolando.github.io/sylvan/) and therefore [`Lace`](https://fmt.ewi.utwente.nl/tools/lace/) libraries - can be installed via `make` (needs `git`), see below for more details
+* [`FLINT`](https://flintlib.org/doc/) (also installed via `make`) and its dependencies - besides `gmp` also[`mpfr`](https://www.mpfr.org/) library, and GNU build system
 
-Before trying to build this project, make sure to have `gmp` library (`libgmp-dev`) installed on your machine.
+Before trying to build this project, make sure to have `gmp` library, `mpfr` library, and GNU build system installed on your machine. You can install them with
+```
+apt install libgmp-dev libmpfr-dev make autoconf libtool-bin
+```
 Then you can download the remaining dependencies with:
 ```
 make init
 ```
-You can then build the project with:
+Finally, you can build the project with:
 ```
 make
 ```

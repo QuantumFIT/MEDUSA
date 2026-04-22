@@ -10,8 +10,11 @@ OBJS:=$(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(SRCS))
 
 CC:=gcc
 CFLAGS:=-g -O2
-CLIBS=-lgmp -lpthread -lm
-INC_DIRS:=-I $(LIB_DIR)/sylvan/src/ -I $(LACE_DIR)/lace-src/src/ -I $(LACE_DIR)/lace-build/
+CLIBS=-lflint -lgmp -lpthread -lm -lmpfr
+INC_DIRS:=-I $(LIB_DIR)/sylvan/src/    \
+		  -I $(LACE_DIR)/lace-src/src/ \
+		  -I $(LACE_DIR)/lace-build/   \
+		  -I $(LIB_DIR)/flint/src -L $(LIB_DIR)/flint
 
 N_JOBS=4
 
@@ -25,7 +28,11 @@ BSCRIPT_PATH=benchmark-utils/scripts
 .PHONY : clean clean-all clean-artifacts clean-deps clean-benchmark plot benchmarks \
            init make-sylvan download-sylvan make-sliqsim
 
-all: $(OBJS) $(LIB_DIR)/sylvan/build/src/lib/libsylvan.a $(LACE_DIR)/lace-build/lib/liblace.a | $(BIN_DIR)
+all: $(OBJS) \
+	 $(LIB_DIR)/sylvan/build/src/lib/libsylvan.a \
+	 $(LACE_DIR)/lace-build/lib/liblace.a \
+	 $(LIB_DIR)/flint/libflint.a \
+	 | $(BIN_DIR)
 	$(CC) $(INC_DIRS) $(CFLAGS) -o $(EXEC) $^ $(CLIBS)
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
@@ -52,8 +59,8 @@ make-sliqsim:
 	make
 
 # INIT:
-init: make-sylvan
-	mkdir $(LIB_DIR) && mv sylvan $(LIB_DIR)
+init: make-sylvan make-flint
+	mkdir $(LIB_DIR) && mv sylvan flint $(LIB_DIR)
 
 make-sylvan: download-sylvan
 	cd sylvan;			\
@@ -64,6 +71,15 @@ make-sylvan: download-sylvan
 
 download-sylvan:
 	@git clone https://github.com/trolando/sylvan.git || true
+
+make-flint: download-flint
+	cd flint; \
+	./bootstrap.sh; \
+	./configure --enable-static --disable-shared; \
+	make -j $(N_JOBS);
+
+download-flint:
+	@git clone https://github.com/flintlib/flint.git || true
 
 # CLEAN:
 clean: clean-artifacts
