@@ -3,6 +3,9 @@
 #include "mtbdd_symb_val.h"
 #include "sylvan_int.h" // for cache_next_opid()
 #include "error.h"
+#include "fmpz.h"       // fmpz includes need to be after gmp includes
+#include "fmpz_vec.h"
+#include "fmpz_mat.h"
 
 /// Opid for mtbdd_symb_refine (needed for mtbdd_applyp)
 static uint64_t apply_mtbdd_symb_refine_id;
@@ -166,28 +169,44 @@ TASK_IMPL_3(MTBDD, mtbdd_symb_refine, MTBDD*, p_map, MTBDD*, p_val, size_t, rd_r
         mtbdd_applyp(p_map, p_val, (size_t)rdata, TASK(mtbdd_symb_refine), apply_mtbdd_symb_refine_id)
 
 /**
- * Evaluates the given variable according to the rdata expression and the map, saves the value into new_map
+ * Initializes FMPZ matrix according to rdata symexp values for all variables
  */
-static void eval_var(size_t var, rdata_t *rdata, coef_t* map, coef_t* new_map)
+static void init_upd_matrix(fmpz_mat_t mtx, vars_t nvars, rdata_t *rdata)
 {
-    symexp_list_t *expr = (symexp_list_t*)rdata->upd->arr[var];
-    mpz_set_ui(new_map[var], 0);
+    // 
+    symexp_list_t *expr;
 
-    if (expr != SYMEXP_NULL) {
-        coef_t imm_res;
-        mpz_init(imm_res);
+    fmpz_mat_zero(mtx);
+    for (vars_t i = 0; i < nvars; i++) {
+        // Convert symexp for var i to nonzero matrix row indices
+        expr = (symexp_list_t*)rdata->upd->arr[i];
 
-        if (expr != NULL) {
+        if (expr != SYMEXP_NULL && expr != NULL) {
             symexp_list_first(expr);
             while(expr->active) {
-                mpz_set(imm_res, map[expr->active->data->var]);
-                mpz_mul(imm_res, imm_res, expr->active->data->coef);
-                mpz_add(new_map[var], new_map[var], imm_res);
+                fmpz_set_mpz(fmpz_mat_entry(mtx, i, expr->active->data->var), expr->active->data->coef);
                 symexp_list_next(expr);
             }
         }
-        mpz_clear(imm_res);
     }
+}
+
+/**
+ * Sets values of the vector to the current variable values according to map
+ */
+static void init_state_vector(fmpz* state, vars_t nvars, coef_t* map)
+{
+    for (vars_t i = 0; i < nvars; i++)
+        fmpz_set_mpz(&(state[i]), map[i]);
+}
+
+/**
+ * Sets values of map to the current variable values according to the vector
+ */
+static void update_map_from_vec(fmpz* state, vars_t nvars, coef_t* map)
+{
+    for (vars_t i = 0; i < nvars; i++)
+        fmpz_get_mpz(map[i], &(state[i]));
 }
 
 // ========================================
@@ -292,33 +311,38 @@ bool symb_refine(mtbdd_symb_t *symbc, rdata_t *rdata)
 
 void symb_eval(MTBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata)
 {
-    coef_t *new_map = my_malloc(sizeof(coef_t) * symbc->vm->msize);
-    for (int i = 0; i < symbc->vm->msize; i++) {
-        mpz_init(new_map[i]);
-    }
-    coef_t *temp_map;
-    for (uint64_t i = 0; i < iters; i++) {
-        // update new_map
-        for (int i = 0; i < symbc->vm->next_var; i++) {
-            eval_var(i, rdata, symbc->vm->map, new_map);
-        }
+    vars_t nvars = symbc->vm->next_var;
 
-        // swap maps
-        temp_map = symbc->vm->map;
-        symbc->vm->map = new_map;
-        new_map = temp_map;
-    }
+    // Init single loop iter and final update matrix
+    fmpz_mat_t mtx_upd, mtx_final;
+    fmpz_mat_init(mtx_upd, nvars, nvars);
+    fmpz_mat_init(mtx_final, nvars, nvars);
+    init_upd_matrix(mtx_upd, nvars, rdata);
+    
+    // Init current and final state vector
+    fmpz* state = _fmpz_vec_init(nvars);
+    fmpz* res = _fmpz_vec_init(nvars);
+    init_state_vector(state, nvars, symbc->vm->map);
 
+    // Get result vector with final variable values
+    // TODO: Change to custom pow implementation
+    // - Basic pow function will create too large matrice entries and results soon in OOM
+    // - Create custom repeated squaring pow, which is capped and for bigger powers 
+    //   the powering is done linearly by multiplying by the base matrix / switch to the original eval
+    // - Experimentally find the best power cap
+    fmpz_mat_pow(mtx_final, mtx_upd, iters); 
+    fmpz_mat_mul_fmpz_vec(res, mtx_final, state, nvars);
+
+    // Update mtbdd
+    update_map_from_vec(res, nvars, symbc->vm->map);
     *circ = my_mtbdd_from_symb(symbc->map, symbc->vm->map);
 
+    // Update k
     mpz_mul_ui(cs_k, cs_k, (unsigned long)iters);
     mpz_add(c_k, c_k, cs_k);
 
-    // dealloc aux variable
-    for (int i = 0; i < symbc->vm->msize; i++) {
-        mpz_clear(new_map[i]);
-    }
-    free(new_map);
+    // Fmpz clean up
+    // TODO:
 
     // Symbolic clean up
     vmap_delete(symbc->vm);
