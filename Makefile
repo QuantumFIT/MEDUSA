@@ -25,8 +25,7 @@ UPDATE_OUT_FILE=update.txt
 BSCRIPT_PATH=benchmark-utils/scripts
 
 .DEFAULT : all
-.PHONY : clean clean-all clean-artifacts clean-deps clean-benchmark plot benchmarks \
-           init make-sylvan download-sylvan make-sliqsim
+.PHONY : clean clean-all clean-artifacts clean-deps clean-benchmark plot benchmarks init
 
 all: $(OBJS) \
 	 $(LIB_DIR)/sylvan/build/src/lib/libsylvan.a \
@@ -46,40 +45,37 @@ $(BIN_DIR) $(OBJ_DIR):
 plot:
 	@dot -T$(OF_TYPE) $(F_OUT_NAME).dot -o $(F_OUT_NAME).$(OF_TYPE)
 
-benchmarks:
+benchmarks: ../SliQSim
 	@bash ./$(BSCRIPT_PATH)/run-benchmarks.sh
 
 # BENCHMARK INIT:
-make-sliqsim:
+../SliQSim:
 	cd .. &&\
-	git clone https://github.com/NTU-ALComLab/SliQSim.git || true &&\
+	git clone https://github.com/NTU-ALComLab/SliQSim.git &&\
 	cd SliQSim/cudd &&\
 	./configure --enable-dddmp --enable-obj --enable-shared --enable-static &&\
 	cd .. &&\
 	make
 
 # INIT:
-init: make-sylvan make-flint
-	mkdir $(LIB_DIR) && mv sylvan flint $(LIB_DIR)
+init: $(LIB_DIR)/sylvan $(LIB_DIR)/flint
 
-make-sylvan: download-sylvan
-	cd sylvan;			\
-	mkdir build;		\
-	cd build;			\
-	cmake ..;			\
-	make -j $(N_JOBS);
+$(LIB_DIR)/sylvan:
+	mkdir -p $(LIB_DIR) &&\
+	git clone --branch v1.9.4 https://github.com/trolando/sylvan.git $@ &&\
+	cd $(LIB_DIR)/sylvan &&\
+	mkdir build &&\
+	cd build &&\
+	cmake .. &&\
+	make -j $(N_JOBS)
 
-download-sylvan:
-	@git clone https://github.com/trolando/sylvan.git || true
-
-make-flint: download-flint
-	cd flint; \
-	./bootstrap.sh; \
-	./configure --enable-static --disable-shared; \
-	make -j $(N_JOBS);
-
-download-flint:
-	@git clone https://github.com/flintlib/flint.git || true
+$(LIB_DIR)/flint:
+	mkdir -p $(LIB_DIR) &&\
+	git clone https://github.com/flintlib/flint.git $@ &&\
+	cd $(LIB_DIR)/flint &&\
+	./bootstrap.sh &&\
+	./configure --enable-static --disable-shared &&\
+	make -j $(N_JOBS)
 
 # CLEAN:
 clean: clean-artifacts
