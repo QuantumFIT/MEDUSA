@@ -342,7 +342,10 @@ void symb_eval(MTBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata
     mpz_add(c_k, c_k, cs_k);
 
     // Fmpz clean up
-    // TODO:
+    fmpz_mat_clear(mtx_upd);
+    fmpz_mat_clear(mtx_final);
+    _fmpz_vec_clear(state, nvars);
+    _fmpz_vec_clear(res, nvars);
 
     // Symbolic clean up
     vmap_delete(symbc->vm);
