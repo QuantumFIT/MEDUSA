@@ -4,6 +4,7 @@
  */
 
 #include <stdint.h>
+#include <gmp.h>
 
 #ifndef SYMEXP_LIST_H
 #define SYMEXP_LIST_H

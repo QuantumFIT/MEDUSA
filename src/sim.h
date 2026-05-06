@@ -46,7 +46,7 @@ void init_sim_info(sim_info_t *i);
  * @return true if the circuit has been properly initialized and simulated
  * 
  */
-bool sim_file(FILE *in, MTBDD *circ, const sim_flags_t *flags, sim_info_t *info);
+bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info);
 
 /**
  * Measures all bits in the given array (compatible only with measurement at the end of the circuit)
@@ -62,12 +62,12 @@ bool sim_file(FILE *in, MTBDD *circ, const sim_flags_t *flags, sim_info_t *info)
  * @param bits_to_measure array for storing the qubits that are to be measured
  * 
  */
-void measure_all(unsigned long samples, FILE *output, MTBDD circ, int n, int *bits_to_measure);
+void measure_all(unsigned long samples, FILE *output, qBDD circ, int n, int *bits_to_measure);
 
 /**
  * Calculates the time elapsed between two timestamps in seconds
  */
-inline double get_time_el(struct timespec start, struct timespec fin)
+static inline double get_time_el(struct timespec start, struct timespec fin)
 {
     return fin.tv_sec - start.tv_sec + (fin.tv_nsec - start.tv_nsec) * 1.0e-9;
 }

@@ -5,6 +5,7 @@
 #include "htab.h"
 #include "hash.h"
 #include "error.h"
+#include "interface.h"
 
 /// Max allowed average list length
 #define AVG_LEN_MAX 2

@@ -3,7 +3,7 @@
 #include "symexp.h"
 #include "htab.h"
 #include "error.h"
-
+#include "interface.h"
 /// Global symbolic hash table
 static htab_t *symexp_table;
 
@@ -63,13 +63,15 @@ symexp_list_t* symexp_op(symexp_list_t *a, symexp_list_t *b, symexp_op_t op)
         return a;
     }
     // Case: NULL + b
-    else if (a == NULL && op == SYMEXP_ADD) {
+    else if (a == NULL && 
+            (op == SYMEXP_ADD)) {
         return b;
     }
     
     symexp_list_t *res;
     // Case: NULL - b
-    if (a == NULL && op == SYMEXP_SUB) {
+    if (a == NULL && 
+        (op == SYMEXP_SUB)) {
         res = symexp_list_mkcpy(b);
         symexp_list_neg(res);
     }
@@ -112,8 +114,9 @@ symexp_list_t* symexp_op(symexp_list_t *a, symexp_list_t *b, symexp_op_t op)
             }
             // else if the same variable
             else if (a->active->data->var == res->active->data->var) {
-                mpz_add(res->active->data->coef, res->active->data->coef, a->active->data->coef);
-                // Check if result isn't 0
+                mpz_add(res->active->data->coef, res->active->data->coef, a->active->data->coef); // 119
+                //add_generic(res->active->data->coef, res->active->data->coef, a->active->data->coef);
+                // Check if result isn't 0 
                 if (mpz_sgn(res->active->data->coef) == 0) {
                     if (res_prev == NULL) {
                         symexp_list_remove_first(res);
@@ -193,7 +196,7 @@ bool symexp_is_first_var_marked(symexp_list_t *l, bool *is_zero)
 {
     bool var_marked = false;
     symexp_list_first(l);
-    if (l->active) {
+    if (l->active && l->active->data) { 
         if (is_zero[l->active->data->var]) {
             var_marked = true;
         }

@@ -19,7 +19,7 @@
 /**
  * Initializes the symbolic hash table - must be initialized before any symbolic value MTBDD can be initialized!
  */
-void symexp_htab_init();
+void symexp_htab_init(size_t size);
 
 /**
  * Clears the symbolic hash table - deletes all items (the array size is not changed)

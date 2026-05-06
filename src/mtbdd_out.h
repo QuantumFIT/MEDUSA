@@ -6,8 +6,8 @@
  *          Works with a single global map, as one cannot add custom arguments to Sylvan's output functions.
  */
 
-#include <stdbool.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <gmp.h>
 #include "mtbdd.h"
 
@@ -17,7 +17,7 @@
 
 /// Format string for the variable name
 #define VAR_NAME_FMT "large-number[%ld]"
-
+typedef leaf_primitive_t coef_t;
 
 /// Type for saving and using the variable to value mapping for the separate output of large numbers
 typedef struct lnum_map {

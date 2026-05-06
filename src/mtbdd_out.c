@@ -37,6 +37,7 @@ bool lnum_map_is_empty()
     return (out_map.next_var == 0);
 }
 
+ // REDO
 void lnum_map_print(FILE *f)
 {
     mpz_t temp;

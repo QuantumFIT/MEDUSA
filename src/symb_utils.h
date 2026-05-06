@@ -3,17 +3,18 @@
  * @brief Symbolic simulation conversion from/to regular simulation and other symbolic sim. utilities
  */
 
-#include <sylvan.h>
+//#include <sylvan.h>
 #include <stdint.h>
 #include "mtbdd_symb_map.h"
+#include "mtbdd.h"
 
 #ifndef SYMB_UTILS_H
 #define SYMB_UTILS_H
 
 /// Type for encapsulating the mtbdd tuple and map function needed for symbolic representation
 typedef struct mtbdd_symb {
-    MTBDD map;  /// MTBDD with the symoblic variable mapping
-    MTBDD val;  /// MTBDD with symbolic values of the variables
+    qBDD map;  /// MTBDD with the symoblic variable mapping
+    qBDD val;  /// MTBDD with symbolic values of the variables
     vmap_t *vm; /// Array mapping variables (index) to their initial values (needed for the final evaluation)
     bool is_reduced; /// If true, val is initialized with 'mtbdd_false' leaves if all variables have value 0
     bool is_refined; /// False only before first refine attempt (to check for reduction errors only once)
@@ -29,7 +30,7 @@ typedef symexp_list_t* upd_elem_t;
 /// Type for elements of the refined list (old_var -> new_var mapping)
 typedef struct ref_elem {
     vars_t old;
-    vars_t new;
+    vars_t new_elem;
     struct ref_elem *next;
 } ref_elem_t;
 
@@ -54,14 +55,14 @@ typedef struct rdata {
 } rdata_t;
 
 /**
- * Function for Sylvan setup for symbolic simulation.
+ * Function for backend setup for symbolic simulation.
  */
-void init_sylvan_symb();
+void init_symb_backend();
 
 /**
  * Creates an symbolic MTBDD from the given MTBDD and returns the mapping of variables to their values
  */
-void symb_init(MTBDD *circ, mtbdd_symb_t *symbc);
+void symb_init(qBDD *circ, mtbdd_symb_t *symbc);
 
 /**
  * Creates and initializes refine data
@@ -82,7 +83,11 @@ bool symb_refine(mtbdd_symb_t *symbc, rdata_t *rdata);
 /**
  * Updates the circuits MTBDD according to the symbolic MTBDD, variable mapping and the number of iterations
  */
-void symb_eval(MTBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata);
+void symb_eval(qBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata);
+
+vars_t refine_var_check(vars_t var, symexp_list_t *data, rdata_t *rd);
+
+extern mpz_t globalSquareRootCoeffSymb;
 
 #endif
 /* end of "symb_utils.h" */

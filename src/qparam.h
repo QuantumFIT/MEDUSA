@@ -2,7 +2,9 @@
  * @file qparam.h
  * @brief Data structure and operations for list of qubit parameters (for MCX gate)
  */
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <stdint.h>
 
 #ifndef QPARAM_H
@@ -57,5 +59,8 @@ void qparam_list_insert_first(qparam_list_t *l, uint32_t q_index);
  */
 void qparam_list_del(qparam_list_t *l);
 
+#endif
+#ifdef __cplusplus
+}
 #endif
 /* end of "qparam.h" */
