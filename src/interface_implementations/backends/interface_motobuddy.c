@@ -4,7 +4,7 @@
  */
 
 #include "interface_motobuddy.h"
-
+#include <string.h>
 
 /*
  * Package lifecycle
@@ -131,7 +131,7 @@ size_t qBDD_getVar(qBDD a) {
 LEAF_TYPE qBDD_getTerminalValue(qBDD a) {
     void* val = mtbdd_getTerminalValue(a);
     if (val == NULL) {
-        printf("Warning: qBDD_getTerminalValue called on a terminal %d with NULL value\n", a, LEVEL(a),MAXLEVEL);
+        printf("Warning: qBDD_getTerminalValue called on a terminal %d with NULL value\n", a);
     }
     return *(LEAF_TYPE*)val;
 }
@@ -363,8 +363,8 @@ qBDD unary_apply(qBDD l, LEAF_TYPE (*op)(LEAF_TYPE)) {
     else if (op == mtbdd_symb_coef_rot2_i) return mtbdd_apply_unary(l, convertedApplyOperationRot2I);
     else                                   return mtbdd_apply_unary(l, convertedApplyOperationUnary);
 }
-qBDD unary_apply_guarded(qBDD l, qBDD(*op)(qBDD, size_t), size_t arg)  {
-    return mtbdd_apply_unary_guarded(l, op, arg);
+qBDD unary_apply_guarded(qBDD l, qBDD(*op)(qBDD, size_t), size_t arg) {
+    return mtbdd_apply_unary_guarded(l, (BDD(*)(BDD, void*))op, arg);
 }
 
 qBDD unary_apply_param(qBDD l, LEAF_TYPE(*op)(LEAF_TYPE, size_t), size_t arg) {
@@ -372,7 +372,7 @@ qBDD unary_apply_param(qBDD l, LEAF_TYPE(*op)(LEAF_TYPE, size_t), size_t arg) {
     if      (op == mulPhaseLeaf)  return mtbdd_apply_unary_param(l, convertedApplyOperationMulPhase, arg);
     else if (op == rz_low_leaf)   return mtbdd_apply_unary_param(l, convertedApplyOperationRzLow,   arg);
     else if (op == rz_high_leaf)  return mtbdd_apply_unary_param(l, convertedApplyOperationRzHigh,  arg);
-    else                          return mtbdd_apply_unary_param(l, op, arg);
+    else                          return mtbdd_apply_unary_param(l, (void*(*)(void*, size_t))op, arg);
 }
 /*
  * Operation result flags
