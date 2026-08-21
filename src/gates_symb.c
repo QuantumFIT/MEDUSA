@@ -193,7 +193,9 @@ void gate_symb_cnot(qBDD *p_t, uint32_t xt, uint32_t xc)
     qBDD_unprotect(inter_res);
     qBDD_protect(inter_res2);
     qBDD res2 = my_mtbdd_symb_plus_i(res, inter_res2); // (Bxc_c * T) + (Bxc * (Bxt_c * Txt + Bxt * Txt_c))
-    qBDD_unprotect(inter_res2);    
+    qBDD_protect(res2);
+    qBDD_unprotect(inter_res2);
+    qBDD_unprotect(res);
     qBDD_unprotect(*p_t);
     *p_t = res2;
 #else
@@ -286,6 +288,7 @@ void gate_symb_toffoli(qBDD *p_t, uint32_t xt, uint32_t xc1, uint32_t xc2)
     
     qBDD_unprotect(res);
     qBDD_unprotect(inter_res3);
+    qBDD_unprotect(*p_t);
     *p_t = res2;
 #else
     SwapParam high_swap_param = {

@@ -27,12 +27,14 @@ qBDD my_mtbdd_t_xt_i(qBDD t, size_t xt) {
 qBDD my_mtbdd_b_xt_mul_i(qBDD t, size_t xt) {
     qBDD b_xt = qBDD_protect(newqBDD(xt, qBDD_false(), qBDD_true()));
     qBDD res = binary_apply_guarded(t, b_xt, mtbdd_b_xt_mul_i);
+    qBDD_unprotect(b_xt);
     return res;
 }
 
 qBDD my_mtbdd_b_xt_comp_mul_i(qBDD t, size_t xt) {
     qBDD b_xt_comp = qBDD_protect(newqBDD(xt, qBDD_true(), qBDD_false()));
     qBDD res = binary_apply_guarded(t, b_xt_comp, mtbdd_b_xt_mul_i);
+    qBDD_unprotect(b_xt_comp);
     return res;
 }
 

@@ -141,8 +141,11 @@ qBDD interface_gate_rz(size_t xt, qBDD low, qBDD high, size_t param) {
 
 void gate_x(qBDD *p_t, uint32_t xt)
 {
-    // Check if xt is a missing root not needed -> swap is identical with the original MTBDD
-    if (xt >= qBDD_level(*p_t)) {
+    /* Skip only if xt is above the root (not in the diagram). Then both
+     * 0/1 children would be the current MTBDD, so X is identity.
+     * `xt >= LEVEL(root)` was inverted and skipped X on every present qubit
+     * (root is usually var 0) — that broke unrolled Grover vs symbolic X. */
+    if (!qBDD_isTerminal(*p_t) && xt < qBDD_level(*p_t)) {
         return;
     }
     qBDD res;
@@ -371,6 +374,7 @@ void gate_cnot(qBDD *p_t, uint32_t xt, uint32_t xc)
     qBDD_protect(inter_res2);
     qBDD res2 = qBDD_protect(binary_apply(res, inter_res2, addLeaf)); // (Bxc_c * T) + (Bxc * (Bxt_c * Txt + Bxt * Txt_c))
     qBDD_unprotect(inter_res2);
+    qBDD_unprotect(res);
     qBDD_unprotect(*p_t);
     *p_t = res2;
 
@@ -475,6 +479,7 @@ void gate_toffoli(qBDD *p_t, uint32_t xt, uint32_t xc1, uint32_t xc2) {
     qBDD_protect(res2);
     qBDD_unprotect(res);
     qBDD_unprotect(inter_res3);
+    qBDD_unprotect(*p_t);
     *p_t = res2;
     
 #else
@@ -553,11 +558,10 @@ void gate_toffoli(qBDD *p_t, uint32_t xt, uint32_t xc1, uint32_t xc2) {
         res = ccx(t);
     }
 
-
-#endif
     qBDD_unprotect(*p_t);
     qBDD_protect(res);
     *p_t = res;
+#endif
 
     if (g_norm_track_enabled) {
         char label[32];
