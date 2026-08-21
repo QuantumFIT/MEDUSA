@@ -8,6 +8,7 @@
 #include "../../symexp_list.h"
 #include "../../mtbdd_out.h"
 #include "../../symb_utils.h"
+#include "../../medusa_mem_track.h"
 
 mpz_t globalSquareRootCoeff;
 mpz_t globalSquareRootCoeffSymb;
@@ -61,6 +62,7 @@ static inline void allocPimpl(LEAF_TYPE* result) {
     mpz_init(result->pImpl->b);
     mpz_init(result->pImpl->c);
     mpz_init(result->pImpl->d);
+    medusa_mem_note_pimpl_alloc();
 }
 LEAF_TYPE clonePimpl(LEAF_TYPE a) {
     if (!a.pImpl)
@@ -75,8 +77,11 @@ LEAF_TYPE clonePimpl(LEAF_TYPE a) {
     return r;
 }
 
+/**
+ * Free internal leaf payload. MoToBuddy always free()s the outer LEAF_TYPE*
+ * after calling the registered freefun — do NOT free(leafraw) here.
+ */
 void freePimpl(void* leafraw) {
-    return; /* TODO */
     if (!leafraw) return;
 
     LEAF_TYPE *leaf = (LEAF_TYPE*) leafraw;
@@ -88,6 +93,7 @@ void freePimpl(void* leafraw) {
     mpz_clear(leaf->pImpl->d);
     free(leaf->pImpl);
     leaf->pImpl = NULL;
+    medusa_mem_note_pimpl_free();
 }
 
 
@@ -250,6 +256,7 @@ LEAF_TYPE addLeaf(LEAF_TYPE a, LEAF_TYPE b) {
         !mpz_sgn(result.pImpl->c) && !mpz_sgn(result.pImpl->d)) {
         mpz_clears(result.pImpl->a, result.pImpl->b, result.pImpl->c, result.pImpl->d, NULL);
         free(result.pImpl);
+        medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
     return result;
@@ -274,6 +281,7 @@ LEAF_TYPE subLeaf(LEAF_TYPE a, LEAF_TYPE b) {
         !mpz_sgn(result.pImpl->c) && !mpz_sgn(result.pImpl->d)) {
         mpz_clears(result.pImpl->a, result.pImpl->b, result.pImpl->c, result.pImpl->d, NULL);
         free(result.pImpl);
+        medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
     return result;
@@ -315,8 +323,8 @@ LEAF_TYPE divLeafS(LEAF_TYPE a, LEAF_TYPE b) {
 }
 
 LEAF_TYPE sqrtLeaf(LEAF_TYPE a) {
-    // TODO
-    return a;
+    /* Unsupported; still return an owned clone so apply free paths are safe. */
+    return clonePimpl(a);
 }
 
 LEAF_TYPE rotateCoef1(LEAF_TYPE l) {

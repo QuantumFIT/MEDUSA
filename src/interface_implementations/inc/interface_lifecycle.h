@@ -7,6 +7,7 @@ extern "C" {
 
 #include <stdio.h>
 #include <stdint.h>
+#include <stddef.h>
 
 #include "interface_bdd_core.h"
 
@@ -46,6 +47,12 @@ void freePackage();
  * @param leafraw Pointer to the raw leaf data to free
  */
 void freePimpl(void* leafraw);
+
+/**
+ * @brief Reset / query pImpl allocation counters (for leak tests).
+ */
+void medusa_mem_reset(void);
+void medusa_mem_get(size_t *pimpl_allocs, size_t *pimpl_frees, size_t *wrap_allocs);
 
 
 /* *************************************************************************

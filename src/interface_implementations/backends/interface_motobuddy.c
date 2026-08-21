@@ -4,6 +4,7 @@
  */
 
 #include "interface_motobuddy.h"
+#include "medusa_mem_track.h"
 #include <string.h>
 
 /*
@@ -180,6 +181,7 @@ void *convertedApplyOperation(void *a, void *b) {
         fprintf(stderr, "ERROR: malloc failed in convertedApplyOperation\n");
         return NULL;
     }
+    medusa_mem_note_wrap_alloc();
 
     result_ptr->pImpl = result.pImpl;
     return result_ptr;
@@ -216,6 +218,7 @@ void *convertedApplyOperationParam(void *a, void *b, size_t param) {
         fprintf(stderr, "ERROR: malloc failed in convertedApplyOperationParam\n");
         return NULL;
     }
+    medusa_mem_note_wrap_alloc();
 
     result_ptr->pImpl = result.pImpl;
     return result_ptr;
@@ -236,6 +239,7 @@ void *convertedApplyOperationUnary(void *a){
         return NULL;
         // some err
     }
+    medusa_mem_note_wrap_alloc();
 
     // Assign the new_impl to result_ptr
     result_ptr->pImpl = result.pImpl;
@@ -258,6 +262,7 @@ void *convertedApplyOperationUnaryParam(void *a, size_t arg) {
         return NULL;
         // some err
     }
+    medusa_mem_note_wrap_alloc();
 
     // Assign the new_impl to result_ptr
     result_ptr->pImpl = result.pImpl;
@@ -470,7 +475,10 @@ void initPackage(unsigned cacheSize, unsigned nodeSize, unsigned varNum) {
     bdd_setvarnum(1);
     lt_classic = mtbdd_new_terminal_type();
     mtbdd_register_compare_function(lt_classic, terminal_compare);
-    //mtbdd_register_free_function(lt_classic, freePimpl); TODO
+    /* freefun must only release LEAF_TYPE.pImpl (see freePimpl). Do not free the
+     * outer LEAF_TYPE* — MoToBuddy free()s that after freefun.
+     * Revert: patches/revert-classic-freepimpl.patch */
+    mtbdd_register_free_function(lt_classic, freePimpl);
     mtbdd_register_hash_function(lt_classic, terminal_hash);
     mtbdd_register_to_str_function(lt_classic, terminal_to_str_generic);
     init_terminal_symb_map_i();

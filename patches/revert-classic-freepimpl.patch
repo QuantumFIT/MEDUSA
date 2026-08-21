@@ -1,0 +1,18 @@
+--- a/src/interface_implementations/backends/interface_motobuddy.c
++++ b/src/interface_implementations/backends/interface_motobuddy.c
+@@ -470,10 +470,11 @@ void initPackage(unsigned cacheSize, unsigned nodeSize, unsigned varNum) {
+     bdd_setvarnum(1);
+     lt_classic = mtbdd_new_terminal_type();
+     mtbdd_register_compare_function(lt_classic, terminal_compare);
+-    /* freefun must only release LEAF_TYPE.pImpl (see freePimpl). Do not free the
+-     * outer LEAF_TYPE* — MoToBuddy free()s that after freefun.
+-     * Revert: patches/revert-classic-freepimpl.patch */
+-    mtbdd_register_free_function(lt_classic, freePimpl);
++    /* freefun must only release LEAF_TYPE.pImpl (see freePimpl). Do not free the
++     * outer LEAF_TYPE* — MoToBuddy free()s that after freefun. Enabling this
++     * also requires every leaf op to clonePimpl (never alias live terminals);
++     * symbolic leaf ops still alias, so keep unregistered for now. */
++    //mtbdd_register_free_function(lt_classic, freePimpl);
+     mtbdd_register_hash_function(lt_classic, terminal_hash);
+     mtbdd_register_to_str_function(lt_classic, terminal_to_str_generic);
+     init_terminal_symb_map_i();

@@ -8,6 +8,7 @@
 #include "../../symexp_list.h"
 #include "../../mtbdd_out.h"
 #include "../../symb_utils.h"
+#include "../../medusa_mem_track.h"
 
 mpz_t globalSquareRootCoeff;
 mpz_t globalSquareRootCoeffSymb;
@@ -51,6 +52,7 @@ static inline void allocPimpl(LEAF_TYPE* result) {
     if (!result->pImpl) exit(1);
     init_generic(result->pImpl->re);
     init_generic(result->pImpl->im);
+    medusa_mem_note_pimpl_alloc();
 }
 
 static inline void snap_pimpl(LEAF_TYPE_IMPL *p) {
@@ -82,6 +84,11 @@ LEAF_TYPE multiplyByInvSqrt2(LEAF_TYPE a) {
     return result;
 }
 
+/**
+ * Free internal leaf payload. MoToBuddy always free()s the outer LEAF_TYPE*
+ * after calling the registered freefun — do NOT free(leafraw) here or it
+ * double-frees the wrapper.
+ */
 void freePimpl(void* leafraw) {
     if (!leafraw) return;
     LEAF_TYPE *leaf = (LEAF_TYPE*) leafraw;
@@ -90,8 +97,8 @@ void freePimpl(void* leafraw) {
         clear_generic(leaf->pImpl->im);
         free(leaf->pImpl);
         leaf->pImpl = NULL;
+        medusa_mem_note_pimpl_free();
     }
-    free(leaf);
 }
 
 
@@ -220,8 +227,10 @@ LEAF_TYPE invertLeafS(LEAF_TYPE a) {
 }
 
 LEAF_TYPE addLeaf(LEAF_TYPE a, LEAF_TYPE b) {
-    if (a.pImpl == NULL) return (b);
-    if (b.pImpl == NULL) return (a);
+    /* Must clone: MoToBuddy frees unused apply results; aliasing a live
+     * terminal's pImpl would free data still referenced by the diagram. */
+    if (a.pImpl == NULL) return clonePimpl(b);
+    if (b.pImpl == NULL) return clonePimpl(a);
 
     LEAF_TYPE result;
     allocPimpl(&result);
@@ -231,7 +240,9 @@ LEAF_TYPE addLeaf(LEAF_TYPE a, LEAF_TYPE b) {
     SNAP_CHECK(result.pImpl->im, "addLeaf im");
     snap_pimpl(result.pImpl);
     if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
-        free(result.pImpl);
+        clear_generic(result.pImpl->re);
+        clear_generic(result.pImpl->im);
+        free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
     
@@ -249,12 +260,14 @@ LEAF_TYPE addLeafS(LEAF_TYPE a, LEAF_TYPE b) {
     add_generic(result.pImpl->im, a.pImpl->im, b.pImpl->im);
     SNAP_CHECK(result.pImpl->im, "addLeafS im");
     if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
-        free(result.pImpl);
+        clear_generic(result.pImpl->re);
+        clear_generic(result.pImpl->im);
+        free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
 
     mul_sqrt2inv_generic(result.pImpl->re, result.pImpl->re);
-    SNAP_CHECK(result.pImpl->re, "addLeafS re after mul_sqrt2inv");
+        SNAP_CHECK(result.pImpl->re, "addLeafS re after mul_sqrt2inv");
     mul_sqrt2inv_generic(result.pImpl->im, result.pImpl->im);
     SNAP_CHECK(result.pImpl->im, "addLeafS im after mul_sqrt2inv");
     snap_pimpl(result.pImpl);
@@ -265,7 +278,7 @@ LEAF_TYPE addLeafS(LEAF_TYPE a, LEAF_TYPE b) {
 
 LEAF_TYPE subLeaf(LEAF_TYPE a, LEAF_TYPE b) {
     if (a.pImpl == NULL) return invertLeaf(b);
-    if (b.pImpl == NULL) return (a);
+    if (b.pImpl == NULL) return clonePimpl(a);
     LEAF_TYPE result;
     allocPimpl(&result);
     sub_generic(result.pImpl->re, a.pImpl->re, b.pImpl->re);
@@ -274,7 +287,9 @@ LEAF_TYPE subLeaf(LEAF_TYPE a, LEAF_TYPE b) {
     SNAP_CHECK(result.pImpl->im, "subLeaf im");
     snap_pimpl(result.pImpl);
     if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
-        free(result.pImpl);
+        clear_generic(result.pImpl->re);
+        clear_generic(result.pImpl->im);
+        free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
     return result;
@@ -292,7 +307,9 @@ LEAF_TYPE subLeafS(LEAF_TYPE a, LEAF_TYPE b) {
     SNAP_CHECK(result.pImpl->im, "subLeafS im");
 
     if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
-        free(result.pImpl);
+        clear_generic(result.pImpl->re);
+        clear_generic(result.pImpl->im);
+        free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
 
@@ -463,8 +480,8 @@ LEAF_TYPE divLeafS(LEAF_TYPE a, LEAF_TYPE b) {
 
 
 LEAF_TYPE sqrtLeaf(LEAF_TYPE a) {
-    // TODO
-    return a;
+    /* Unsupported; still return an owned clone so apply free paths are safe. */
+    return clonePimpl(a);
 }
 
 
@@ -638,7 +655,7 @@ LEAF_TYPE ry_low_leaf(LEAF_TYPE low, LEAF_TYPE high, size_t param) {
     sub_generic(result.pImpl->im, tmp1, tmp2);
     snap_pimpl(result.pImpl);
     if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
-        free(result.pImpl);
+        free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
     return result;
@@ -665,7 +682,7 @@ LEAF_TYPE ry_high_leaf(LEAF_TYPE low, LEAF_TYPE high, size_t param) {
     add_generic(result.pImpl->im, tmp1, tmp2);
     snap_pimpl(result.pImpl);
     if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
-        free(result.pImpl);
+        free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
     return result;
@@ -692,7 +709,7 @@ LEAF_TYPE rx_low_leaf(LEAF_TYPE low, LEAF_TYPE high, size_t param) {
     sub_generic(result.pImpl->im, tmp1, tmp2);
     snap_pimpl(result.pImpl);
     if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
-        free(result.pImpl);
+        free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
     return result;
@@ -719,7 +736,7 @@ LEAF_TYPE rx_high_leaf(LEAF_TYPE low, LEAF_TYPE high, size_t param) {
     sub_generic(result.pImpl->im, tmp1, tmp2);
     snap_pimpl(result.pImpl);
     if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
-        free(result.pImpl);
+        free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
     return result;
@@ -745,7 +762,7 @@ LEAF_TYPE rz_low_leaf(LEAF_TYPE l, size_t param) {
 
     snap_pimpl(result.pImpl);
     if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
-        free(result.pImpl);
+        free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
     return result;
@@ -770,7 +787,7 @@ LEAF_TYPE rz_high_leaf(LEAF_TYPE l, size_t param) {
     add_generic(result.pImpl->im, tmp1, tmp2);
     snap_pimpl(result.pImpl);
     if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
-        free(result.pImpl);
+        free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
     return result;
