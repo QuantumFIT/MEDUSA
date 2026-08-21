@@ -196,7 +196,151 @@ BSCRIPT_PATH       := benchmark-utils/scripts
         buddy_gmp buddy_mpfr                                               \
         buddy_doubles                                                      \
         buddy_doubles_f32 buddy_doubles_f64 buddy_doubles_f80              \
-        buddy_doubles_f128 buddy_doubles_all
+        buddy_doubles_f128 buddy_doubles_all                               \
+        test test-unit test-circuits test-benchmarks                       \
+        test-stress test-stress-f64 test-stress-gmp test-leaks             \
+        test-grover test-grover-all test-grover-f32 test-grover-f64        \
+        test-grover-f80 test-grover-f128 test-grover-gmp
+
+# ==============================================================================
+# Tests (MoToBuddy)
+# ==============================================================================
+
+TEST_DIR          := tests
+TEST_HARNESS_H    := $(TEST_DIR)/test_harness.h
+TEST_UNIT_BIN     := $(BIN_DIR)/test_unit_api
+TEST_UNIT_SRC     := $(TEST_DIR)/test_unit_api.c
+# Link all buddy_doubles objects except main.o
+TEST_UNIT_OBJS    := $(filter-out $(DOUBLES_OBJ_DIR)/main.o, $(OBJS_BUDDY_DOUBLES)) \
+                     $(INTERFACE_OBJ_buddy_doubles) $(LEAF_OBJ_double) $(LEAF_OBJ_reim)
+
+TEST_SEM_BIN      := $(BIN_DIR)/test_benchmark_semantics
+TEST_SEM_SRC      := $(TEST_DIR)/test_benchmark_semantics.c
+
+STRESS_LEVEL ?= 2
+TEST_STRESS_SRC      := $(TEST_DIR)/test_stress.c
+TEST_STRESS_F64_BIN  := $(BIN_DIR)/test_stress_f64
+TEST_STRESS_GMP_BIN  := $(BIN_DIR)/test_stress_gmp
+
+TEST_STRESS_F64_OBJS := $(filter-out $(DOUBLES_OBJ_DIR)/main.o, $(OBJS_BUDDY_DOUBLES)) \
+                        $(INTERFACE_OBJ_buddy_doubles) $(LEAF_OBJ_double) $(LEAF_OBJ_reim)
+TEST_STRESS_GMP_OBJS := $(filter-out $(OBJ_DIR)/buddy_gmp/main.o, $(OBJS_BUDDY_GMP)) \
+                        $(INTERFACE_OBJ_motobuddy) $(LEAF_OBJ_mpz) $(LEAF_OBJ_algebraic)
+
+test: test-unit test-circuits test-benchmarks
+
+test-unit: buddy_doubles_f64 $(TEST_UNIT_BIN)
+	$(TEST_UNIT_BIN)
+
+$(TEST_UNIT_BIN): $(TEST_UNIT_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
+                  $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
+	$(CC) $(INC_DIRS_BUDDY_DOUBLES) -I $(TEST_DIR) $(CFLAGS) \
+	    -DLEAF_BACKEND_DOUBLES -DLEAF_FLOAT_TYPE=1 \
+	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
+	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
+	    -o $@ $(TEST_UNIT_SRC) $(TEST_UNIT_OBJS) \
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+
+$(TEST_SEM_BIN): $(TEST_SEM_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
+                 $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
+	$(CC) $(INC_DIRS_BUDDY_DOUBLES) -I $(TEST_DIR) $(CFLAGS) \
+	    -DLEAF_BACKEND_DOUBLES -DLEAF_FLOAT_TYPE=1 \
+	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
+	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
+	    -o $@ $(TEST_SEM_SRC) $(TEST_UNIT_OBJS) \
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+
+test-circuits: buddy_doubles_f64
+	bash $(TEST_DIR)/test_circuits.sh
+
+test-benchmarks: buddy_doubles_f64 $(TEST_SEM_BIN)
+	@chmod +x $(TEST_DIR)/test_benchmarks.sh
+	bash $(TEST_DIR)/test_benchmarks.sh
+	$(TEST_SEM_BIN)
+
+TEST_GROVER_SRC := $(TEST_DIR)/test_grover_matrix.c
+TEST_GROVER_BIN := $(BIN_DIR)/test_grover_$(FLOAT_SUFFIX)
+TEST_GROVER_GMP_BIN := $(BIN_DIR)/test_grover_gmp
+
+$(TEST_GROVER_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_F64_OBJS) \
+                    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
+	$(CC) $(INC_DIRS_BUDDY_DOUBLES) -I $(TEST_DIR) $(CFLAGS) \
+	    -DLEAF_BACKEND_DOUBLES -DLEAF_FLOAT_TYPE=$(LEAF_FLOAT_TYPE) \
+	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
+	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
+	    -o $@ $(TEST_GROVER_SRC) $(TEST_STRESS_F64_OBJS) \
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+
+$(TEST_GROVER_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_OBJS) \
+                        $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
+	$(CC) $(INC_DIRS_BUDDY_GMP) -I $(TEST_DIR) $(CFLAGS) \
+	    -DLEAF_BACKEND_GMP \
+	    -include $(LEAF_PRIM_DIR)/leaf_primitive_mpz.h \
+	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
+	    -o $@ $(TEST_GROVER_SRC) $(TEST_STRESS_GMP_OBJS) \
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+
+test-grover: test-grover-all
+
+test-grover-all: test-grover-f32 test-grover-f64 test-grover-f80 \
+                 test-grover-f128 test-grover-gmp
+
+test-grover-f32:
+	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=0
+	$(MAKE) $(BIN_DIR)/test_grover_f32 LEAF_FLOAT_TYPE=0
+	$(BIN_DIR)/test_grover_f32
+
+test-grover-f64:
+	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=1
+	$(MAKE) $(BIN_DIR)/test_grover_f64 LEAF_FLOAT_TYPE=1
+	$(BIN_DIR)/test_grover_f64
+
+test-grover-f80:
+	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=2
+	$(MAKE) $(BIN_DIR)/test_grover_f80 LEAF_FLOAT_TYPE=2
+	$(BIN_DIR)/test_grover_f80
+
+test-grover-f128:
+	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
+	$(MAKE) $(BIN_DIR)/test_grover_f128 LEAF_FLOAT_TYPE=3
+	$(BIN_DIR)/test_grover_f128
+
+test-grover-gmp: buddy_gmp $(TEST_GROVER_GMP_BIN)
+	$(TEST_GROVER_GMP_BIN)
+
+test-stress: test-stress-f64 test-stress-gmp
+
+test-stress-f64: buddy_doubles_f64
+	@rm -f $(TEST_STRESS_F64_BIN)
+	$(MAKE) $(TEST_STRESS_F64_BIN) STRESS_LEVEL=$(STRESS_LEVEL)
+	$(TEST_STRESS_F64_BIN)
+
+test-stress-gmp: buddy_gmp
+	@rm -f $(TEST_STRESS_GMP_BIN)
+	$(MAKE) $(TEST_STRESS_GMP_BIN) STRESS_LEVEL=$(STRESS_LEVEL)
+	$(TEST_STRESS_GMP_BIN)
+
+test-leaks: buddy_doubles_f64 $(TEST_UNIT_BIN)
+	@chmod +x $(TEST_DIR)/test_leaks.sh
+	bash $(TEST_DIR)/test_leaks.sh
+
+$(TEST_STRESS_F64_BIN): $(TEST_STRESS_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_F64_OBJS) \
+                        $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
+	$(CC) $(INC_DIRS_BUDDY_DOUBLES) -I $(TEST_DIR) $(CFLAGS) \
+	    -DLEAF_BACKEND_DOUBLES -DLEAF_FLOAT_TYPE=1 -DSTRESS_LEVEL=$(STRESS_LEVEL) \
+	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
+	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
+	    -o $@ $(TEST_STRESS_SRC) $(TEST_STRESS_F64_OBJS) \
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+
+$(TEST_STRESS_GMP_BIN): $(TEST_STRESS_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_OBJS) \
+                        $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
+	$(CC) $(INC_DIRS_BUDDY_GMP) -I $(TEST_DIR) $(CFLAGS) \
+	    -DLEAF_BACKEND_GMP -DSTRESS_LEVEL=$(STRESS_LEVEL) \
+	    -include $(LEAF_PRIM_DIR)/leaf_primitive_mpz.h \
+	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
+	    -o $@ $(TEST_STRESS_SRC) $(TEST_STRESS_GMP_OBJS) \
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
 
 # ==============================================================================
 # Default target (sylvan_gmp backend)
@@ -444,6 +588,12 @@ init-motobuddy: make-motobuddy
 
 make-motobuddy: download-motobuddy
 	cd MoToBuddy && \
+	if [ -f ../patches/motobuddy-maketerminal-free-unused.patch ]; then \
+	  git apply --reject --whitespace=nowarn ../patches/motobuddy-maketerminal-free-unused.patch || true; \
+	fi && \
+	if [ -f ../patches/motobuddy-bdd-done-terminal-teardown.patch ]; then \
+	  git apply --reject --whitespace=nowarn ../patches/motobuddy-bdd-done-terminal-teardown.patch || true; \
+	fi && \
 	mkdir -p build && \
 	cd build && \
 	cmake .. -DCMAKE_CXX_STANDARD=17 \
@@ -473,7 +623,9 @@ clean-artifacts:
 	       $(LONG_NUMS_OUT_FILE) $(OBJ_DIR) \
 	       MEDUSA_buddy_doubles_f32 MEDUSA_buddy_doubles_f64 \
 	       MEDUSA_buddy_doubles_f80 MEDUSA_buddy_doubles_f128 \
-	       MEDUSA_buddy_mpfr_256 MEDUSA_buddy_mpfr_512
+	       MEDUSA_buddy_mpfr_256 MEDUSA_buddy_mpfr_512 \
+	       MEDUSA_buddy_gmp \
+	       $(TEST_UNIT_BIN) $(TEST_STRESS_F64_BIN) $(TEST_STRESS_GMP_BIN)
 
 clean-deps:
 	rm -rf $(LIB_DIR)
