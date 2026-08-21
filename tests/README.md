@@ -1,7 +1,7 @@
 # Tests
 
 ```
-make init-motobuddy   # once (applies patches/motobuddy-*.patch)
+make init-motobuddy   # once (clones/builds VeriFIT/MoToBuddy)
 make test             # unit API + small circuit smokes (doubles f64)
 make test-stress      # extreme GC/terminal stress for doubles f64 AND gmp
 make test-leaks       # valgrind definite-leak check (unit + stress LEVEL=1)
@@ -34,7 +34,7 @@ Classic terminals register `freePimpl` in `initPackage` (`interface_motobuddy.c`
 MoToBuddy invokes it on:
 
 1. equal-result apply (unused op result)
-2. maketerminal CUSTOM dedup (patch `motobuddy-maketerminal-free-unused.patch`)
+2. maketerminal CUSTOM dedup (upstream MoToBuddy)
 3. `mtbdd_delete_terminal` during GC / `bdd_done`
 
 `freePimpl` frees only `LEAF_TYPE.pImpl`; MoToBuddy `free()`s the outer wrapper.
@@ -44,9 +44,8 @@ Remaining known non-classic issues (not covered by these tests):
 - Symbolic terminal types still use `freefun = NULL`
 - Symbolic leaf ops that alias operand pointers
 
-Classic `bdd_done` used to leak the terminal index freelist (`mtbdd_IndexStackFree`)
-and the CUSTOM `customPointers` table; fixed by
-`patches/motobuddy-bdd-done-terminal-teardown.patch` (union-aware free).
+Terminal-table teardown (`bdd_done` union-aware free + `mtbdd_IndexStackFree`) and
+CUSTOM dedup free are in upstream MoToBuddy (`main`).
 
 If classic freefun causes crashes:
 

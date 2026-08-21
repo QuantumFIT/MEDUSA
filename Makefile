@@ -588,12 +588,6 @@ init-motobuddy: make-motobuddy
 
 make-motobuddy: download-motobuddy
 	cd MoToBuddy && \
-	if [ -f ../patches/motobuddy-maketerminal-free-unused.patch ]; then \
-	  git apply --reject --whitespace=nowarn ../patches/motobuddy-maketerminal-free-unused.patch || true; \
-	fi && \
-	if [ -f ../patches/motobuddy-bdd-done-terminal-teardown.patch ]; then \
-	  git apply --reject --whitespace=nowarn ../patches/motobuddy-bdd-done-terminal-teardown.patch || true; \
-	fi && \
 	mkdir -p build && \
 	cd build && \
 	cmake .. -DCMAKE_CXX_STANDARD=17 \
