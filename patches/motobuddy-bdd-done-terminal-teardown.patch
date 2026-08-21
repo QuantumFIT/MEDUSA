@@ -1,0 +1,34 @@
+diff --git a/src/kernel.c b/src/kernel.c
+index 0621245..f490c57 100644
+--- a/src/kernel.c
++++ b/src/kernel.c
+@@ -275,12 +275,28 @@ void bdd_done(void)
+    free(bddvarset);
+    free(bddvar2level);
+    free(bddlevel2var);
+-   free(mtbddterminalVals.doubleValues);
++   /* mtbddterminalVals.*Values share one union — free the active domain once. */
++   switch (domaintype) {
++      case LONGVAL:
++         free(mtbddterminalVals.longValues);
++         break;
++      case DOUBLEVAL:
++         free(mtbddterminalVals.doubleValues);
++         break;
++      case CUSTOM:
++         free(mtbddterminalVals.customPointers);
++         break;
++      default:
++         free(mtbddterminalVals.doubleValues);
++         break;
++   }
++   mtbdd_IndexStackFree(&mtbddterminalVals);
+    
+    bddnodes = NULL;
+    bddrefstack = NULL;
+    bddvarset = NULL;
+    mtbddterminalVals.doubleValues = NULL;
++   mtbddterminalVals.top = NULL;
+ 
+    if (mtbdd) {
+       mtbdd_operator_done();

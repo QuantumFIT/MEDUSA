@@ -1,0 +1,19 @@
+diff --git a/src/mtbdd.c b/src/mtbdd.c
+index 353032f..6ce9bca 100644
+--- a/src/mtbdd.c
++++ b/src/mtbdd.c
+@@ -79,7 +79,13 @@ int mtbdd_maketerminal(void *value, mtbdd_terminal_type type) {
+          if(hashfun){custom = hashfun(value);}
+          unsigned hash = NODEHASH(MAXLEVEL, custom, 42); // 42 is a placeholder
+          foundTerminal = mtbdd_findterminal(value, hash, type);
+-         if(foundTerminal != -1){return foundTerminal;}
++         if(foundTerminal != -1){
++            /* Duplicate: free the unused new value only (never the live stored one). */
++            mtbdd_terminal_free_function_t freefun = CUSTOMFREE(type);
++            if (freefun) freefun(value);
++            free(value);
++            return foundTerminal;
++         }
+          
+          mtbdd_insertvalue(value);
+ 
