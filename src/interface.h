@@ -3,10 +3,10 @@
  * @brief Umbrella for the Medusa qBDD API.
  *
  * qBDD and leaf_primitive_t must already be defined. The Makefile does that
- * with -include of a leaf primitive header, then interface_motobuddy.h
- * (which also pulls these split headers). Translation units still
- * '#include "interface.h"' so the API is visible without relying on
- * compiler flags alone.
+ * with -include of a leaf primitive header, then the backend header
+ * (interface_motobuddy.h by default / preferred, or interface_sylvan.h).
+ * Translation units still '#include "interface.h"' so the API is visible
+ * without relying on compiler flags alone.
  */
 
 #ifndef INTERFACE_H

@@ -8,10 +8,24 @@ cd "${ROOT}"
 source "${ROOT}/tests/test_summary.sh"
 summary_init
 
-BIN="${ROOT}/MEDUSA_buddy_doubles_f128"
-WORKDIR="${TMPDIR:-/tmp}/medusa_bench_$$"
+# Default: preferred MoToBuddy f128 binary. Override with MEDUSA_BIN for Sylvan.
+BIN="${MEDUSA_BIN:-${ROOT}/MEDUSA_buddy_doubles_f128}"
+if [[ "${BIN}" != /* ]]; then
+    BIN="${ROOT}/${BIN#./}"
+fi
+WORKDIR="${ROOT}/.test-work/bench_$$"
 mkdir -p "${WORKDIR}"
 trap 'rm -rf "${WORKDIR}"' EXIT
+# Optional per-circuit timeout (set by make test-sylvan). Unset = no timeout.
+TIMEOUT_SEC="${MEDUSA_TEST_TIMEOUT:-}"
+
+run_timeout() {
+    if [[ -n "${TIMEOUT_SEC}" ]] && command -v timeout >/dev/null 2>&1; then
+        timeout --signal=TERM "${TIMEOUT_SEC}" "$@"
+    else
+        "$@"
+    fi
+}
 
 # Max allowed |total_prob - 1| over the whole circuit (f128 accumulation).
 MAX_NORM_DEV="${MAX_NORM_DEV:-1e-6}"
@@ -49,7 +63,7 @@ run_one() {
 
     if ! (
         cd "${WORKDIR}"
-        "${BIN}" --file "${file}" --norm-error --norm-csv "${csv}" ${extra} \
+        run_timeout "${BIN}" --file "${file}" --norm-error --norm-csv "${csv}" ${extra} \
             >"${log}" 2>&1
         cp -f res.dot "${dot}" 2>/dev/null || true
     ); then
@@ -89,10 +103,11 @@ run_one() {
 
 if [[ ! -x "${BIN}" ]]; then
     echo "Binary ${BIN} not found — build with: make buddy_doubles_f128"
+    echo "(or MEDUSA_BIN=./MEDUSA_sylvan_doubles_f128 after make sylvan_doubles)"
     exit 1
 fi
 
-echo "MEDUSA benchmark algorithm MTBDD validity tests"
+echo "MEDUSA benchmark algorithm MTBDD validity tests (${BIN})"
 echo "(norm limit |p-1| <= ${MAX_NORM_DEV})"
 
 run_one "BV-nm-01"    "${ROOT}/benchmarks/no-measure/BernsteinVazirani/01.qasm"

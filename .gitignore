@@ -1,7 +1,8 @@
 /.vscode
 
-# Libraries
+# Libraries (cloned by make init / init-sylvan)
 /lib
+/sylvan
 
 # Build files
 MEDUSA
@@ -15,6 +16,7 @@ MEDUSA_*
 
 # Scratch / local dumps
 tmp_*
+.test-work/
 
 /doc
 

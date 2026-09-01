@@ -1,8 +1,11 @@
 # Tests
 
 ```
-make init-motobuddy   # once (clones/builds VeriFIT/MoToBuddy)
-make test             # unit API + small circuit smokes + metamorphic (doubles f128)
+make init-motobuddy   # once (clones/builds VeriFIT/MoToBuddy) — preferred backend
+make init-sylvan      # optional (Sylvan v1.8.1 + Lace; C path only)
+make test             # MoToBuddy unit API + small circuit smokes + metamorphic (doubles f128)
+make test-sylvan      # same circuit/benchmark smokes on Sylvan + harder Grover/CCX + GMP
+make test-all         # test + test-sylvan
 make test-stress      # extreme GC/terminal stress for doubles f128 AND gmp
 make test-leaks       # valgrind definite+reachable (unit, stress LEVEL=1, symbolic Grover/05)
 make test-grover      # LP-Grover n=5,6,7 × {loop, loop-symbolic, NL} × {f32,f64,f80,f128,gmp}
@@ -14,6 +17,7 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
 - `make test-unit` — protect/unprotect, leaf ownership, apply free-of-unused, gates,
   plus counter checks that MoToBuddy actually calls `freePimpl`
 - `make test-circuits` — runs `MEDUSA_buddy_doubles_f128` on small QASM files
+  (`MEDUSA_BIN=...` overrides the binary; used by `test-sylvan`)
 - `make test-benchmarks` — structural checks (`test_benchmarks.sh`: digraph + unit
   norm) **plus** semantic checks (`test_benchmark_semantics`):
   - **BV**: final MTBDD is the secret basis state (`|11⟩`, `|101011⟩`, …)
@@ -40,6 +44,13 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
 - `make test-mutation` — targeted mutants of known past bugs; each must be **killed** by tests
 - `make test-grover` — Grover amplification matrix (classic unroll, `--symbolic`, `NL_*`)
   on f32/f64/f80/f128 and GMP; also `make test-grover-f128` / `test-grover-gmp`
+- `make test-sylvan` — optional Sylvan backend (not the default product):
+  replays `test_circuits` + `test_benchmarks` on `MEDUSA_sylvan_doubles_f128`,
+  then harder Grover (05–07, NL_06, `--symbolic` 05), MCToffoli 12/16,
+  MOGrover 04, Barenco tof 3/4, period-finding 07, Buddy vs Sylvan
+  `--probability` spot-checks, and Sylvan GMP Grover/05
+
+MoToBuddy is the preferred backend. `make test` never requires Sylvan.
 
 ### freePimpl / leaks
 

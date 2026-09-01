@@ -1,5 +1,6 @@
 # ==============================================================================
-# MEDUSA Makefile (MoToBuddy backends)
+# MEDUSA Makefile
+# Default product is MoToBuddy (preferred). Sylvan is an optional C backend.
 # ==============================================================================
 
 SRC_DIR     := src
@@ -174,6 +175,7 @@ BSCRIPT_PATH       := benchmark-utils/scripts
 .PHONY: all help clean clean-all clean-artifacts clean-deps clean-benchmark \
         plot benchmarks                                                     \
         init init-motobuddy make-motobuddy download-motobuddy               \
+        init-sylvan make-sylvan download-sylvan                             \
         make-sliqsim                                                        \
         sylvan_gmp sylvan_doubles buddy_mpfr                                \
         buddy_gmp                                                           \
@@ -181,6 +183,7 @@ BSCRIPT_PATH       := benchmark-utils/scripts
         buddy_doubles_f32 buddy_doubles_f64 buddy_doubles_f80              \
         buddy_doubles_f128 buddy_doubles_all                               \
         test test-unit test-circuits test-benchmarks test-metamorphic      \
+        test-sylvan test-all                                               \
         test-stress test-stress-f64 test-stress-f128 test-stress-gmp       \
         test-leaks                                                         \
         test-grover test-grover-all test-grover-f32 test-grover-f64        \
@@ -194,20 +197,112 @@ BSCRIPT_PATH       := benchmark-utils/scripts
 all: buddy_doubles_f128
 
 help:
-	@echo "MEDUSA (MoToBuddy backends)"
+	@echo "MEDUSA (default / preferred: MoToBuddy)"
 	@echo "  make                  -> buddy_doubles_f128  (./MEDUSA -> ./MEDUSA_buddy_doubles_f128)"
-	@echo "  make buddy_gmp        algebraic GMP leaves"
+	@echo "  make buddy_gmp        algebraic GMP leaves (MoToBuddy)"
 	@echo "  make buddy_doubles_f32|f64|f80|f128|all"
-	@echo "  make USE_CXX=1 ...    C++ tree gates + MOSF (experimental)"
+	@echo "  make USE_CXX=1 ...    C++ tree gates + MOSF (MoToBuddy only, experimental)"
 	@echo "  make init             clone and build lib/MoToBuddy"
-	@echo "  make test             unit + circuits + benchmarks + metamorphic"
-	@echo "Sylvan and buddy_mpfr targets are not available in this tree."
+	@echo "  make init-sylvan      clone and build lib/sylvan (optional; Lace via CMake)"
+	@echo "  make sylvan_gmp       algebraic GMP leaves on Sylvan (C path, no MOSF)"
+	@echo "  make sylvan_doubles   float leaves on Sylvan (LEAF_FLOAT_TYPE, default f128)"
+	@echo "  make test             MoToBuddy unit + circuits + benchmarks + metamorphic"
+	@echo "  make test-sylvan      Sylvan circuit/benchmark replay + harder Grover/CCX"
+	@echo "  make test-all         test + test-sylvan"
+	@echo "buddy_mpfr is not implemented."
 
-# Retired targets: sources are not in this repository.
-sylvan_gmp sylvan_doubles:
-	@echo >&2 "error: Sylvan backend sources are not in this tree."
-	@echo >&2 "       Use:  make buddy_gmp   or   make buddy_doubles_f128"
-	@false
+# ==============================================================================
+# Optional Sylvan backend (original MEDUSA MTBDD package).
+# C path only (USE_CXX=0); MoToBuddy remains the default product.
+# ==============================================================================
+
+SYLVAN_DIR   := $(LIB_DIR)/sylvan
+SYLVAN_BUILD := $(SYLVAN_DIR)/build
+LACE_DIR     := $(SYLVAN_BUILD)/_deps
+SYLVAN_COMPAT_DIR := $(BACKENDS_DIR)/sylvan_compat
+
+SYLVAN_LIB = $(firstword $(wildcard \
+	$(SYLVAN_BUILD)/src/lib/libsylvan.a \
+	$(SYLVAN_BUILD)/src/libsylvan.a \
+	$(SYLVAN_BUILD)/libsylvan.a))
+LACE_LIB = $(firstword $(wildcard \
+	$(LACE_DIR)/lace-build/lib/liblace.a \
+	$(LACE_DIR)/lace-build/liblace.a \
+	$(SYLVAN_BUILD)/lib/liblace.a))
+
+INC_DIRS_SYLVAN := -I $(SYLVAN_COMPAT_DIR)
+INC_DIRS_SYLVAN += -I $(SYLVAN_DIR)/src
+INC_DIRS_SYLVAN += -I $(SYLVAN_DIR)/deps/lace/src
+INC_DIRS_SYLVAN += -I $(LACE_DIR)/lace-src/src
+INC_DIRS_SYLVAN += -I $(LACE_DIR)/lace-build
+INC_DIRS_SYLVAN += -I $(LACE_DIR)/lace-build/src
+INC_DIRS_SYLVAN += -I $(SRC_DIR)
+INC_DIRS_SYLVAN += -I $(INC_DIR_INTERFACE)
+INC_DIRS_SYLVAN += -I $(BACKENDS_DIR) -I $(LEAF_PRIM_DIR) -I $(LEAF_ALG_DIR)
+
+SYLVAN_GMP_CFLAGS := -DSYLVAN_BACKEND -DLEAF_BACKEND_GMP \
+                     -include $(LEAF_PRIM_DIR)/leaf_primitive_mpz.h \
+                     -include $(BACKENDS_DIR)/interface_sylvan.h
+
+SYLVAN_DOUBLES_CFLAGS := -DSYLVAN_BACKEND -DLEAF_BACKEND_DOUBLES \
+                         -DLEAF_FLOAT_TYPE=$(LEAF_FLOAT_TYPE) \
+                         $(if $(LEAF_ABS_EPS),-DLEAF_ABS_EPS=$(LEAF_ABS_EPS)) \
+                         $(if $(LEAF_REL_EPS),-DLEAF_REL_EPS=$(LEAF_REL_EPS)) \
+                         -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
+                         -include $(BACKENDS_DIR)/interface_sylvan.h
+
+SYLVAN_GMP_OBJ_DIR     := $(OBJ_DIR)/sylvan_gmp
+SYLVAN_DOUBLES_OBJ_DIR := $(OBJ_DIR)/sylvan_doubles_$(FLOAT_SUFFIX)
+OBJS_SYLVAN_GMP        := $(patsubst $(SRC_DIR)/%.c, $(SYLVAN_GMP_OBJ_DIR)/%.o, $(SRCS))
+OBJS_SYLVAN_DOUBLES    := $(patsubst $(SRC_DIR)/%.c, $(SYLVAN_DOUBLES_OBJ_DIR)/%.o, $(SRCS))
+INTERFACE_OBJ_sylvan_gmp     := $(SYLVAN_GMP_OBJ_DIR)/interface_sylvan.o
+INTERFACE_OBJ_sylvan_doubles := $(SYLVAN_DOUBLES_OBJ_DIR)/interface_sylvan.o
+LEAF_OBJ_sylvan_mpz          := $(SYLVAN_GMP_OBJ_DIR)/leaf_primitive_mpz.o
+LEAF_OBJ_sylvan_algebraic    := $(SYLVAN_GMP_OBJ_DIR)/leaf_algebraic_mpz.o
+LEAF_OBJ_sylvan_double       := $(SYLVAN_DOUBLES_OBJ_DIR)/leaf_primitive_double.o
+LEAF_OBJ_sylvan_reim         := $(SYLVAN_DOUBLES_OBJ_DIR)/leaf_reim_double.o
+
+sylvan_gmp: $(OBJS_SYLVAN_GMP) $(INTERFACE_OBJ_sylvan_gmp) \
+            $(LEAF_OBJ_sylvan_mpz) $(LEAF_OBJ_sylvan_algebraic) | $(BIN_DIR)
+	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
+	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
+	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) -o $(BIN_DIR)/MEDUSA_sylvan_gmp \
+	    $(OBJS_SYLVAN_GMP) $(INTERFACE_OBJ_sylvan_gmp) \
+	    $(LEAF_OBJ_sylvan_mpz) $(LEAF_OBJ_sylvan_algebraic) \
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+
+sylvan_doubles: $(OBJS_SYLVAN_DOUBLES) $(INTERFACE_OBJ_sylvan_doubles) \
+                $(LEAF_OBJ_sylvan_double) $(LEAF_OBJ_sylvan_reim) | $(BIN_DIR)
+	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
+	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
+	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) -o $(BIN_DIR)/MEDUSA_sylvan_doubles_$(FLOAT_SUFFIX) \
+	    $(OBJS_SYLVAN_DOUBLES) $(INTERFACE_OBJ_sylvan_doubles) \
+	    $(LEAF_OBJ_sylvan_double) $(LEAF_OBJ_sylvan_reim) \
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+
+$(SYLVAN_GMP_OBJ_DIR)/interface_sylvan.o: $(BACKENDS_DIR)/interface_sylvan.c | $(SYLVAN_GMP_OBJ_DIR)
+	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) $(SYLVAN_GMP_CFLAGS) -MMD -MP -c $< -o $@
+
+$(SYLVAN_GMP_OBJ_DIR)/leaf_primitive_mpz.o: $(LEAF_PRIM_DIR)/leaf_primitive_mpz.c | $(SYLVAN_GMP_OBJ_DIR)
+	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) $(SYLVAN_GMP_CFLAGS) -MMD -MP -c $< -o $@
+
+$(SYLVAN_GMP_OBJ_DIR)/leaf_algebraic_mpz.o: $(LEAF_ALG_DIR)/leaf_algebraic_mpz.c | $(SYLVAN_GMP_OBJ_DIR)
+	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) $(SYLVAN_GMP_CFLAGS) -MMD -MP -c $< -o $@
+
+$(SYLVAN_GMP_OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(SYLVAN_GMP_OBJ_DIR)
+	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) $(SYLVAN_GMP_CFLAGS) -MMD -MP -c $< -o $@
+
+$(SYLVAN_DOUBLES_OBJ_DIR)/interface_sylvan.o: $(BACKENDS_DIR)/interface_sylvan.c | $(SYLVAN_DOUBLES_OBJ_DIR)
+	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) -MMD -MP -c $< -o $@
+
+$(SYLVAN_DOUBLES_OBJ_DIR)/leaf_primitive_double.o: $(LEAF_PRIM_DIR)/leaf_primitive_double.c | $(SYLVAN_DOUBLES_OBJ_DIR)
+	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) -MMD -MP -c $< -o $@
+
+$(SYLVAN_DOUBLES_OBJ_DIR)/leaf_reim_double.o: $(LEAF_ALG_DIR)/leaf_reim_double.c | $(SYLVAN_DOUBLES_OBJ_DIR)
+	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) -MMD -MP -c $< -o $@
+
+$(SYLVAN_DOUBLES_OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(SYLVAN_DOUBLES_OBJ_DIR)
+	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) -MMD -MP -c $< -o $@
 
 buddy_mpfr:
 	@echo >&2 "error: buddy_mpfr is not implemented (leaf_primitive_mpfr is missing)."
@@ -215,7 +310,8 @@ buddy_mpfr:
 	@false
 
 # ==============================================================================
-# Tests (MoToBuddy)
+# Tests — MoToBuddy is the preferred suite (`make test`).
+# `make test-sylvan` is optional and needs `make init-sylvan`.
 # ==============================================================================
 
 TEST_DIR          := tests
@@ -243,6 +339,22 @@ TEST_STRESS_GMP_OBJS := $(filter-out $(OBJ_DIR)/buddy_gmp/main.o, $(OBJS_BUDDY_G
                         $(INTERFACE_OBJ_motobuddy) $(LEAF_OBJ_mpz) $(LEAF_OBJ_algebraic)
 
 test: test-unit test-circuits test-benchmarks test-metamorphic
+
+test-all: test test-sylvan
+
+# Replay the circuit + benchmark smokes on Sylvan, then harder Grover/CCX extras.
+# Requires: make init-sylvan && make sylvan_doubles (and sylvan_gmp for GMP cases).
+test-sylvan:
+	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
+	$(MAKE) sylvan_doubles LEAF_FLOAT_TYPE=3
+	$(MAKE) sylvan_gmp
+	MEDUSA_BIN=$(CURDIR)/MEDUSA_sylvan_doubles_f128 \
+	    bash $(TEST_DIR)/test_circuits.sh
+	MEDUSA_BIN=$(CURDIR)/MEDUSA_sylvan_doubles_f128 \
+	    MEDUSA_TEST_TIMEOUT=$(or $(SYLVAN_TEST_TIMEOUT),90) \
+	    bash $(TEST_DIR)/test_benchmarks.sh
+	@chmod +x $(TEST_DIR)/test_sylvan.sh
+	bash $(TEST_DIR)/test_sylvan.sh
 
 test-unit:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
@@ -519,7 +631,8 @@ $(OBJ_DIR)/buddy_gmp/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)/buddy_gmp
 # Directory creation
 # ==============================================================================
 
-$(BIN_DIR) $(OBJ_DIR) $(OBJ_DIR)/buddy_gmp $(DOUBLES_OBJ_DIR):
+$(BIN_DIR) $(OBJ_DIR) $(OBJ_DIR)/buddy_gmp $(DOUBLES_OBJ_DIR) \
+$(SYLVAN_GMP_OBJ_DIR) $(SYLVAN_DOUBLES_OBJ_DIR):
 	mkdir -p $@
 
 # ==============================================================================
@@ -528,6 +641,8 @@ $(BIN_DIR) $(OBJ_DIR) $(OBJ_DIR)/buddy_gmp $(DOUBLES_OBJ_DIR):
 
 -include $(OBJS_BUDDY_GMP:.o=.d)
 -include $(OBJS_BUDDY_DOUBLES:.o=.d)
+-include $(OBJS_SYLVAN_GMP:.o=.d)
+-include $(OBJS_SYLVAN_DOUBLES:.o=.d)
 
 # ==============================================================================
 # Utility targets
@@ -547,6 +662,22 @@ init: init-motobuddy
 
 init-motobuddy: make-motobuddy
 	mkdir -p $(LIB_DIR) && rm -rf $(LIB_DIR)/MoToBuddy && mv MoToBuddy $(LIB_DIR)
+
+init-sylvan: make-sylvan
+	mkdir -p $(LIB_DIR) && rm -rf $(LIB_DIR)/sylvan && mv sylvan $(LIB_DIR)
+
+make-sylvan: download-sylvan
+	cd sylvan && \
+	mkdir -p deps && \
+	if [ ! -d deps/lace ]; then git clone --branch v1.4.1 --depth 1 https://github.com/trolando/lace.git deps/lace; fi && \
+	mkdir -p build && \
+	cd build && \
+	cmake .. -DCMAKE_BUILD_TYPE=$(if $(filter 1,$(PROFILE)),RelWithDebInfo,Release) \
+	         -DFETCHCONTENT_SOURCE_DIR_LACE="$(CURDIR)/sylvan/deps/lace" && \
+	$(MAKE) -j$(N_JOBS)
+
+download-sylvan:
+	@git clone --branch v1.8.1 --depth 1 https://github.com/trolando/sylvan.git || true
 
 make-motobuddy: download-motobuddy
 	cd MoToBuddy && \
@@ -581,7 +712,9 @@ clean-artifacts:
 	       MEDUSA_buddy_doubles_f80 MEDUSA_buddy_doubles_f128 \
 	       MEDUSA_buddy_gmp \
 	       MEDUSA_buddy_mpfr_256 MEDUSA_buddy_mpfr_512 \
-	       MEDUSA_sylvan_gmp MEDUSA_sylvan_doubles \
+	       MEDUSA_sylvan_gmp MEDUSA_sylvan_doubles MEDUSA_sylvan_doubles_f32 \
+	       MEDUSA_sylvan_doubles_f64 MEDUSA_sylvan_doubles_f80 \
+	       MEDUSA_sylvan_doubles_f128 \
 	       $(TEST_UNIT_BIN) $(TEST_STRESS_F64_BIN) $(TEST_STRESS_F128_BIN) \
 	       $(TEST_STRESS_GMP_BIN) \
 	       $(TEST_SEM_BIN) $(TEST_META_BIN) \

@@ -1,6 +1,6 @@
 /**
  * @file interface_motobuddy.h
- * Backend-specific setup for MoToBuddy.
+ * Backend-specific setup for MoToBuddy (preferred / default MEDUSA product).
  */
 
 #ifndef INTERFACE_MOTOBUDDY_H

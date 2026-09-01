@@ -2,11 +2,14 @@
 
 **MEDUSA** (**M**ulti-Terminal Binary Decision Diagram-based **Q**uantum **S**imulator) is an MTBDD-based quantum circuit simulator supporting `OpenQASM` circuits. It is written in C and supports multiple MTBDD backends.
 
+**MoToBuddy is the preferred backend** (`make` / `./MEDUSA`). Sylvan is an optional C-only package for comparison with original MEDUSA; it does not support MOSF / `USE_CXX=1`.
+
 ## Build
 
 **Dependencies:**
 * `gmp` library (`libgmp-dev`)
-* [MoToBuddy](https://github.com/VeriFIT/MoToBuddy)
+* [MoToBuddy](https://github.com/VeriFIT/MoToBuddy) (required)
+* [Sylvan](https://github.com/trolando/sylvan) v1.8.1 + Lace v1.4.1 (optional, `make init-sylvan`)
 
 Download and build MoToBuddy (requires `git`):
 ```
@@ -18,26 +21,43 @@ make
 ```
 `make help` lists all targets.
 
+Optional Sylvan backend (C gates only):
+```
+make init-sylvan
+make sylvan_doubles          # ./MEDUSA_sylvan_doubles_f128
+make sylvan_gmp              # ./MEDUSA_sylvan_gmp
+```
+
 ## Backends
 
-MEDUSA uses the MoToBuddy MTBDD backend, selectable at compile time by leaf type:
+The default product is MoToBuddy, selectable at compile time by leaf type:
 
-| Target | Leaf type |
-|---|---|
-| `make` / `make buddy_doubles_f128` | Complex floating-point re+im (__float128) |
-| `make buddy_gmp` | Algebraic integers (exact, GMP) |
-| `make buddy_doubles_f32` | Complex floating-point re+im (float) |
-| `make buddy_doubles_f64` | Complex floating-point re+im (double) |
-| `make buddy_doubles_f80` | Complex floating-point re+im (long double) |
-| `make buddy_doubles_all` | All floating-point variants above |
+| Target | Backend | Leaf type |
+|---|---|---|
+| `make` / `make buddy_doubles_f128` | **MoToBuddy (preferred)** | Complex floating-point re+im (__float128) |
+| `make buddy_gmp` | MoToBuddy | Algebraic integers (exact, GMP) |
+| `make buddy_doubles_f32` | MoToBuddy | Complex floating-point re+im (float) |
+| `make buddy_doubles_f64` | MoToBuddy | Complex floating-point re+im (double) |
+| `make buddy_doubles_f80` | MoToBuddy | Complex floating-point re+im (long double) |
+| `make buddy_doubles_all` | MoToBuddy | All floating-point variants above |
+| `make sylvan_doubles` | Sylvan (optional) | Same float leaves as MoToBuddy (`LEAF_FLOAT_TYPE`) |
+| `make sylvan_gmp` | Sylvan (optional) | Algebraic integers (exact, GMP) |
 
-Sylvan and `buddy_mpfr` targets are not available in this tree.
+`buddy_mpfr` is not implemented. Sylvan has no C++ / MOSF path.
 
-
-To enable C++ gate traversal and MOSF simulation support (experimental, use with caution):
+To enable C++ gate traversal and MOSF simulation support (experimental, MoToBuddy only):
 ```
 make buddy_doubles_f128 USE_CXX=1
 ```
+
+## Tests
+
+```
+make test          # MoToBuddy unit + circuits + benchmarks + metamorphic
+make test-sylvan   # same circuit/benchmark smokes on Sylvan, plus harder Grover/CCX
+make test-all      # test + test-sylvan
+```
+See `tests/README.md`.
 
 ## Usage
 
@@ -58,7 +78,7 @@ When leaf values are very large, substitute variable names are used in `res.dot`
 
 ## License
 
-Simulator sources in this tree are MIT (see `LICENSE`). MoToBuddy/BuDDy and GMP have their own licenses.
+Simulator sources in this tree are MIT (see `LICENSE`). MoToBuddy/BuDDy, Sylvan/Lace, and GMP have their own licenses.
 
 ## Profiling
 

@@ -7,7 +7,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$(dirname "$0")/test_summary.sh"
 summary_init
 
-BIN="${ROOT}/MEDUSA_buddy_doubles_f128"
+# Default: preferred MoToBuddy f128 binary. Override with MEDUSA_BIN for Sylvan.
+BIN="${MEDUSA_BIN:-${ROOT}/MEDUSA_buddy_doubles_f128}"
+if [[ "${BIN}" != /* ]]; then
+    BIN="${ROOT}/${BIN#./}"
+fi
 
 run_one() {
     local label="$1"
@@ -30,10 +34,11 @@ run_one() {
 
 if [[ ! -x "${BIN}" ]]; then
     echo "Binary ${BIN} not found — build with: make buddy_doubles_f128"
+    echo "(or MEDUSA_BIN=./MEDUSA_sylvan_doubles_f128 after make sylvan_doubles)"
     exit 1
 fi
 
-echo "MEDUSA circuit integration tests"
+echo "MEDUSA circuit integration tests (${BIN})"
 
 help_out="$(mktemp)"
 if ! "${BIN}" --help >"${help_out}" 2>&1; then
@@ -86,12 +91,15 @@ if "${BIN}" --file /tmp/medusa_bell.qasm --probability >/tmp/medusa_test_out.txt
    && python3 - "${ROOT}/res.dot" <<'PY'
 import re, sys
 text = open(sys.argv[1], encoding="utf-8").read()
-labs = re.findall(r'label="([^"]*)".*style=filled,shape=box', text)
-if not labs:
-    labs = re.findall(r'\[label="([^"]*)", style=filled,shape=box\]', text)
 ok = False
-for lab in labs:
-    if lab == "0":
+for line in text.splitlines():
+    if "shape=box" not in line or "filled" not in line:
+        continue
+    m = re.search(r'label="([^"]*)"', line)
+    if not m:
+        continue
+    lab = m.group(1).strip()
+    if lab in ("0", "F", "False", "false"):
         continue
     if "i" in lab or "ω" in lab or "omega" in lab.lower():
         sys.exit(2)
