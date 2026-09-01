@@ -1,14 +1,19 @@
 #include "gates_symb.h"
 #include "gates.h"
 #include "mtbddop.h"
+#include "medusa_debug.h"
 
 void gate_symb_x(qBDD *p_t, uint32_t xt) {
     qBDD res;
     size_t newxt = (size_t) xt;
     res = bdd_operation(*p_t, &newxt, 0, interface_gate_x);
-    qBDD_unprotect(*p_t);
     qBDD_protect(res);
+    qBDD_unprotect(*p_t);
     *p_t = res;
+    MEDUSA_DBG(.cat = MEDUSA_DBG_GATE, .evt = "gate_done", .where = "gate_symb_x",
+               .use_bdd = 1, .bdd = (int)*p_t, .ref = medusa_dbg_bdd_ref((int)*p_t),
+               .is_false = qBDD_isFalse(*p_t), .leaves = 0,
+               .gate = "X");
 }
 
 qBDD interface_gate_symb_y(size_t xt, qBDD low, qBDD high) {
@@ -79,7 +84,8 @@ qBDD interface_gate_symb_tdg(size_t xt, qBDD low, qBDD high) {
 void gate_symb_t(qBDD *p_t, uint32_t xt) {
     size_t newxt = (size_t) xt;
     qBDD res = qBDD_protect(bdd_operation(*p_t, &newxt, 0, interface_gate_symb_t));
-    //incInvSqrtCoeff(); // TODO CORRECT?
+    /* Float T bakes 1/√2 into the high-child expression (symexp_mul_sqrt2inv).
+     * GMP T is an ω-cycle; do not bump the global k (would also scale |0>). */
     qBDD_unprotect(*p_t);
     *p_t = res;
 }
@@ -92,20 +98,12 @@ void gate_symb_tdg(qBDD *p_t, uint32_t xt) {
 }
 
 qBDD interface_gate_symb_h(size_t xt, qBDD low, qBDD high) {
-    // if (low == high) {
-    //     qBDD nlow = my_mtbdd_symb_times_c_i(low, 2);
-    //     qBDD_protect(nlow);
-    //     qBDD res = newqBDD(xt, nlow, qBDD_false());
-    //     qBDD_unprotect(nlow);
-    //     return res;
-    // } else {
-        qBDD nh = qBDD_protect(my_mtbdd_symb_minus_i(low, high));
-        qBDD nl = qBDD_protect(my_mtbdd_symb_plus_i(low, high));
-        qBDD new_qbdd = newqBDD(xt, nl, nh);
-        qBDD_unprotect(nh);
-        qBDD_unprotect(nl);
-        return new_qbdd;
-    //}
+    qBDD nh = qBDD_protect(my_mtbdd_symb_minus_i(low, high));
+    qBDD nl = qBDD_protect(my_mtbdd_symb_plus_i(low, high));
+    qBDD new_qbdd = newqBDD(xt, nl, nh);
+    qBDD_unprotect(nh);
+    qBDD_unprotect(nl);
+    return new_qbdd;
 }
 
 void gate_symb_h(qBDD *p_t, uint32_t xt)
@@ -204,7 +202,11 @@ void gate_symb_cnot(qBDD *p_t, uint32_t xt, uint32_t xc)
             return HIGH(node);
         },
         .put_in = +[](BDD node, BDD received) -> BDD {
-            return bdd_makenode(LEVEL(node), LOW(node), received);
+            PUSHREF(LOW(node));
+            PUSHREF(received);
+            BDD updated = bdd_makenode(LEVEL(node), READREF(2), READREF(1));
+            POPREF(2);
+            return updated;
         }
     };
 
@@ -217,7 +219,11 @@ void gate_symb_cnot(qBDD *p_t, uint32_t xt, uint32_t xc)
         auto cx = mtbdd_with_traverse_to(xt,
             [=](BDD node) -> BDD {
                 auto [new_L, new_R] = do_lockstep(LOW(node), HIGH(node));
-                return bdd_makenode(LEVEL(node), new_L, new_R);
+                PUSHREF(new_L);
+                PUSHREF(new_R);
+                BDD out = bdd_makenode(LEVEL(node), READREF(2), READREF(1));
+                POPREF(2);
+                return out;
             }
         );
         res = cx(t);
@@ -231,8 +237,8 @@ void gate_symb_cnot(qBDD *p_t, uint32_t xt, uint32_t xc)
         );
         res = cx(t);
     }
-    qBDD_unprotect(*p_t);
     qBDD_protect(res);
+    qBDD_unprotect(*p_t);
     *p_t = res;
 #endif
 
@@ -296,7 +302,11 @@ void gate_symb_toffoli(qBDD *p_t, uint32_t xt, uint32_t xc1, uint32_t xc2)
             return HIGH(node);
         },
         .put_in = +[](BDD node, BDD received) -> BDD {
-            return bdd_makenode(LEVEL(node), LOW(node), received);
+            PUSHREF(LOW(node));
+            PUSHREF(received);
+            BDD updated = bdd_makenode(LEVEL(node), READREF(2), READREF(1));
+            POPREF(2);
+            return updated;
         }
     };
 
@@ -314,9 +324,8 @@ void gate_symb_toffoli(qBDD *p_t, uint32_t xt, uint32_t xc1, uint32_t xc2)
             nested locksteps - outer down to c1, inner down to c2 - each
             filtering to the HIGH branch only before descending further.  */
         auto swap_action    = mtbdd_make_swap(high_swap_param, high_swap_param);
-        auto inner_lockstep = mtbdd_with_lockstep_to(c2, swap_action,
-                                                        Branch::LR, Branch::R,
-                                                        Branch::LR, Branch::R);
+        /* Swap HIGHs on the virtualized c2 nodes (ITSELF), same as CX. */
+        auto inner_lockstep = mtbdd_with_lockstep_to(c2, swap_action);
         auto outer_lockstep = mtbdd_with_lockstep_to(c1, inner_lockstep,
                                                         Branch::LR, Branch::R,
                                                         Branch::LR, Branch::R);
@@ -324,7 +333,11 @@ void gate_symb_toffoli(qBDD *p_t, uint32_t xt, uint32_t xc1, uint32_t xc2)
             t0,
             [=](BDD node) -> BDD {
                 auto [new_L, new_R] = outer_lockstep(LOW(node), HIGH(node));
-                return bdd_makenode(LEVEL(node), new_L, new_R);
+                PUSHREF(new_L);
+                PUSHREF(new_R);
+                BDD out = bdd_makenode(LEVEL(node), READREF(2), READREF(1));
+                POPREF(2);
+                return out;
             }
         );
         res = ccx(t);
@@ -336,11 +349,13 @@ void gate_symb_toffoli(qBDD *p_t, uint32_t xt, uint32_t xc1, uint32_t xc2)
             HIGH are lockstepped down to c2, swapping HIGH children there. */
         auto swap_action2 = mtbdd_make_swap(high_swap_param, high_swap_param);
         auto at_t = [=](BDD node) -> BDD {
-            auto do_lockstep = mtbdd_with_lockstep_to(c2, swap_action2,
-                                                        Branch::LR, Branch::R,
-                                                        Branch::LR, Branch::R);
+            auto do_lockstep = mtbdd_with_lockstep_to(c2, swap_action2);
             auto [new_L, new_R] = do_lockstep(LOW(node), HIGH(node));
-            return bdd_makenode(LEVEL(node), new_L, new_R);
+            PUSHREF(new_L);
+            PUSHREF(new_R);
+            BDD out = bdd_makenode(LEVEL(node), READREF(2), READREF(1));
+            POPREF(2);
+            return out;
         };
         auto ccx = mtbdd_with_traverse_to(
             c1,
@@ -366,8 +381,8 @@ void gate_symb_toffoli(qBDD *p_t, uint32_t xt, uint32_t xc1, uint32_t xc2)
         res = ccx(t);
     }
 
-    qBDD_unprotect(*p_t);
     qBDD_protect(res);
+    qBDD_unprotect(*p_t);
     *p_t = res;
 
 #endif
@@ -458,9 +473,7 @@ void gate_symb_mcx(qBDD *p_t, qparam_list_t *qparams) {
 
         BinaryNodeOp do_lockstep;
         int last_c_above = above_t.back(); above_t.pop_back();
-        do_lockstep = mtbdd_with_lockstep_to(last_c_above, swap_action,
-                                                            Branch::LR, Branch::R,
-                                                            Branch::LR, Branch::R);
+        do_lockstep = mtbdd_with_lockstep_to(last_c_above, swap_action);
 
         for (int i = (int)above_t.size() - 1; i >= 0; --i) {
             int c = above_t[i];
@@ -484,13 +497,15 @@ void gate_symb_mcx(qBDD *p_t, qparam_list_t *qparams) {
 
     qBDD res;
 
+    // at_t must run on the target-level node (swap or lockstep of its children).
+    // Controls below the target only select the HIGH branch, then continue down —
+    // same nesting as Toffoli's c1 < t0 case.
+    NodeOp op = mtbdd_with_traverse_to(target, at_t);
     if (below_t.empty()) {
-        // No controls below target: apply at_t directly at target level
-        auto mcx = mtbdd_with_traverse_to(target, at_t);
-        res = mcx(t);
+        res = op(t);
     } else {
         int last_c_below = below_t.back(); below_t.pop_back();
-        auto mcx = mtbdd_with_traverse_to(last_c_below, at_t);
+        auto mcx = mtbdd_with_traverse_to(last_c_below, op, Branch::LR, Branch::R);
 
         for (int i = (int)below_t.size() - 1; i >= 0; --i) {
             int c = below_t[i];
@@ -501,8 +516,16 @@ void gate_symb_mcx(qBDD *p_t, qparam_list_t *qparams) {
     }
 
 #endif
-    qBDD_unprotect(*p_t);
+    /* C path already protect(res) in the apply loop; C++ must protect here.
+     * Protect before unprotect so GC cannot drop res. */
+#ifdef __cplusplus
     qBDD_protect(res);
+#endif
+    qBDD_unprotect(*p_t);
     *p_t = res;
+    MEDUSA_DBG(.cat = MEDUSA_DBG_GATE, .evt = "gate_done", .where = "gate_symb_mcx",
+               .use_bdd = 1, .bdd = (int)*p_t, .ref = medusa_dbg_bdd_ref((int)*p_t),
+               .is_false = qBDD_isFalse(*p_t), .leaves = 0,
+               .gate = "MCX");
 }
 /* end of "gates_symb.c" */

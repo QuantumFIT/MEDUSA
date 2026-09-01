@@ -18,11 +18,17 @@ extern "C" {
 
 /**
  * @brief Initialises the BDD package with given cache and node table sizes.
- * @param cacheSize Size of the operation cache
- * @param nodeSize  Size of the unique node table
- * @param varNum    Number of variables to support
+ * @param cacheSize Size of the operation cache (0 = default 10000)
+ * @param nodeSize  Size of the unique node table (0 = default 10000)
+ * @param varNum    Number of variables to support (0 = default 1)
  */
 void initPackage(unsigned cacheSize, unsigned nodeSize, unsigned varNum);
+
+/**
+ * @brief When true, classic res.dot terminals print |amp|^2 instead of the amplitude.
+ * Matches original MEDUSA --probability. Call after initPackage; reset on freePackage.
+ */
+void setLeafPrintProb(bool is_prob);
 
 /**
  * @brief Initialises a quantum circuit via the interface layer.
@@ -63,6 +69,12 @@ void medusa_mem_get(size_t *pimpl_allocs, size_t *pimpl_frees, size_t *wrap_allo
  * @brief Forces an immediate garbage collection pass over the node table.
  */
 void forceGC();
+
+/**
+ * Clear MoToBuddy MTBDD apply/operation caches.
+ * Required before side-effecting applies (e.g. symb_refine → rdata).
+ */
+void clearOpCache(void);
 
 
 /* *************************************************************************

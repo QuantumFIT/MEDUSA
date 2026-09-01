@@ -27,6 +27,8 @@ typedef struct symexp_val {
     coefs_t coef;
     /// variable
     vars_t var;
+    /// extra (1/√2)^{sqrt2_inv} on this term (float symbolic T/Tdg; 0 for GMP)
+    unsigned sqrt2_inv;
 } symexp_val_t;
 
 /// Type for symbolic expression list element
@@ -105,6 +107,11 @@ void symexp_list_neg(symexp_list_t *l);
  * @param l list representing a symbolic expression
  */
 void symexp_list_mul_c(symexp_list_t *l, unsigned long c);
+
+/**
+ * Increments each term's sqrt2_inv (multiply the expression by 1/√2).
+ */
+void symexp_list_mul_sqrt2inv(symexp_list_t *l);
 
 /**
  * Returns a deep copy of the given list.

@@ -20,7 +20,10 @@ void symexp_htab_clear()
 
 void symexp_htab_delete()
 {
-    htab_s_free(symexp_table);
+    if (symexp_table != NULL) {
+        htab_s_free(symexp_table);
+        symexp_table = NULL;
+    }
 }
 
 static symexp_list_t* symexp_htab_add(symexp_list_t *l)
@@ -38,6 +41,7 @@ symexp_list_t* symexp_init(vars_t v)
     
     symexp_val_t first_val;
     first_val.var = v;
+    first_val.sqrt2_inv = 0;
     mpz_init_set_ui(first_val.coef, 1);
     symexp_list_insert_first(res, &first_val);
     mpz_clear(first_val.coef);
@@ -50,6 +54,25 @@ symexp_list_t* symexp_mul_c(symexp_list_t *a, unsigned long c)
     symexp_list_t *res = symexp_list_mkcpy(a);
     symexp_list_mul_c(res, c);
     return symexp_htab_add(res);
+}
+
+symexp_list_t* symexp_mul_sqrt2inv(symexp_list_t *a)
+{
+    if (a == NULL) {
+        return NULL;
+    }
+    symexp_list_t *res = symexp_list_mkcpy(a);
+    symexp_list_mul_sqrt2inv(res);
+    return symexp_htab_add(res);
+}
+
+static int symexp_term_cmp(const symexp_val_t *a, const symexp_val_t *b)
+{
+    if (a->var < b->var) return -1;
+    if (a->var > b->var) return 1;
+    if (a->sqrt2_inv < b->sqrt2_inv) return -1;
+    if (a->sqrt2_inv > b->sqrt2_inv) return 1;
+    return 0;
 }
 
 symexp_list_t* symexp_op(symexp_list_t *a, symexp_list_t *b, symexp_op_t op)
@@ -95,8 +118,8 @@ symexp_list_t* symexp_op(symexp_list_t *a, symexp_list_t *b, symexp_op_t op)
                 }
                 break;
             }
-            // else if need to insert here
-            else if (a->active->data->var < res->active->data->var) {
+            int term_c = symexp_term_cmp(a->active->data, res->active->data);
+            if (term_c < 0) {
                 if (res_prev == NULL) { // inserting before first element of res
                     symexp_list_insert_first(res, a->active->data);
                     // res active stays the same
@@ -112,10 +135,9 @@ symexp_list_t* symexp_op(symexp_list_t *a, symexp_list_t *b, symexp_op_t op)
                     symexp_list_next(a);
                 }
             }
-            // else if the same variable
-            else if (a->active->data->var == res->active->data->var) {
-                mpz_add(res->active->data->coef, res->active->data->coef, a->active->data->coef); // 119
-                //add_generic(res->active->data->coef, res->active->data->coef, a->active->data->coef);
+            // else if the same variable and 1/√2 power
+            else if (term_c == 0) {
+                mpz_add(res->active->data->coef, res->active->data->coef, a->active->data->coef);
                 // Check if result isn't 0 
                 if (mpz_sgn(res->active->data->coef) == 0) {
                     if (res_prev == NULL) {

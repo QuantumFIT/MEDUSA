@@ -9,9 +9,12 @@
 #include "../../mtbdd_out.h"
 #include "../../symb_utils.h"
 #include "../../medusa_mem_track.h"
+#include "../../medusa_debug.h"
 
 mpz_t globalSquareRootCoeff;
 mpz_t globalSquareRootCoeffSymb;
+static int g_sqrt_coeff_normal_live = 0;
+static int g_sqrt_coeff_symb_live = 0;
 
 /* 
  * Internal layout
@@ -93,6 +96,7 @@ void freePimpl(void* leafraw) {
     if (!leafraw) return;
     LEAF_TYPE *leaf = (LEAF_TYPE*) leafraw;
     if (leaf->pImpl) {
+        MEDUSA_DBG(.cat = MEDUSA_DBG_LEAF, .evt = "classic_free", .where = "freePimpl");
         clear_generic(leaf->pImpl->re);
         clear_generic(leaf->pImpl->im);
         free(leaf->pImpl);
@@ -122,6 +126,7 @@ int terminal_compare_generic(void* a, void* b) {
 
 unsigned terminal_hash_generic(void* q) {
     LEAF_TYPE *ldata = (LEAF_TYPE*) q;
+    if (!ldata || !ldata->pImpl) return 0;
     uint64_t val = 1;
     val = MY_HASH_COMB(val, hash_comb_generic(*leafRe(ldata)));
     val = MY_HASH_COMB(val, hash_comb_generic(*leafIm(ldata)));
@@ -129,38 +134,50 @@ unsigned terminal_hash_generic(void* q) {
 }
 
 
-/*
- * String representation registered with buddy
- */
+static int g_print_leaf_prob = 0;
 
-// static int _leaf_to_str_output_i(char *buf, leaf_scalar_t re, leaf_scalar_t im, int global_sqrt) {
-// #if LEAF_FLOAT_TYPE == LEAF_TYPE_QUAD
-//     // quadmath_snprintf only supports ONE %Q specifier per call
-//     char re_buf[64], im_buf[64];
-//     quadmath_snprintf(re_buf, sizeof(re_buf), "%.30Qg", re);
-//     quadmath_snprintf(im_buf, sizeof(im_buf), "%.30Qg", im);
+void setLeafPrintProb(bool is_prob)
+{
+    g_print_leaf_prob = is_prob ? 1 : 0;
+}
 
-//     // im_buf sign prefix handled manually always show sign
-//     char sign = (im < 0.0q) ? '-' : '+';
-//     if (im < 0.0q) {
-//         // im_buf already has '-', strip it for explicit sign control
-//         return snprintf(buf, MAX_LEAF_STR_LEN,
-//             "(1/sqrt(2))^(%d) * (%s%c%si)",
-//             global_sqrt, re_buf, sign, im_buf + 1);
-//     }
-//     return snprintf(buf, MAX_LEAF_STR_LEN,
-//         "(1/sqrt(2))^(%d) * (%s%c%si)",
-//         global_sqrt, re_buf, sign, im_buf);
-// #else
-//     return snprintf(buf, MAX_LEAF_STR_LEN,
-//         "(1/sqrt(2))^(%d) * (%.17Lg%+.17Lgi)", global_sqrt,
-//         (long double)re, (long double)im);
-// #endif
-// }
+static char *leaf_str_emit(const char *ldata_string, int chars_written,
+                           char *buddy_buf, size_t buddy_bufsize)
+{
+    if (chars_written < 0)
+        error_exit("An encoding error has occurred when producing leaf value output.\n");
+    if (chars_written >= MAX_LEAF_STR_LEN)
+        error_exit("Allocated string length for leaf value output has not been sufficient.\n");
+
+    if (chars_written < (int)buddy_bufsize) {
+        memcpy(buddy_buf, ldata_string, (size_t)chars_written);
+        buddy_buf[chars_written] = '\0';
+        return buddy_buf;
+    }
+
+    char *new_buf = (char*)my_malloc((size_t)chars_written + 1);
+    memcpy(new_buf, ldata_string, (size_t)chars_written);
+    new_buf[chars_written] = '\0';
+    return new_buf;
+}
 
 char* terminal_to_str_generic(void* ldata_raw, char *buddy_buf, size_t buddy_bufsize) {
     LEAF_TYPE *leafValP = (LEAF_TYPE*) ldata_raw;
-    if (!leafValP || !leafValP->pImpl) return NULL;
+    char ldata_string[MAX_LEAF_STR_LEN] = {0};
+    int chars_written;
+
+    if (!leafValP || !leafValP->pImpl) {
+        chars_written = snprintf(ldata_string, MAX_LEAF_STR_LEN,
+                                 g_print_leaf_prob ? "0.000000" : "0");
+        return leaf_str_emit(ldata_string, chars_written, buddy_buf, buddy_bufsize);
+    }
+
+    if (g_print_leaf_prob) {
+        LEAF_TYPE_IMPL *ldata = leafValP->pImpl;
+        double p = (double)(ldata->re[0] * ldata->re[0] + ldata->im[0] * ldata->im[0]);
+        chars_written = snprintf(ldata_string, MAX_LEAF_STR_LEN, "%f", p);
+        return leaf_str_emit(ldata_string, chars_written, buddy_buf, buddy_bufsize);
+    }
 
     LEAF_TYPE_IMPL *ldata = leafValP->pImpl;
 
@@ -168,30 +185,14 @@ char* terminal_to_str_generic(void* ldata_raw, char *buddy_buf, size_t buddy_buf
     to_str_generic(ldata->re, re_buf, sizeof(re_buf));
     to_str_generic(ldata->im, im_buf, sizeof(im_buf));
 
-    // determine sign of im for formatting
     char sign = (sgn_generic(ldata->im) < 0) ? '-' : '+';
     const char *im_abs = (sgn_generic(ldata->im) < 0) ? im_buf + 1 : im_buf;
 
-    char ldata_string[MAX_LEAF_STR_LEN] = {0};
-    int chars_written = snprintf(ldata_string, MAX_LEAF_STR_LEN,
+    chars_written = snprintf(ldata_string, MAX_LEAF_STR_LEN,
         "%s%c%si",
         re_buf, sign, im_abs);
 
-    if (chars_written < 0)
-        error_exit("An encoding error has occurred when producing leaf value output.\n");
-    if (chars_written >= MAX_LEAF_STR_LEN)
-        error_exit("Allocated string length for leaf value output has not been sufficient.\n");
-
-    if (chars_written < (int)buddy_bufsize) {
-        memcpy(buddy_buf, ldata_string, chars_written);
-        buddy_buf[chars_written] = '\0';
-        return buddy_buf;
-    }
-
-    char *new_buf = (char*)my_malloc((chars_written + 1) * sizeof(char));
-    memcpy(new_buf, ldata_string, chars_written);
-    new_buf[chars_written] = '\0';
-    return new_buf;
+    return leaf_str_emit(ldata_string, chars_written, buddy_buf, buddy_bufsize);
 }
 
 
@@ -828,6 +829,19 @@ LEAF_TYPE times2LeafS(LEAF_TYPE l) {
  * Algebraic operations symbolic (sl_val_t / symexp)
  */
 
+/** Shallow-clone symb-val shell (re/im are interned in the symexp htab). */
+static LEAF_TYPE cloneSymbVal(LEAF_TYPE a) {
+    if (!a.pImpl) return (LEAF_TYPE){ .pImpl = NULL };
+    sl_val_t *src = (sl_val_t *)a.pImpl;
+    sl_val_t *dst = (sl_val_t *)malloc(sizeof(sl_val_t));
+    if (!dst) {
+        printf("ERROR ALLOCATION\n");
+        exit(EXIT_FAILURE);
+    }
+    *dst = *src;
+    return (LEAF_TYPE){ .pImpl = (LEAF_TYPE_IMPL *)dst };
+}
+
 LEAF_TYPE mtbdd_symb_neg_i(LEAF_TYPE t) {
     if (t.pImpl == NULL) return t;
     sl_val_t *ldata = (sl_val_t*) t.pImpl;
@@ -838,17 +852,12 @@ LEAF_TYPE mtbdd_symb_neg_i(LEAF_TYPE t) {
     }
     res_data->re = symexp_op(NULL, ldata->re, SYMEXP_SUB);
     res_data->im = symexp_op(NULL, ldata->im, SYMEXP_SUB);
+    if (!res_data->re && !res_data->im) {
+        free(res_data);
+        return (LEAF_TYPE){ .pImpl = NULL };
+    }
     return (LEAF_TYPE){ .pImpl = (LEAF_TYPE_IMPL*)res_data };
 }
-
-// LEAF_TYPE mtbdd_symb_neg_s_i(LEAF_TYPE t) {
-//     if (t.pImpl == NULL) return t;
-//     sl_val_t *ldata = (sl_val_t*) t.pImpl;
-//     sl_val_t *res_data = (sl_val_t*)malloc(sizeof(sl_val_t));
-//     res_data->re = symexp_op(NULL, ldata->re, SYMEXP_SUB_MUL_BY_SQRT2_INV);
-//     res_data->im = symexp_op(NULL, ldata->im, SYMEXP_SUB_MUL_BY_SQRT2_INV);
-//     return (LEAF_TYPE){ .pImpl = (LEAF_TYPE_IMPL*)res_data };
-// }
 
 LEAF_TYPE mtbdd_symb_coef_rot1_i(LEAF_TYPE t) {
     if (t.pImpl == NULL) return t;
@@ -859,10 +868,13 @@ LEAF_TYPE mtbdd_symb_coef_rot1_i(LEAF_TYPE t) {
         exit(EXIT_FAILURE);
     }
 
-    // multiply by ω = e^(iπ/4) = (1+i)/√2, 1/sqrt(2) per gate later
-    // re' = re - im,  im' = re + im
-    res_data->re = symexp_op(ldata->re, ldata->im, SYMEXP_SUB);
-    res_data->im = symexp_op(ldata->re, ldata->im, SYMEXP_ADD);
+    // multiply by ω = e^(iπ/4) = (1+i)/√2 on this amplitude only
+    res_data->re = symexp_mul_sqrt2inv(symexp_op(ldata->re, ldata->im, SYMEXP_SUB));
+    res_data->im = symexp_mul_sqrt2inv(symexp_op(ldata->re, ldata->im, SYMEXP_ADD));
+    if (!res_data->re && !res_data->im) {
+        free(res_data);
+        return (LEAF_TYPE){ .pImpl = NULL };
+    }
     return (LEAF_TYPE){ .pImpl = (LEAF_TYPE_IMPL*)res_data };
 }
 
@@ -875,10 +887,13 @@ LEAF_TYPE mtbdd_symb_coef_rot1_i_inv(LEAF_TYPE t) {
         exit(EXIT_FAILURE);
     }
 
-    // multiply by ω* = e^(-iπ/4) = (1-i)/√2, 1/sqrt(2) tracked globally
-    // re' = re + im,  im' = im - re
-    res_data->re = symexp_op(ldata->re, ldata->im, SYMEXP_ADD);
-    res_data->im = symexp_op(ldata->im, ldata->re, SYMEXP_SUB);  // note: im - re
+    // multiply by ω* = e^(-iπ/4) = (1-i)/√2 on this amplitude only
+    res_data->re = symexp_mul_sqrt2inv(symexp_op(ldata->re, ldata->im, SYMEXP_ADD));
+    res_data->im = symexp_mul_sqrt2inv(symexp_op(ldata->im, ldata->re, SYMEXP_SUB));
+    if (!res_data->re && !res_data->im) {
+        free(res_data);
+        return (LEAF_TYPE){ .pImpl = NULL };
+    }
     return (LEAF_TYPE){ .pImpl = (LEAF_TYPE_IMPL*)res_data };
 }
 
@@ -895,27 +910,16 @@ LEAF_TYPE mtbdd_symb_coef_rot2_i(LEAF_TYPE t) {
     // re' = -im,  im' = re
     res_data->re = symexp_op(NULL, ldata->im, SYMEXP_SUB);
     res_data->im = ldata->re;
+    if (!res_data->re && !res_data->im) {
+        free(res_data);
+        return (LEAF_TYPE){ .pImpl = NULL };
+    }
     return (LEAF_TYPE){ .pImpl = (LEAF_TYPE_IMPL*)res_data };
 }
 
-// LEAF_TYPE mtbdd_symb_multiply_1_sqrt(LEAF_TYPE t) {
-//     if (t.pImpl == NULL) return t;
-//     sl_val_t *ldata = (sl_val_t*) t.pImpl;
-//     sl_val_t *res_data = (sl_val_t*)malloc(sizeof(sl_val_t));
-//     res_data->re = symexp_op(ldata->re, NULL, SYMEXP_ADD_MUL_BY_SQRT2_INV);
-//     res_data->im = symexp_op(ldata->im, NULL, SYMEXP_ADD_MUL_BY_SQRT2_INV);
-
-//     if (!res_data->re && !res_data->im) {
-//         free(res_data);
-//         return (LEAF_TYPE){ .pImpl = NULL };
-//     }
-
-//     return (LEAF_TYPE){ .pImpl = (LEAF_TYPE_IMPL*)res_data };
-// }
-
 LEAF_TYPE mtbdd_symb_plus_i(LEAF_TYPE a, LEAF_TYPE b) {
-    if (a.pImpl == NULL) return b;
-    if (b.pImpl == NULL) return a;
+    if (a.pImpl == NULL) return cloneSymbVal(b);
+    if (b.pImpl == NULL) return cloneSymbVal(a);
     sl_val_t *a_data = (sl_val_t*) a.pImpl;
     sl_val_t *b_data = (sl_val_t*) b.pImpl;
     sl_val_t *res_data = (sl_val_t*)malloc(sizeof(sl_val_t));
@@ -926,32 +930,18 @@ LEAF_TYPE mtbdd_symb_plus_i(LEAF_TYPE a, LEAF_TYPE b) {
     res_data->re = symexp_op(a_data->re, b_data->re, SYMEXP_ADD);
     res_data->im = symexp_op(a_data->im, b_data->im, SYMEXP_ADD);
 
-    // if (!res_data->re && !res_data->im) {
-    //     free(res_data);
-    //     return (LEAF_TYPE){ .pImpl = NULL };
-    // }
+    /* Collapse algebraic zero to false terminal so refine uses SYMEXP_NULL
+     * instead of storing NULL in upd[] (which means "unset"). */
+    if (!res_data->re && !res_data->im) {
+        free(res_data);
+        return (LEAF_TYPE){ .pImpl = NULL };
+    }
     return (LEAF_TYPE){ .pImpl = (LEAF_TYPE_IMPL*)res_data };
 }
 
-// LEAF_TYPE mtbdd_symb_plus_s_i(LEAF_TYPE a, LEAF_TYPE b) {
-//     if (a.pImpl == NULL) return mtbdd_symb_multiply_1_sqrt(b);
-//     if (b.pImpl == NULL) return mtbdd_symb_multiply_1_sqrt(a);
-//     sl_val_t *a_data = (sl_val_t*) a.pImpl;
-//     sl_val_t *b_data = (sl_val_t*) b.pImpl;
-//     sl_val_t *res_data = (sl_val_t*)malloc(sizeof(sl_val_t));
-//     res_data->re = symexp_op(a_data->re, b_data->re, SYMEXP_ADD_MUL_BY_SQRT2_INV);
-//     res_data->im = symexp_op(a_data->im, b_data->im, SYMEXP_ADD_MUL_BY_SQRT2_INV);
-
-//     if (!res_data->re && !res_data->im) {
-//         free(res_data);
-//         return (LEAF_TYPE){ .pImpl = NULL };
-//     }
-//     return (LEAF_TYPE){ .pImpl = (LEAF_TYPE_IMPL*)res_data };
-// }
-
 LEAF_TYPE mtbdd_symb_minus_i(LEAF_TYPE a, LEAF_TYPE b) {
     if (a.pImpl == NULL) return mtbdd_symb_neg_i(b);
-    if (b.pImpl == NULL) return a;
+    if (b.pImpl == NULL) return cloneSymbVal(a);
     sl_val_t *a_data = (sl_val_t*) a.pImpl;
     sl_val_t *b_data = (sl_val_t*) b.pImpl;
     sl_val_t *res_data = (sl_val_t*)malloc(sizeof(sl_val_t));
@@ -968,22 +958,6 @@ LEAF_TYPE mtbdd_symb_minus_i(LEAF_TYPE a, LEAF_TYPE b) {
     }
     return (LEAF_TYPE){ .pImpl = (LEAF_TYPE_IMPL*)res_data };
 }
-
-// LEAF_TYPE mtbdd_symb_minus_s_i(LEAF_TYPE a, LEAF_TYPE b) {
-//     if (a.pImpl == NULL) return mtbdd_symb_neg_s_i(b);
-//     if (b.pImpl == NULL) return mtbdd_symb_multiply_1_sqrt(a); 
-//     sl_val_t *a_data = (sl_val_t*) a.pImpl;
-//     sl_val_t *b_data = (sl_val_t*) b.pImpl;
-//     sl_val_t *res_data = (sl_val_t*)malloc(sizeof(sl_val_t));
-//     res_data->re = symexp_op(a_data->re, b_data->re, SYMEXP_SUB_MUL_BY_SQRT2_INV);
-//     res_data->im = symexp_op(a_data->im, b_data->im, SYMEXP_SUB_MUL_BY_SQRT2_INV);
-
-//     if (!res_data->re && !res_data->im) {
-//         free(res_data);
-//         return (LEAF_TYPE){ .pImpl = NULL };
-//     }
-//     return (LEAF_TYPE){ .pImpl = (LEAF_TYPE_IMPL*)res_data };
-// }
 
 qBDD mtbdd_to_symb_map_i(qBDD a, size_t raw_m) {
     if (!qBDD_isFalse(a) && !qBDD_isTerminal(a)) {
@@ -1237,20 +1211,46 @@ qBDD mtbdd_map_to_symb_val_i(qBDD t, size_t raw_map) {
  * Terminal type registration
  */
 
-void terminal_symb_map_free(void *val) {
-    return; /* TODO */
+void terminal_symb_map_free(void *leafraw) {
+    if (!leafraw) return;
+    LEAF_TYPE *leaf = (LEAF_TYPE *)leafraw;
+    /* Map payload is only vars_t fields; symexp htab owns expression lists. */
+    if (leaf->pImpl) {
+        free(leaf->pImpl);
+        leaf->pImpl = NULL;
+    }
+}
+
+/** Free symb-val pImpl shell only (re/im point into the shared symexp htab). */
+void terminal_symb_val_free(void *leafraw) {
+    if (!leafraw) return;
+    LEAF_TYPE *leaf = (LEAF_TYPE *)leafraw;
+    if (leaf->pImpl) {
+        MEDUSA_DBG(.cat = MEDUSA_DBG_LEAF, .evt = "symb_val_free", .where = "terminal_symb_val_free");
+        free(leaf->pImpl);
+        leaf->pImpl = NULL;
+    }
 }
 
 int terminal_symb_map_compare_generic(void* l_a, void* l_b) {
+    /* Zero symb leaf: NULL wrapper (see convertedApply* returning NULL).
+     * pImpl==NULL on a non-NULL wrapper is a freed shell — not equal to zero
+     * and must not compare equal to other shells (original Medusa semantics). */
     if (l_a == NULL && l_b == NULL) return 1;
     if ((l_a == NULL) != (l_b == NULL)) return 0;
-    sl_map_t *ldata_a = (sl_map_t*) ((LEAF_TYPE*)l_a)->pImpl;
-    sl_map_t *ldata_b = (sl_map_t*) ((LEAF_TYPE*)l_b)->pImpl;
+    LEAF_TYPE *la = (LEAF_TYPE *)l_a;
+    LEAF_TYPE *lb = (LEAF_TYPE *)l_b;
+    if (la->pImpl == NULL || lb->pImpl == NULL) return 0;
+    sl_map_t *ldata_a = (sl_map_t *)la->pImpl;
+    sl_map_t *ldata_b = (sl_map_t *)lb->pImpl;
     return (ldata_a->vre == ldata_b->vre) && (ldata_a->vim == ldata_b->vim);
 }
 
 unsigned terminal_symb_map_hash_generic(void* l_a) {
-    sl_map_t *ldata = (sl_map_t*) ((LEAF_TYPE*)l_a)->pImpl;
+    if (l_a == NULL) return 0;
+    LEAF_TYPE *la = (LEAF_TYPE *)l_a;
+    if (la->pImpl == NULL) return 0;
+    sl_map_t *ldata = (sl_map_t *)la->pImpl;
     uint64_t val = 1;
     val = MY_HASH_COMB(val, ldata->vre);
     val = MY_HASH_COMB(val, ldata->vim);
@@ -1261,17 +1261,24 @@ unsigned terminal_symb_map_hash_generic(void* l_a) {
 int terminal_symb_val_compare_generic(void* l_a, void* l_b) {
     if (l_a == NULL && l_b == NULL) return 1;
     if ((l_a == NULL) != (l_b == NULL)) return 0;
-    sl_val_t *ldata_a = (sl_val_t*) ((LEAF_TYPE*)l_a)->pImpl;
-    sl_val_t *ldata_b = (sl_val_t*) ((LEAF_TYPE*)l_b)->pImpl;
+    LEAF_TYPE *la = (LEAF_TYPE *)l_a;
+    LEAF_TYPE *lb = (LEAF_TYPE *)l_b;
+    if (la->pImpl == NULL || lb->pImpl == NULL) return 0;
+    sl_val_t *ldata_a = (sl_val_t *)la->pImpl;
+    sl_val_t *ldata_b = (sl_val_t *)lb->pImpl;
+    /* re/im use symexp_cmp (pointer identity): NULL expr != SYMEXP_NULL sentinel. */
     return symexp_cmp(ldata_a->re, ldata_b->re) && symexp_cmp(ldata_a->im, ldata_b->im);
 }
 
 unsigned terminal_symb_val_hash_generic(void* l_a) {
-    sl_val_t *ldata = (sl_val_t*) ((LEAF_TYPE*)l_a)->pImpl;
+    if (l_a == NULL) return 0;
+    LEAF_TYPE *la = (LEAF_TYPE *)l_a;
+    if (la->pImpl == NULL) return 0;
+    sl_val_t *ldata = (sl_val_t *)la->pImpl;
     uint64_t val = 1;
     val = MY_HASH_COMB(val, ldata->re);
     val = MY_HASH_COMB(val, ldata->im);
-    return val;
+    return (unsigned)val;
 }
 
 
@@ -1304,8 +1311,8 @@ bool can_be_reduced(mtbdd_symb_t *symbc, rdata_t *rdata)
     for(int i = 0; i < rdata->vm->next_var; i +=2) {
         // Check for permutations as well, first variable of the leaf is sufficient
         // (we always swap the whole leaf)
-        if (rdata->upd->arr[i] != SYMEXP_NULL) {
-          //  printf("Checking var %u, is_zero: %d\n", i, is_zero[i]);
+        /* Unset (NULL) must not be treated as a list; only real exprs. */
+        if (rdata->upd->arr[i] != NULL && rdata->upd->arr[i] != SYMEXP_NULL) {
             if (symexp_is_first_var_marked(rdata->upd->arr[i], is_zero)) {
                 is_correct = false;
                 break;
@@ -1330,7 +1337,11 @@ void circuit_init_interface(qBDD *c, const uint32_t n) {
     if (bdd_varnum() < varNum)
         bdd_setvarnum(varNum);
 
+    if (g_sqrt_coeff_normal_live) {
+        mpz_clear(globalSquareRootCoeff);
+    }
     mpz_init(globalSquareRootCoeff);
+    g_sqrt_coeff_normal_live = 1;
 
     LEAF_TYPE *onePtr = malloc(sizeof(LEAF_TYPE));
     if (onePtr == NULL) { bdd_error(BDD_MEMORY); }
@@ -1345,9 +1356,10 @@ void circuit_init_interface(qBDD *c, const uint32_t n) {
         variables[i] = bdd_ithvar(i);
 
     qBDD leaf1   = mtbdd_maketerminal(onePtr, lt_classic);
-    qBDD_protect(leaf1); 
+    qBDD_protect(leaf1);
     qBDD cube_bdd = mtbdd_cube2(0x0, varNum, variables, leaf1, bdd_false());
-    qBDD_unprotect(leaf1);  
+    qBDD_protect(cube_bdd); /* external root — CUSTOM leaves are not MAXREF */
+    qBDD_unprotect(leaf1);
     free(variables);
     *c = cube_bdd;
 }
@@ -1372,9 +1384,11 @@ void symb_init(qBDD *circ, mtbdd_symb_t *symbc)
  */
 
 leaf_scalar_t qBDD_calculateProb(qBDD terminal) {
-
-    LEAF_TYPE_IMPL *leaf = ((LEAF_TYPE*)mtbdd_getTerminalValue(terminal))->pImpl;
-
+    LEAF_TYPE *tv = (LEAF_TYPE*)mtbdd_getTerminalValue(terminal);
+    if (!tv || !tv->pImpl) {
+        return 0;
+    }
+    LEAF_TYPE_IMPL *leaf = tv->pImpl;
     return leaf->re[0] * leaf->re[0] + leaf->im[0] * leaf->im[0];   // |z|^2
 }
 /**
@@ -1382,9 +1396,7 @@ leaf_scalar_t qBDD_calculateProb(qBDD terminal) {
  */
 
 void incInvSqrtCoeff() {
-    //mpz_add_ui(globalSquareRootCoeff, globalSquareRootCoeff, 1);
-    // not used, kept for compliance with algebraic
-    return;
+    /* Float backend: 1/√2 is applied per gate, not via a global k. */
 }
 
 void incInvSqrtCoeffSymb() {
@@ -1393,7 +1405,11 @@ void incInvSqrtCoeffSymb() {
 }
 
 void initInvSqrtCoeffSymb() {
+    if (g_sqrt_coeff_symb_live) {
+        mpz_clear(globalSquareRootCoeffSymb);
+    }
     mpz_init(globalSquareRootCoeffSymb);
+    g_sqrt_coeff_symb_live = 1;
 }
 
 void addInvSqrtCoeffs() {
@@ -1405,14 +1421,19 @@ void mulInvSqrtCoeff(mpz_t res, mpz_t a, unsigned long mul) {
 }
 
 void clearInvSqrtCoeffSymb() {
+    if (!g_sqrt_coeff_symb_live) return;
     mpz_clear(globalSquareRootCoeffSymb);
+    g_sqrt_coeff_symb_live = 0;
 }
 
 void clearInvSqrtCoeffNormal() {
+    if (!g_sqrt_coeff_normal_live) return;
     mpz_clear(globalSquareRootCoeff);
+    g_sqrt_coeff_normal_live = 0;
 }
 
 void resetInvSqrtCoeffSymb() {
+    if (!g_sqrt_coeff_symb_live) return;
     mpz_set_ui(globalSquareRootCoeffSymb, 0);
 }
 
@@ -1422,4 +1443,4 @@ void mulInvSqrtSymbCoeff(unsigned long a) {
 }
 
 
-/* EOF leaf_algebraic_mpz.c */
+/* EOF leaf_reim_double.c */

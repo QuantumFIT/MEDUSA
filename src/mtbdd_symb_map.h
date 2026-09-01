@@ -1,17 +1,13 @@
 /**
  * @file mtbdd_symb_map.h
- * @brief Custom Sylvan MTBDD type and operations for symbolic variable mapping
+ * @brief Symbolic variable mapping for qBDD terminals
  */
 
-//#include "mtbdd.h"
 #include "symexp_list.h"
 #include "interface.h"
 
 #ifndef MTBDD_SYMB_MAP_H
 #define MTBDD_SYMB_MAP_H
-
-/// Global variable for my custom symbolic map mtbdd leaf type id
-extern uint32_t ltype_symb_map_id;
 
 typedef struct mapping_entry {
     qBDD original;
@@ -60,16 +56,11 @@ qBDD vmap_lookup(vmap_t *m, qBDD a);
  */
 void vmap_insert(vmap_t *m, qBDD orig, qBDD mapped);
 
-/* CUSTOM MTBDD OPERATIONS */
-// Basic operations:
-
 /**
  * Converts the given MTBDD to a symbolic map MTBDD
- * 
+ *
  * @param t a regular MTBDD
- * 
  * @param m pointer to a vmap_t mapping
- * 
  */
 qBDD my_mtbdd_to_symb_map_i(qBDD t, size_t m);
 #endif

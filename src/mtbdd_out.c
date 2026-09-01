@@ -3,7 +3,7 @@
 #include "mtbdd_out.h"
 #include "error.h"
 
-/// Global variable for the map (needed as custom arguments cannot be added to Sylvan's mtbdd_fprintdot())
+/// Global map (Buddy's print-dot API does not take extra arguments)
 static lnum_map_t out_map;
 
 /// Step for array reallocation when the array size isn't sufficient when adding
@@ -37,7 +37,6 @@ bool lnum_map_is_empty()
     return (out_map.next_var == 0);
 }
 
- // REDO
 void lnum_map_print(FILE *f)
 {
     mpz_t temp;

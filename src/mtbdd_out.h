@@ -3,7 +3,7 @@
  * @brief Large number output using variables in the MTBDD result
  * 
  * @details Separate from 'vmap_t' for better clarity and extensibility.
- *          Works with a single global map, as one cannot add custom arguments to Sylvan's output functions.
+ *          Works with a single global map, as custom arguments cannot be added to Buddy's output functions.
  */
 
 #include <stdint.h>

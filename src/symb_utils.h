@@ -3,7 +3,6 @@
  * @brief Symbolic simulation conversion from/to regular simulation and other symbolic sim. utilities
  */
 
-//#include <sylvan.h>
 #include <stdint.h>
 #include "mtbdd_symb_map.h"
 #include "mtbdd.h"

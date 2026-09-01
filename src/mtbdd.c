@@ -1,24 +1,5 @@
-#include <string.h>
-#include <math.h>
 #include "mtbdd.h"
-#include "mtbdd_out.h"
-#include "hash.h"
-#include "error.h"
 #include "interface.h"
-
-
-// Custom leaf implementation is taken from: https://github.com/MichalHe/sylvan-custom-leaf-example
-
-/// coefficient k common for all MTBDD leaf values, uzed in MPZ representation
-coef_t c_k;
-
-
-/// Max. size of string written as leaf value in output file
-#define MAX_LEAF_STR_LEN 250
-
-/// Max. number of digits written in the .dot output file of a single number
-#define MAX_NUM_LEN 50
-
 
 qBDD my_mtbdd_t_xt_i(qBDD t, size_t xt) {
     return unary_apply_guarded(t, t_xt_create_i, xt);
@@ -161,11 +142,9 @@ static prob_t prob_sum_recurse(qBDD t, uint32_t var, int n, uint64_t path_count)
     uint64_t multiplier = 1ULL << (var_a - var);
 
     qBDD high = qBDD_getHigh(t);
-    uint32_t next_high = qBDD_isTerminal(high) ? (uint32_t)n : qBDD_getVar(high);
     prob_t res_high = prob_sum_recurse(high, var_a + 1, n, path_count * multiplier);
 
     qBDD low = qBDD_getLow(t);
-    uint32_t next_low = qBDD_isTerminal(low) ? (uint32_t)n : qBDD_getVar(low);
     prob_t res_low  = prob_sum_recurse(low,  var_a + 1, n, path_count * multiplier);
 
     return res_high + res_low;

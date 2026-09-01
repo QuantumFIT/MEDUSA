@@ -107,6 +107,7 @@ static size_t htab_s_hash_func(htab_key_t key_raw)
     symexp_list_first(key);
     while (key->active) {
         val = MY_HASH_COMB(val, key->active->data->var);    // var is also uint64_t, so no need to cast
+        val = MY_HASH_COMB(val, key->active->data->sqrt2_inv);
         val = MY_HASH_COMB_GMP(val, key->active->data->coef);
         symexp_list_next(key);
     }
@@ -179,6 +180,7 @@ static bool htab_s_key_cmp(htab_s_key_t a, htab_s_key_t b)
 
     while(a->active && b->active) {
         if ((a->active->data->var != b->active->data->var)
+             || (a->active->data->sqrt2_inv != b->active->data->sqrt2_inv)
              || mpz_cmp(a->active->data->coef, b->active->data->coef)) {
                 res = false;
                 break;

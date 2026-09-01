@@ -32,8 +32,12 @@ typedef float           leaf_scalar_t;
 #define LEAF_SQRT       sqrtf
 #define LEAF_POW        powf
 #define LEAF_ISNAN(x)   ((x) != (x))
+#ifndef LEAF_REL_EPS
 #define LEAF_REL_EPS    1e-6f
+#endif
+#ifndef LEAF_ABS_EPS
 #define LEAF_ABS_EPS    1e-6f
+#endif
 #define LEAF_SQRT2INV   0.707106781f                // 1/sqrt(2), ~7 sig. digits
 
 /*  double  */
@@ -47,8 +51,12 @@ typedef double          leaf_scalar_t;
 #define LEAF_SQRT       sqrt
 #define LEAF_POW        pow
 #define LEAF_ISNAN(x)   ((x) != (x))
+#ifndef LEAF_REL_EPS
 #define LEAF_REL_EPS    1e-9
+#endif
+#ifndef LEAF_ABS_EPS
 #define LEAF_ABS_EPS    1e-9
+#endif
 #define LEAF_SQRT2INV   M_SQRT1_2                   // 0.7071067811865475... from <math.h>
 
 /*  long double  */
@@ -62,8 +70,12 @@ typedef long double     leaf_scalar_t;
 #define LEAF_SQRT       sqrtl
 #define LEAF_POW        powl
 #define LEAF_ISNAN(x)   ((x) != (x))
+#ifndef LEAF_REL_EPS
 #define LEAF_REL_EPS    1e-12L
+#endif
+#ifndef LEAF_ABS_EPS
 #define LEAF_ABS_EPS    1e-12L
+#endif
 #define LEAF_SQRT2INV   0.707106781186547524400844362104849039L  // 80-bit full precision
 
 /*  __float128  */
@@ -78,8 +90,12 @@ typedef __float128      leaf_scalar_t;
 #define LEAF_SQRT       sqrtq
 #define LEAF_POW        powq
 #define LEAF_ISNAN(x)   isnanq(x)
+#ifndef LEAF_REL_EPS
 #define LEAF_REL_EPS    1e-28q
+#endif
+#ifndef LEAF_ABS_EPS
 #define LEAF_ABS_EPS    1e-32q
+#endif
 #define LEAF_SQRT2INV   M_SQRT1_2q
 
 #else

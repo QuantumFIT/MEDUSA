@@ -33,8 +33,8 @@ void symexp_list_insert_first(symexp_list_t *l, symexp_val_t *val)
         symexp_el_t *new_el = my_malloc(sizeof(symexp_el_t));
         new_el->data = my_malloc(sizeof(symexp_val_t));
         new_el->data->var = val->var;
-        //init_set_generic(new_el->data->coef, val->coef);
-        mpz_init_set(new_el->data->coef, val->coef);  // REDO
+        new_el->data->sqrt2_inv = val->sqrt2_inv;
+        mpz_init_set(new_el->data->coef, val->coef);
         new_el->next = l->first;
         l->first = new_el;
     }
@@ -46,8 +46,8 @@ void symexp_list_insert_after(symexp_list_t *l, symexp_val_t *val)
         symexp_el_t *new_el = my_malloc(sizeof(symexp_el_t));
         new_el->data = my_malloc(sizeof(symexp_val_t));
         new_el->data->var = val->var;
-        //init_set_generic(new_el->data->coef, val->coef);
-        mpz_init_set(new_el->data->coef, val->coef);  // REDO
+        new_el->data->sqrt2_inv = val->sqrt2_inv;
+        mpz_init_set(new_el->data->coef, val->coef);
         new_el->next = l->active->next;
         l->active->next = new_el;
     }
@@ -61,7 +61,6 @@ void symexp_list_remove_first(symexp_list_t *l)
         if (l->first == l->active) {
             l->active = NULL;
         }
-        //clear_generic(l->first->data->coef);
         mpz_clear(l->first->data->coef);
         free(l->first->data);
         free(l->first);
@@ -75,8 +74,7 @@ void symexp_list_remove_after(symexp_list_t *l)
         symexp_el_t *el_before = l->active;
         symexp_list_next(l); // now on element that should be deleted
         el_before->next = l->active->next;
-        //clear_generic(l->active->data->coef);
-        mpz_clear(l->active->data->coef);  // REDO
+        mpz_clear(l->active->data->coef);
         free(l->active->data);
         free(l->active);
         l->active = el_before;
@@ -88,32 +86,29 @@ void symexp_list_neg(symexp_list_t *l)
     if(l){
         symexp_list_first(l);
         while (l->active) {
-            //neg_generic(l->active->data->coef, l->active->data->coef);
             mpz_neg(l->active->data->coef, l->active->data->coef);
             symexp_list_next(l);
         }
     }
 }
 
-// void symexp_list_mul_sqrt2inv(symexp_list_t *l)
-// {
-//     if(l){
-//         symexp_list_first(l);
-//         while (l->active) {
-//             mul_sqrt2inv_generic(l->active->data->coef, l->active->data->coef);
-//             symexp_list_next(l);
-//         }
-//     }
-
-// }
+void symexp_list_mul_sqrt2inv(symexp_list_t *l)
+{
+    if (l) {
+        symexp_list_first(l);
+        while (l->active) {
+            l->active->data->sqrt2_inv++;
+            symexp_list_next(l);
+        }
+    }
+}
 
 void symexp_list_mul_c(symexp_list_t *l, unsigned long c)
 {
     if(l){
         symexp_list_first(l);
         while (l->active) {
-            //mul_ui_generic(l->active->data->coef, l->active->data->coef, c);
-            mpz_mul_ui(l->active->data->coef, l->active->data->coef, c);  // REDO
+            mpz_mul_ui(l->active->data->coef, l->active->data->coef, c);
             symexp_list_next(l);
         }
     }
@@ -129,7 +124,6 @@ void symexp_list_del(symexp_list_t *l)
             tmp = l->active;
             symexp_list_next(l);
             // Dealloc:
-            //clear_generic(tmp->data->coef);
             mpz_clear(tmp->data->coef);
             free(tmp->data);
             free(tmp);
@@ -151,10 +145,10 @@ symexp_list_t* symexp_list_mkcpy(symexp_list_t *l)
         while (l->active != NULL) {
             tmp = my_malloc(sizeof(symexp_el_t));
             tmp->data = my_malloc(sizeof(symexp_val_t));
-            tmp->data->var = l->active->data->var; // here invalid read
+            tmp->data->var = l->active->data->var;
+            tmp->data->sqrt2_inv = l->active->data->sqrt2_inv;
             tmp->next = NULL;
-            //init_set_generic(tmp->data->coef, l->active->data->coef);
-            mpz_init_set(tmp->data->coef, l->active->data->coef);  // REDO
+            mpz_init_set(tmp->data->coef, l->active->data->coef);
 
             if (cpy->first == NULL) {    // Add the first element
                 cpy->first = tmp;

@@ -1,10 +1,9 @@
 /**
  * @file mtbdd_symb_val.h
- * @brief Custom Sylvan MTBDD type and operations for symbolic variable values (symbolic expressions)
+ * @brief Symbolic expression operations on qBDD terminals
  */
 
 
-#include <gmp.h>
 #include "symexp.h"
 #include "mtbdd.h"
 #include "interface.h"
@@ -14,20 +13,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-/// Global variable for my custom symbolic expression mtbdd leaf type id
-extern uint32_t ltype_symb_expr_id;
-
-
-/// Type for the coefficient k for symbolic representation
-typedef mpz_t coefs_k_t;
-
-/// Complex number coefficient k for symbolic representation
-extern coefs_k_t cs_k;
-
-/**
- * Sets symbolic coefficient k's value to 0
- */
-void cs_k_reset();
 
 /**
  * Converts the given symbolic map MTBDD to a symbolic value MTBDD

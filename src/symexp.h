@@ -42,6 +42,11 @@ symexp_list_t* symexp_init(vars_t v);
 symexp_list_t* symexp_mul_c(symexp_list_t *a, unsigned long c);
 
 /**
+ * Multiplies the expression by 1/√2 (per-term scale, interned).
+ */
+symexp_list_t* symexp_mul_sqrt2inv(symexp_list_t *a);
+
+/**
  * Performs the given operation on the two trees (a op b) and returns the result
  */
 symexp_list_t* symexp_op(symexp_list_t *a, symexp_list_t *b, symexp_op_t op);

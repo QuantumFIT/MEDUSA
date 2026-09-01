@@ -5,13 +5,29 @@
 
 #include "interface_motobuddy.h"
 #include "medusa_mem_track.h"
+#include "medusa_debug.h"
+#include "error.h"
+#include <limits.h>
 #include <string.h>
+#include "kernel.h" /* bddnodes[], bdd_gbc, mtbdd_operator_reset */
+
+#ifdef MEDUSA_DEBUG
+int medusa_dbg_bdd_ref(int bdd)
+{
+    if (bdd < 2 || bdd >= bddnodesize) return -1;
+    return (int)bddnodes[bdd].refcou;
+}
+#endif
 
 /*
  * Package lifecycle
  */
 
 void freePackage(){
+    MEDUSA_DBG(.cat = MEDUSA_DBG_LIFECYCLE, .evt = "freePackage", .where = "freePackage");
+    setLeafPrintProb(false);
+    clearInvSqrtCoeffNormal();
+    clearInvSqrtCoeffSymb();
     bdd_done();
 }
 
@@ -20,11 +36,31 @@ int qBDD_leafcount(qBDD a) {
 }
 
 void deleteCircuit(qBDD* circ) {
-    return; /* stub */
+    if (!circ || *circ == bdd_false()) return;
+    MEDUSA_DBG(.cat = MEDUSA_DBG_LIFECYCLE, .evt = "deleteCircuit", .where = "deleteCircuit",
+               .use_bdd = 1, .bdd = (int)*circ, .ref = medusa_dbg_bdd_ref((int)*circ),
+               .is_false = 0, .leaves = qBDD_leafcount(*circ));
+    qBDD_unprotect(*circ);
+    *circ = bdd_false();
 }
 
 void forceGC() {
+#ifdef MEDUSA_DEBUG
+    /* Caller should pass circ via MEDUSA_DBG at call site; here log table pressure. */
+    MEDUSA_DBG(.cat = MEDUSA_DBG_GC, .evt = "forceGC_enter", .where = "forceGC",
+               .note = "bdd_gbc");
+#endif
     bdd_gbc();
+#ifdef MEDUSA_DEBUG
+    MEDUSA_DBG(.cat = MEDUSA_DBG_GC, .evt = "forceGC_leave", .where = "forceGC");
+#endif
+}
+
+void clearOpCache(void) {
+    /* Refine (and similar) mutate rdata as a side effect of apply. MoToBuddy's
+     * guarded_param cache keys include (int)param, so reused/truncated rdata
+     * pointers (and recycled BDD ids after GC) can skip refine_var_check. */
+    mtbdd_operator_reset();
 }
 
 void q_fprintdot(FILE *out, qBDD a) {
@@ -62,11 +98,25 @@ size_t qBDD_level(qBDD node) {
  */
 
 qBDD qBDD_protect(qBDD toProtect) {
-    return bdd_addref(toProtect);
+    qBDD r = bdd_addref(toProtect);
+    /* Noisy: enable with MEDUSA_DEBUG=protect */
+    MEDUSA_DBG(.cat = MEDUSA_DBG_PROTECT, .evt = "protect", .where = "qBDD_protect",
+               .use_bdd = 1, .bdd = (int)toProtect,
+               .ref = medusa_dbg_bdd_ref((int)toProtect),
+               .is_false = qBDD_isFalse(toProtect), .leaves = 0);
+    return r;
 }
 
 qBDD qBDD_unprotect(qBDD toUnprotect) {
-    return bdd_delref(toUnprotect);
+    int ref_before = medusa_dbg_bdd_ref((int)toUnprotect);
+    qBDD r = bdd_delref(toUnprotect);
+    /* Noisy: enable with MEDUSA_DEBUG=protect (or protect,gc,...) */
+    MEDUSA_DBG(.cat = MEDUSA_DBG_PROTECT, .evt = "unprotect", .where = "qBDD_unprotect",
+               .use_bdd = 1, .bdd = (int)toUnprotect,
+               .ref = medusa_dbg_bdd_ref((int)toUnprotect),
+               .is_false = qBDD_isFalse(toUnprotect), .leaves = 0,
+               .note = (ref_before == 1) ? "ref_was_1" : NULL);
+    return r;
 }
 
 
@@ -79,7 +129,6 @@ int qBDD_isFalse(qBDD toCheck) {
 }
 
 int qBDD_isTerminal(qBDD toCheck) {
-   // printf("a%d\n", toCheck);
     return ISCONST(toCheck) || ISTERMINAL(toCheck);
 }
 
@@ -101,7 +150,12 @@ qBDD qBDD_true() {
 }
 
 qBDD newqBDD(unsigned int target, qBDD lhs, qBDD rhs) {
-    return bdd_makenode(target, lhs, rhs);
+    /* Children must stay live if makenode triggers GC (CUSTOM terminals are refcou=0). */
+    PUSHREF(lhs);
+    PUSHREF(rhs);
+    qBDD res = bdd_makenode(target, READREF(2), READREF(1));
+    POPREF(2);
+    return res;
 }
 
 qBDD qBDD_maketerminal(size_t type, void* valuep) {
@@ -132,7 +186,10 @@ size_t qBDD_getVar(qBDD a) {
 LEAF_TYPE qBDD_getTerminalValue(qBDD a) {
     void* val = mtbdd_getTerminalValue(a);
     if (val == NULL) {
-        printf("Warning: qBDD_getTerminalValue called on a terminal %d with NULL value\n", a);
+        /* false / freelist / collected leaf — do not dereference */
+        printf("Warning: qBDD_getTerminalValue called on node %d with NULL value\n", a);
+        LEAF_TYPE empty = { .pImpl = NULL };
+        return empty;
     }
     return *(LEAF_TYPE*)val;
 }
@@ -146,6 +203,22 @@ LEAF_TYPE (*applyOperationToConvert)(LEAF_TYPE, LEAF_TYPE);
 LEAF_TYPE (*applyOperationToConvertUnary)(LEAF_TYPE);
 LEAF_TYPE (*applyOperationToConvertUnaryParam)(LEAF_TYPE, size_t);
 LEAF_TYPE (*applyParamOperationToConvert)(LEAF_TYPE, LEAF_TYPE, size_t);
+
+/** Own the apply result in a heap wrapper. Never return with an orphaned pImpl. */
+static void *wrap_leaf_result(LEAF_TYPE result)
+{
+    if (result.pImpl == NULL) {
+        return NULL;
+    }
+    LEAF_TYPE *result_ptr = (LEAF_TYPE *)malloc(sizeof(LEAF_TYPE));
+    if (result_ptr == NULL) {
+        freePimpl(&result);
+        error_exit("Bad memory allocation.\n");
+    }
+    medusa_mem_note_wrap_alloc();
+    result_ptr->pImpl = result.pImpl;
+    return result_ptr;
+}
 
 void *convertedApplyOperation(void *a, void *b) {
     LEAF_TYPE *leaf_a = (LEAF_TYPE*)a;
@@ -166,25 +239,9 @@ void *convertedApplyOperation(void *a, void *b) {
     } else {
         leaf_b_val = *leaf_b;
     }
-    
-    // apply operation on LEAF_TYPE values to get a new LEAF_TYPE (by value)
-    LEAF_TYPE result = applyOperationToConvert(leaf_a_val, leaf_b_val); // 169
 
-    if (result.pImpl == NULL) {
-        // no internal data, just copy pointer as NULL
-        return NULL;
-    }
-
-    // allocate memory for the new LEAF_TYPE pointer to return
-    LEAF_TYPE *result_ptr = (LEAF_TYPE*)malloc(sizeof(LEAF_TYPE));
-    if (result_ptr == NULL) {
-        fprintf(stderr, "ERROR: malloc failed in convertedApplyOperation\n");
-        return NULL;
-    }
-    medusa_mem_note_wrap_alloc();
-
-    result_ptr->pImpl = result.pImpl;
-    return result_ptr;
+    LEAF_TYPE result = applyOperationToConvert(leaf_a_val, leaf_b_val);
+    return wrap_leaf_result(result);
 }
 
 void *convertedApplyOperationParam(void *a, void *b, size_t param) {
@@ -208,20 +265,7 @@ void *convertedApplyOperationParam(void *a, void *b, size_t param) {
     }
 
     LEAF_TYPE result = applyParamOperationToConvert(leaf_a_val, leaf_b_val, param);
-
-    if (result.pImpl == NULL) {
-        return NULL;
-    }
-
-    LEAF_TYPE *result_ptr = (LEAF_TYPE*)malloc(sizeof(LEAF_TYPE));
-    if (result_ptr == NULL) {
-        fprintf(stderr, "ERROR: malloc failed in convertedApplyOperationParam\n");
-        return NULL;
-    }
-    medusa_mem_note_wrap_alloc();
-
-    result_ptr->pImpl = result.pImpl;
-    return result_ptr;
+    return wrap_leaf_result(result);
 }
 
 void *convertedApplyOperationUnary(void *a){
@@ -230,21 +274,7 @@ void *convertedApplyOperationUnary(void *a){
     else {first = *(LEAF_TYPE*)a;}
 
     LEAF_TYPE result = applyOperationToConvertUnary(first);
-    if (result.pImpl == NULL) {
-        return NULL;
-    }
-    LEAF_TYPE *result_ptr = (LEAF_TYPE*)malloc(sizeof(LEAF_TYPE));
-    if(result_ptr == NULL){
-        fprintf(stderr, "ERROR: malloc failed in convertedApplyOperationUnary\n");
-        return NULL;
-        // some err
-    }
-    medusa_mem_note_wrap_alloc();
-
-    // Assign the new_impl to result_ptr
-    result_ptr->pImpl = result.pImpl;
-
-    return result_ptr;
+    return wrap_leaf_result(result);
 }
 
 void *convertedApplyOperationUnaryParam(void *a, size_t arg) {
@@ -253,21 +283,7 @@ void *convertedApplyOperationUnaryParam(void *a, size_t arg) {
     else {first = *(LEAF_TYPE*)a;}
 
     LEAF_TYPE result = applyOperationToConvertUnaryParam(first, arg);
-    if (result.pImpl == NULL) {
-        return NULL;
-    }
-    LEAF_TYPE *result_ptr = (LEAF_TYPE*)malloc(sizeof(LEAF_TYPE));
-    if(result_ptr == NULL){
-        fprintf(stderr, "ERROR: malloc failed in convertedApplyOperationUnaryGuarded\n");
-        return NULL;
-        // some err
-    }
-    medusa_mem_note_wrap_alloc();
-
-    // Assign the new_impl to result_ptr
-    result_ptr->pImpl = result.pImpl;
-
-    return result_ptr;
+    return wrap_leaf_result(result);
 }
 
 
@@ -290,8 +306,10 @@ void *convertedApplyOperationTimes2(void *a) { return convertedApplyOperationUna
 void *convertedApplyOperationNegI  (void *a) { return convertedApplyOperationUnary(a); }
 void *convertedApplyOperationNegIMul (void *a) { return convertedApplyOperationUnary(a); }
 void *convertedApplyOperationRot1I (void *a) { return convertedApplyOperationUnary(a); }
+void *convertedApplyOperationRot1IInv(void *a) { return convertedApplyOperationUnary(a); }
 void *convertedApplyOperationRot2I (void *a) { return convertedApplyOperationUnary(a); }
 void *convertedApplyOperationRot1S   (void *a) { return convertedApplyOperationUnary(a); }
+void *convertedApplyOperationRot1SInv(void *a) { return convertedApplyOperationUnary(a); }
 void *convertedApplyOperationRot2S   (void *a) { return convertedApplyOperationUnary(a); }
 void *convertedApplyOperationTimes2S (void *a) { return convertedApplyOperationUnary(a); }
 void *convertedApplyOperationSqrt2   (void *a) { return convertedApplyOperationUnary(a); }
@@ -358,6 +376,7 @@ qBDD unary_apply(qBDD l, LEAF_TYPE (*op)(LEAF_TYPE)) {
     if      (op == rotateCoef1)            return mtbdd_apply_unary(l, convertedApplyOperationRot1);
     else if (op == rotateCoef2)            return mtbdd_apply_unary(l, convertedApplyOperationRot2);
     else if (op == rotateCoef1S)           return mtbdd_apply_unary(l, convertedApplyOperationRot1S);
+    else if (op == rotateCoef1S_inv)       return mtbdd_apply_unary(l, convertedApplyOperationRot1SInv);
     else if (op == rotateCoef2S)           return mtbdd_apply_unary(l, convertedApplyOperationRot2S);
     else if (op == times2Leaf)             return mtbdd_apply_unary(l, convertedApplyOperationTimes2);
     else if (op == times2LeafS)            return mtbdd_apply_unary(l, convertedApplyOperationTimes2S);
@@ -365,6 +384,7 @@ qBDD unary_apply(qBDD l, LEAF_TYPE (*op)(LEAF_TYPE)) {
     else if (op == negI_mul)                return mtbdd_apply_unary(l, convertedApplyOperationNegIMul);
     else if (op == mtbdd_symb_neg_i)       return mtbdd_apply_unary(l, convertedApplyOperationNegI);
     else if (op == mtbdd_symb_coef_rot1_i) return mtbdd_apply_unary(l, convertedApplyOperationRot1I);
+    else if (op == mtbdd_symb_coef_rot1_i_inv) return mtbdd_apply_unary(l, convertedApplyOperationRot1IInv);
     else if (op == mtbdd_symb_coef_rot2_i) return mtbdd_apply_unary(l, convertedApplyOperationRot2I);
     else                                   return mtbdd_apply_unary(l, convertedApplyOperationUnary);
 }
@@ -444,8 +464,8 @@ char* terminal_to_str_val(void* ldata_raw, char *buddy_buf, size_t buddy_bufsize
 void init_terminal_symb_val_i() {
     lt_symb_val = mtbdd_new_terminal_type();
     mtbdd_register_compare_function(lt_symb_val, terminal_symb_val_compare);
-    mtbdd_register_free_function(lt_symb_val, NULL); /* TODO ADD FREE */
-    mtbdd_register_to_str_function(lt_symb_val, terminal_to_str_val); /* TODO ADD TO_STR */
+    mtbdd_register_free_function(lt_symb_val, terminal_symb_val_free);
+    mtbdd_register_to_str_function(lt_symb_val, terminal_to_str_val);
     mtbdd_register_hash_function(lt_symb_val, terminal_symb_val_hash);
 }
 
@@ -464,15 +484,43 @@ char* terminal_to_str_map(void* ldata_raw, char *buddy_buf, size_t buddy_bufsize
 void init_terminal_symb_map_i() {
     lt_symb_map = mtbdd_new_terminal_type();
     mtbdd_register_compare_function(lt_symb_map, terminal_symb_map_compare);
-    mtbdd_register_free_function(lt_symb_map, NULL); /* TODO ADD FREE */
-    mtbdd_register_to_str_function(lt_symb_map, terminal_to_str_map); /* TODO ADD TO_STR */
+    mtbdd_register_free_function(lt_symb_map, terminal_symb_map_free);
+    mtbdd_register_to_str_function(lt_symb_map, terminal_to_str_map);
     mtbdd_register_hash_function(lt_symb_map, terminal_symb_map_hash);
 }
 
 void initPackage(unsigned cacheSize, unsigned nodeSize, unsigned varNum) {
+    /* 0 means "use BuDDy defaults" so existing initPackage(0,0,0) callers keep working. */
+    if (cacheSize == 0) {
+        cacheSize = 10000;
+    }
+    if (nodeSize == 0) {
+        nodeSize = 10000;
+    }
+    if (varNum == 0) {
+        varNum = 1;
+    }
+    if (cacheSize > (unsigned)INT_MAX) {
+        cacheSize = (unsigned)INT_MAX;
+    }
+    if (nodeSize > (unsigned)INT_MAX) {
+        nodeSize = (unsigned)INT_MAX;
+    }
+    if (varNum > (unsigned)INT_MAX) {
+        varNum = (unsigned)INT_MAX;
+    }
+
     mtbdd = 1;
-    bdd_init(10000, 10000);
-    bdd_setvarnum(1);
+    /* BuDDy: bdd_init(nodetable size, operator-cache size). */
+    if (bdd_init((int)nodeSize, (int)cacheSize) < 0) {
+        error_exit("bdd_init failed (nodeSize=%u, cacheSize=%u).\n", nodeSize, cacheSize);
+    }
+    if (bdd_setvarnum((int)varNum) < 0) {
+        error_exit("bdd_setvarnum failed (varNum=%u).\n", varNum);
+    }
+    MEDUSA_DBG(.cat = MEDUSA_DBG_LIFECYCLE, .evt = "initPackage", .where = "initPackage",
+               .use_n = 1, .n_qubits = (int)varNum,
+               .note = "bdd_init(nodeSize,cacheSize)");
     lt_classic = mtbdd_new_terminal_type();
     mtbdd_register_compare_function(lt_classic, terminal_compare);
     /* freefun must only release LEAF_TYPE.pImpl (see freePimpl). Do not free the

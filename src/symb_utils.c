@@ -1,11 +1,10 @@
 #include <string.h>
 #include "symb_utils.h"
 #include "mtbdd_symb_val.h"
-// #include "sylvan_int.h" // for cache_next_opid()
 #include "error.h"
 #include "interface.h"
-/// Opid for mtbdd_symb_refine (needed for mtbdd_applyp)
-static uint64_t apply_mtbdd_symb_refine_id;
+#include "medusa_debug.h"
+#include "medusa_mem_track.h"
 
 /// Coefficient for resizing refine data's update array
 #define UPDATE_RESIZE_COEF 2
@@ -42,7 +41,18 @@ void rdata_delete(rdata_t *rd)
 
     free(rd->upd->arr); // stores only stree*, trees are freed when the value MTBDD is deleted
     free(rd->upd);
+    free(rd->ref);
     free(rd);
+}
+
+/**
+ * Algebraic-zero expressions (NULL from cancelled symexp_op) must not be stored
+ * as NULL in upd[] — that collides with "slot unset". Use SYMEXP_NULL instead
+ * (same meaning as a false-leaf refine for eval / can_be_reduced).
+ */
+static inline symexp_list_t *upd_norm(symexp_list_t *data)
+{
+    return (data == NULL) ? (symexp_list_t *)SYMEXP_NULL : data;
 }
 
 /**
@@ -57,13 +67,16 @@ static void rdata_add(rdata_t *rd, vars_t old, vars_t new, symexp_list_t *data)
     rd->ref->first = new_ref_elem;
     
     if (new >= rd->upd->size) {
-        // resize
+        size_t old_size = rd->upd->size;
         rd->upd->size *= UPDATE_RESIZE_COEF;
+        if (rd->upd->size <= new) {
+            rd->upd->size = new + 1;
+        }
         rd->upd->arr = my_realloc(rd->upd->arr, sizeof(upd_elem_t) * (rd->upd->size));
+        /* realloc does not zero the new tail; NULL means "unset" in refine_var_check */
+        memset(rd->upd->arr + old_size, 0, sizeof(upd_elem_t) * (rd->upd->size - old_size));
     }
-    if (data == NULL) 
-        printf("Adding to rdata: old var %lu, new var %lu, data NULL\n", old, new);
-    rd->upd->arr[new] = data;
+    rd->upd->arr[new] = upd_norm(data);
 
     vmap_add(rd->vm, old);
 }
@@ -83,6 +96,8 @@ static void rdata_ref_next(rdata_t *rd)
  */
 vars_t refine_var_check(vars_t var, symexp_list_t *data, rdata_t *rd)
 {
+    data = upd_norm(data);
+
     if (rd->upd->arr[var] == NULL) {
         rd->upd->arr[var] = data;
         return var;
@@ -106,74 +121,14 @@ vars_t refine_var_check(vars_t var, symexp_list_t *data, rdata_t *rd)
     }
 
     vars_t new = rd->vm->next_var; // next_var is incremented during rdata_add when adding into vmap
-    if (data == NULL) {
-        printf("Adding to rdata: old var %lu, new var %lu, data NULL\n", var, new);
-    }
     rdata_add(rd, var, new, data);
     return new;
 }
 
-// TASK_DECL_3(MTBDD, mtbdd_symb_refine, MTBDD*, MTBDD*, size_t);
-// TASK_IMPL_3(MTBDD, mtbdd_symb_refine, MTBDD*, p_map, MTBDD*, p_val, size_t, rd_raw)
-// {
-//     MTBDD map = *p_map; // ptr needed because of 'mtbdd_applyp'
-//     MTBDD val = *p_val;
-//     rdata_t *rd = (rdata_t*) rd_raw; // 'mtbdd_applyp' accepts only size_t parameter
-
-//     if (mtbdd_isleaf(map) && mtbdd_isleaf(val)) {
-//         sl_map_t *mdata = (sl_map_t*) mtbdd_getvalue(map);
-//         vars_t new_a, new_b, new_c, new_d;
-
-//         if (val == mtbdd_false) {
-//             new_a = refine_var_check(mdata->va, SYMEXP_NULL, rd);
-//             new_b = refine_var_check(mdata->vb, SYMEXP_NULL, rd);
-//             new_c = refine_var_check(mdata->vc, SYMEXP_NULL, rd);
-//             new_d = refine_var_check(mdata->vd, SYMEXP_NULL, rd);
-//         }
-//         else {
-//             sl_val_t *vdata = (sl_val_t*) mtbdd_getvalue(val);
-//             new_a = refine_var_check(mdata->va, vdata->a, rd);
-//             new_b = refine_var_check(mdata->vb, vdata->b, rd);
-//             new_c = refine_var_check(mdata->vc, vdata->c, rd);
-//             new_d = refine_var_check(mdata->vd, vdata->d, rd);
-//         }
-
-//         if (new_a == mdata->va && new_b == mdata->vb && new_c == mdata->vc && new_d == mdata->vd) {
-//             return map;
-//         }
-
-//         // new symbolic var needed
-//         sl_map_t new_data;
-//         new_data.va = new_a;
-//         new_data.vb = new_b;
-//         new_data.vc = new_c;
-//         new_data.vd = new_d;
-
-//         MTBDD res = mtbdd_makeleaf(ltype_symb_map_id, (uint64_t) &new_data);
-//         return res;
-//     }
-
-//     return mtbdd_invalid; // Recurse deeper
-// }
-
- // REDO
-
-/**
- * Computes refine on the symbolic MTBDD pair
- * 
- * @param p_map pointer to a symbolic map MTBDD
- * 
- * @param p_val pointer to a symbolic value MTBDD
- * 
- * @param rdata ptr to structure cointaining all the data needed for refine (update, refine and map data structures)
- * 
- * @param opid opid needed for the Sylvan's apply
- * 
- */
-#define my_mtbdd_symb_refine(p_map, p_val, rdata) \
-        mtbdd_applyp(p_map, p_val, (size_t)rdata, TASK(mtbdd_symb_refine), apply_mtbdd_symb_refine_id)
-
 qBDD my_mtbdd_symb_refine_i(qBDD p_map, qBDD p_val, size_t rdata) {
+    /* Side-effecting apply: must not reuse cached results from a prior refine
+     * with a different (or recycled) rdata pointer. Cache keys use (int)param. */
+    clearOpCache();
     return binary_apply_guarded_param(
         p_map, 
         p_val, 
@@ -200,6 +155,12 @@ static void eval_var(size_t var, rdata_t *rdata, coef_t *map, coef_t *new_map)
                 set_generic(imm_res, map[expr->active->data->var]);
                 // multiplies by the coefficient (MPZ) in the expression
                 mul_mpz_generic(imm_res, imm_res, expr->active->data->coef);
+#if !defined(LEAF_BACKEND_GMP)
+                /* Per-term 1/√2 from float-symbolic T/Tdg (not the global H scale). */
+                for (unsigned s = 0; s < expr->active->data->sqrt2_inv; s++) {
+                    mul_sqrt2inv_generic(imm_res, imm_res);
+                }
+#endif
                 // adds to the result map (floating point)
                 add_generic(new_map[var], new_map[var], imm_res);
                 symexp_list_next(expr);
@@ -236,9 +197,16 @@ bool symb_refine(mtbdd_symb_t *symbc, rdata_t *rdata)
                                   // (can be in this if because first refine is always reduced)
     }
 
+    MEDUSA_DBG(.cat = MEDUSA_DBG_SYMB, .evt = "refine", .where = "symb_refine",
+               .use_bdd = 1, .bdd = (int)refined, .ref = medusa_dbg_bdd_ref((int)refined),
+               .is_false = qBDD_isFalse(refined), .leaves = qBDD_leafcount(refined),
+               .note = is_finished ? "finished" : "continue");
+
     if (!is_finished) {
-        // Reset symbolic simulation
+        // Reset symbolic simulation and replace map/val (drop old protects)
         resetInvSqrtCoeffSymb();
+        qBDD_unprotect(symbc->map);
+        qBDD_unprotect(symbc->val);
         symbc->map = refined;
         symbc->val = my_mtbdd_map_to_symb_val_i(refined, symbc->vm->map, symbc->is_reduced);
         qBDD_protect(symbc->val);
@@ -251,6 +219,14 @@ bool symb_refine(mtbdd_symb_t *symbc, rdata_t *rdata)
 
 void symb_eval(qBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata)
 {
+    size_t pa = 0, pf = 0, wa = 0;
+    medusa_mem_get(&pa, &pf, &wa);
+    MEDUSA_DBG(.cat = MEDUSA_DBG_SYMB, .evt = "eval_enter", .where = "symb_eval",
+               .use_bdd = 1, .bdd = (int)*circ, .ref = medusa_dbg_bdd_ref((int)*circ),
+               .is_false = qBDD_isFalse(*circ), .leaves = qBDD_leafcount(*circ),
+               .use_iters = 1, .iters = iters,
+               .use_mem = 1, .pimpl_live = pa - pf, .wrap_allocs = wa);
+
     coef_t *new_map = my_malloc(sizeof(coef_t) * symbc->vm->msize);
 
     for (int i = 0; i < symbc->vm->msize; i++) {
@@ -280,8 +256,15 @@ void symb_eval(qBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata)
         new_map = temp_map;
     }
 
-    *circ = my_mtbdd_from_symb_i(symbc->map, (size_t)symbc->vm->map);
-    qBDD_protect(*circ);
+    qBDD next = my_mtbdd_from_symb_i(symbc->map, (size_t)symbc->vm->map);
+    MEDUSA_DBG(.cat = MEDUSA_DBG_SYMB, .evt = "from_symb", .where = "symb_eval",
+               .use_bdd = 1, .bdd = (int)next, .ref = medusa_dbg_bdd_ref((int)next),
+               .is_false = qBDD_isFalse(next), .leaves = qBDD_leafcount(next),
+               .use_iters = 1, .iters = iters);
+
+    qBDD_protect(next);
+    qBDD_unprotect(*circ);
+    *circ = next;
 
 #if defined(LEAF_BACKEND_GMP)
     mulInvSqrtSymbCoeff((unsigned long)iters);
@@ -298,7 +281,16 @@ void symb_eval(qBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata)
     qBDD_unprotect((symbc->map));
     qBDD_unprotect((symbc->val));
     clearInvSqrtCoeffSymb();
+
+    MEDUSA_DBG(.cat = MEDUSA_DBG_GC, .evt = "forceGC_before", .where = "symb_eval",
+               .use_bdd = 1, .bdd = (int)*circ, .ref = medusa_dbg_bdd_ref((int)*circ),
+               .is_false = qBDD_isFalse(*circ), .leaves = qBDD_leafcount(*circ),
+               .use_iters = 1, .iters = iters);
     forceGC(); // Clears both the operation cache and the node cache, needed as some expressions may reappear again
+    MEDUSA_DBG(.cat = MEDUSA_DBG_GC, .evt = "forceGC_after", .where = "symb_eval",
+               .use_bdd = 1, .bdd = (int)*circ, .ref = medusa_dbg_bdd_ref((int)*circ),
+               .is_false = qBDD_isFalse(*circ), .leaves = qBDD_leafcount(*circ),
+               .use_iters = 1, .iters = iters);
 }
 
 /* end of "symb_utils.c" */

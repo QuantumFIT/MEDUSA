@@ -198,6 +198,12 @@ int terminal_symb_map_compare_generic(void* l_a, void* l_b);
 unsigned terminal_symb_map_hash_generic(void* l_a);
 
 /**
+ * @brief Free symb-map / symb-val pImpl shells (not outer LEAF_TYPE*; not interned symexps).
+ */
+void terminal_symb_map_free(void *leafraw);
+void terminal_symb_val_free(void *leafraw);
+
+/**
  * @brief Compares two raw symbolic value terminals for equality in the node table.
  * @param l_a Pointer to the first symbolic value terminal
  * @param l_b Pointer to the second symbolic value terminal
