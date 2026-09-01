@@ -9,6 +9,7 @@
 #include "interface.h"
 #include "norm_track.h"
 #include "sim_mosf.h"
+#include "medusa_debug.h"
 
 /// Name of the output .dot file
 #define OUT_FILE "res"
@@ -23,18 +24,18 @@
  --help,            -h          show this message\n\
  --info,            -i          measure the simulation runtime and peak memory usage\n\
  --symbolic,        -s          perform symbolic simulation if possible\n\
- --probability,     -p          show probabilities of measuring the basis state in the result MTBDD instead\n\
- --norm-error,      -e          enable tracking of the state vector norm during the simulation (outputs to CSV file)\n\
- --tree-simulation, -t          use tree-traversal based simulation instead of applies\n\
+ --probability,     -p          print |amp|^2 on res.dot terminals instead of amplitudes\n\
+ --norm-error,      -e          enable tracking of the state vector norm during simulation\n\
+ --tree-simulation, -t          use MOSF tree simulation instead of apply gates (needs USE_CXX=1)\n\
  \n\
  Options with a required argument:\n\
- --file,        -f          specify the input QASM file (default STDIN)\n\
- --nsamples,    -n          specify the number of samples used for measurement (default 1024)\n\
- --norm-csv,    -e          specify the output CSV file for norm tracking (default 'norm_track.csv')\n\
+ --file,            -f          specify the input QASM file (default STDIN)\n\
+ --nsamples,        -n          number of samples used for measurement (default 1024)\n\
+ --norm-csv,        -c          CSV path for norm tracking (default 'norm_track.csv'; requires -e)\n\
  \n\
  Options with an optional argument:\n\
- --measure,     -m          perform the measure operations encountered in the circuit, \n\
-                         optional arg specifies the file for saving the measurement result (default STDOUT)\n\
+ --measure,         -m          perform measure operations at the end of the circuit;\n\
+                                optional arg is the result file (default STDOUT)\n\
  \n\
  The MTBDD result is saved in the file 'res.dot'.\n\
  The evaluation of variables for large numbers is saved (if necessary) in 'res-vars.txt'.\n"
@@ -109,6 +110,8 @@ int main(int argc, char *argv[])
                 opt_measure = true;
                 if (!optarg && optind < argc && argv[optind][0] != '-') {
                     optarg = argv[optind++];
+                }
+                if (optarg) {
                     measure_output = fopen(optarg, "w");
                     if (measure_output == NULL) {
                         error_exit("Invalid output file '%s'.\n", optarg);
@@ -143,7 +146,9 @@ int main(int argc, char *argv[])
     }
 
     // Init:
+    medusa_dbg_init();
     initPackage(0,0,0);
+    setLeafPrintProb(opt_probability);
     if (flags.opt_symb) {
         init_symb_backend();
     }
@@ -183,6 +188,17 @@ int main(int argc, char *argv[])
     clock_gettime(CLOCK_MONOTONIC, &t_finish); // End the timer
     long peak_mem = get_peak_mem();
     // Output:
+    {
+        double tp = sim_successful
+            ? (double)qBDD_total_prob(circ, info.n_qubits) : 0.0;
+        MEDUSA_DBG(.cat = MEDUSA_DBG_NORM, .evt = "sim_done", .where = "main",
+                   .use_bdd = 1, .bdd = (int)circ, .ref = medusa_dbg_bdd_ref((int)circ),
+                   .is_false = qBDD_isFalse(circ), .leaves = qBDD_leafcount(circ),
+                   .use_total = 1, .total = tp,
+                   .use_n = 1, .n_qubits = info.n_qubits,
+                   .use_loop = 1, .loop_idx = (int)info.n_loops,
+                   .note = sim_successful ? "ok" : "sim_failed");
+    }
     lnum_map_init(LONG_NUMS_MAP_INIT_SIZE);
     q_fprintdot(out, circ);
     // Check if there are any large numbers outputted only as variables in the .dot file
@@ -220,11 +236,15 @@ int main(int argc, char *argv[])
     if (sim_successful) {
         deleteCircuit(&circ);
     }
+    free_sim_info(&info);
     freePackage();
     fclose(out);
     norm_track_close();
     if (opt_infile) {
         fclose(input);
+    }
+    if (measure_output != stdout && measure_output != NULL) {
+        fclose(measure_output);
     }
 
     return 0;

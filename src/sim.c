@@ -13,6 +13,7 @@
 #include "interface.h"
 #include <assert.h>
 #include "norm_track.h"
+#include "medusa_debug.h"
 
 /// Max. supported length of the string with classical bit register identifier (includes '\0')
 #define BIT_REG_ID_MAX_LEN (30+1)
@@ -38,6 +39,18 @@ void init_sim_info(sim_info_t *i)
     i->t_len = 0;
     i->t_el_loop = NULL;
     i->t_el_eval = NULL;
+}
+
+void free_sim_info(sim_info_t *i)
+{
+    free(i->bits_to_measure);
+    i->bits_to_measure = NULL;
+    free(i->t_el_loop);
+    i->t_el_loop = NULL;
+    free(i->t_el_eval);
+    i->t_el_eval = NULL;
+    i->t_len = 0;
+    i->n_loops = 0;
 }
 
 /**
@@ -310,8 +323,7 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                 error_exit("Bit register size is different than the size of the qubit register - currently not supported.\n");
             }
 
-            circuit_init_interface(circ, n);
-            qBDD_protect(*circ);
+            circuit_init_interface(circ, n); /* returns already protected root */
             init = true;
         }
         else if (init) {
@@ -340,6 +352,12 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                         symexp_htab_init(1LL<<17);
                     }
                     symb_init(circ, &symbc);
+                    MEDUSA_DBG(.cat = MEDUSA_DBG_SYMB, .evt = "loop_start", .where = "sim_file",
+                               .use_bdd = 1, .bdd = (int)*circ, .ref = medusa_dbg_bdd_ref((int)*circ),
+                               .is_false = qBDD_isFalse(*circ), .leaves = qBDD_leafcount(*circ),
+                               .use_n = 1, .n_qubits = info->n_qubits,
+                               .use_iters = 1, .iters = iters,
+                               .use_loop = 1, .loop_idx = (int)info->n_loops);
                 }
                 if (fgetpos(in, &loop_start) != 0) {
                     error_exit("Could not get the current position of the stream to mark the start of a loop.\n");
@@ -379,6 +397,20 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                         clock_gettime(CLOCK_MONOTONIC, &t_loop_finish);
                         info->t_el_loop[info->n_loops] = get_time_el(t_loop_start, t_loop_finish);
                         info->t_el_eval[info->n_loops] = get_time_el(t_eval_start, t_loop_finish);
+
+                        {
+                            double tp = (double)qBDD_total_prob(*circ, info->n_qubits);
+                            MEDUSA_DBG(.cat = MEDUSA_DBG_NORM, .evt = "loop_done", .where = "sim_file",
+                                       .use_bdd = 1, .bdd = (int)*circ,
+                                       .ref = medusa_dbg_bdd_ref((int)*circ),
+                                       .is_false = qBDD_isFalse(*circ),
+                                       .leaves = qBDD_leafcount(*circ),
+                                       .use_total = 1, .total = tp,
+                                       .use_n = 1, .n_qubits = info->n_qubits,
+                                       .use_iters = 1, .iters = iters,
+                                       .use_loop = 1, .loop_idx = (int)info->n_loops);
+                        }
+
                         info->n_loops++;
 
                         if (g_norm_track_enabled) {
@@ -540,6 +572,7 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
 
     if (flags->opt_symb && info->n_loops > 0) {
         symexp_htab_clear();
+        symexp_htab_delete();
     }
     return init;
 }

@@ -32,6 +32,9 @@ typedef struct sim_info {
  */
 void init_sim_info(sim_info_t *i);
 
+/** Free arrays owned by sim_info_t (timing + measure map). */
+void free_sim_info(sim_info_t *i);
+
 /**
  * Parses a given QASM file and simulates this circuit
  * 
