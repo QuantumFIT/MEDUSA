@@ -145,8 +145,8 @@ extern "C" bool sim_mosf_file(FILE *in, qBDD *circ, const sim_flags_t *flags, si
 
         while (mf.has_next()) {
             mosf::Event ev = mf.next(); // unrolled for now, add symbolic later
-            qBDD_protect(*circ);
             qBDD res = ev.op(*circ);
+            qBDD_protect(res);
             qBDD_unprotect(*circ);
             *circ = res;
         }
