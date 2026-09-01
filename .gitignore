@@ -7,9 +7,14 @@
 MEDUSA
 MEDUSA_*
 /test_unit_api
+/test_metamorphic
 /test_stress_f64
+/test_stress_f128
 /test_stress_gmp
 /obj
+
+# Scratch / local dumps
+tmp_*
 
 /doc
 
