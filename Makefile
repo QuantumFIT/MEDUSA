@@ -195,7 +195,7 @@ all: buddy_doubles_f128
 
 help:
 	@echo "MEDUSA (MoToBuddy backends)"
-	@echo "  make                  -> buddy_doubles_f128  (./MEDUSA_buddy_doubles_f128)"
+	@echo "  make                  -> buddy_doubles_f128  (./MEDUSA -> ./MEDUSA_buddy_doubles_f128)"
 	@echo "  make buddy_gmp        algebraic GMP leaves"
 	@echo "  make buddy_doubles_f32|f64|f80|f128|all"
 	@echo "  make USE_CXX=1 ...    C++ tree gates + MOSF (experimental)"
@@ -418,6 +418,9 @@ buddy_doubles: $(SIM_MOSF_OBJ) \
                $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a | $(BIN_DIR)
 	$(LINKER) $(INC_DIRS_BUDDY_DOUBLES) $(CFLAGS) \
 	    -o $(BIN_DIR)/MEDUSA_buddy_doubles_$(FLOAT_SUFFIX) $^ $(CLIBS)
+ifeq ($(LEAF_FLOAT_TYPE),3)
+	ln -sfn MEDUSA_buddy_doubles_$(FLOAT_SUFFIX) $(EXEC)
+endif
 
 # Convenience aliases — recurse with the correct LEAF_FLOAT_TYPE
 buddy_doubles_f32:

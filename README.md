@@ -12,7 +12,7 @@ Download and build MoToBuddy (requires `git`):
 ```
 make init
 ```
-Then build (default is MoToBuddy `__float128` / f128):
+Then build (default is MoToBuddy `__float128` / f128). That also creates `./MEDUSA` as a symlink to `./MEDUSA_buddy_doubles_f128`:
 ```
 make
 ```
@@ -43,11 +43,11 @@ make buddy_doubles_f128 USE_CXX=1
 
 The simulator accepts input files in the `OpenQASM` format. Several circuit files can be found in the `benchmarks` directory:
 ```
-./MEDUSA_buddy_doubles_f128 --file benchmarks/no-measure/BernsteinVazirani/01.qasm
+./MEDUSA --file benchmarks/no-measure/BernsteinVazirani/01.qasm
 ```
 Run with `--info` to print wall-clock time and peak physical memory usage. MEDUSA also supports symbolic loop simulation via `--symbolic`. For all options:
 ```
-./MEDUSA_buddy_doubles_f128 --help
+./MEDUSA --help
 ```
 
 The result of the simulation is written to `res.dot`. Converting large diagrams to a viewable format can take a while - use [Graphviz](https://graphviz.org/):
@@ -64,10 +64,10 @@ Simulator sources in this tree are MIT (see `LICENSE`). MoToBuddy/BuDDy and GMP 
 
 To profile with Valgrind's callgrind tool, build with `PROFILE=1`:
 ```
-make buddy_doubles_f128 PROFILE=1
+make PROFILE=1
 ```
 This disables optimisation (`-O0`) and keeps debug symbols so callgrind can annotate sources. Then run:
 ```
-valgrind --tool=callgrind ./MEDUSA_buddy_doubles_f128 --file benchmarks/...
+valgrind --tool=callgrind ./MEDUSA --file benchmarks/...
 callgrind_annotate callgrind.out.<pid>
 ```
