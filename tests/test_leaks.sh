@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Valgrind leak check for unit + a short stress run (doubles f64).
+# Valgrind leak check for unit + a short stress run (doubles f128).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,13 +15,13 @@ fi
 
 NPROC="$(nproc 2>/dev/null || echo 4)"
 
-# Build only (do not run phony test-stress-f64, which executes the binary).
-make buddy_doubles_f64 test_unit_api -j"${NPROC}"
-rm -f test_stress_f64
-make ./test_stress_f64 STRESS_LEVEL=1 -j"${NPROC}"
+# Build only (do not run phony test-stress-f128, which executes the binary).
+make buddy_doubles_f128 test_unit_api LEAF_FLOAT_TYPE=3 -j"${NPROC}"
+rm -f test_stress_f128
+make ./test_stress_f128 STRESS_LEVEL=1 LEAF_FLOAT_TYPE=3 -j"${NPROC}"
 
-VG=(valgrind --leak-check=full --show-leak-kinds=definite,indirect
-    --errors-for-leak-kinds=definite
+VG=(valgrind --leak-check=full --show-leak-kinds=all
+    --errors-for-leak-kinds=definite,indirect,possible,reachable
     --error-exitcode=42
     --quiet)
 
@@ -32,11 +32,24 @@ else
     summary_record "valgrind test_unit_api" 1
 fi
 
-echo "=== valgrind test_stress_f64 (LEVEL=1 binary) ==="
-if "${VG[@]}" ./test_stress_f64; then
-    summary_record "valgrind test_stress_f64" 0
+echo "=== valgrind test_stress_f128 (LEVEL=1 binary) ==="
+if "${VG[@]}" ./test_stress_f128; then
+    summary_record "valgrind test_stress_f128" 0
 else
-    summary_record "valgrind test_stress_f64" 1
+    summary_record "valgrind test_stress_f128" 1
+fi
+
+QASM="${ROOT}/benchmarks/no-measure/LP-Grover/05.qasm"
+if [[ -f "${QASM}" ]]; then
+    echo "=== valgrind MEDUSA symbolic LP-Grover/05 ==="
+    if "${VG[@]}" ./MEDUSA_buddy_doubles_f128 --file "${QASM}" --symbolic >/dev/null; then
+        summary_record "valgrind symbolic Grover/05" 0
+    else
+        summary_record "valgrind symbolic Grover/05" 1
+    fi
+else
+    echo "skip symbolic valgrind (missing ${QASM})"
+    summary_record "valgrind symbolic Grover/05" 0
 fi
 
 summary_print "test_leaks"

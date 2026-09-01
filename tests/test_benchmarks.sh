@@ -8,12 +8,12 @@ cd "${ROOT}"
 source "${ROOT}/tests/test_summary.sh"
 summary_init
 
-BIN="${ROOT}/MEDUSA_buddy_doubles_f64"
+BIN="${ROOT}/MEDUSA_buddy_doubles_f128"
 WORKDIR="${TMPDIR:-/tmp}/medusa_bench_$$"
 mkdir -p "${WORKDIR}"
 trap 'rm -rf "${WORKDIR}"' EXIT
 
-# Max allowed |total_prob - 1| over the whole circuit (f64 accumulation).
+# Max allowed |total_prob - 1| over the whole circuit (f128 accumulation).
 MAX_NORM_DEV="${MAX_NORM_DEV:-1e-6}"
 
 is_valid_dot() {
@@ -88,7 +88,7 @@ run_one() {
 }
 
 if [[ ! -x "${BIN}" ]]; then
-    echo "Binary ${BIN} not found — build with: make buddy_doubles_f64"
+    echo "Binary ${BIN} not found — build with: make buddy_doubles_f128"
     exit 1
 fi
 

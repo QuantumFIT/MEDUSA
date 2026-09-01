@@ -48,9 +48,56 @@ static unsigned refcount(qBDD n) {
     return bddnodes[n].refcou;
 }
 
+static void destroy_owned_leaf(LEAF_TYPE *leaf);
+
 static void setup_pkg(void) {
     initPackage(0, 0, 0);
     test_silence_gbc();
+}
+
+static void test_init_package_sizes(void) {
+    TEST_SECTION("initPackage honors node/cache/var sizes");
+
+    initPackage(2048, 4096, 8);
+    test_silence_gbc();
+
+    bddStat st;
+    bdd_stats(&st);
+    TEST_ASSERT_MSG(st.varnum == 8, "varNum should be 8");
+    TEST_ASSERT_MSG(st.cachesize == 2048, "cacheSize should be 2048");
+    TEST_ASSERT_MSG(st.nodenum >= 4096, "node table should be at least nodeSize");
+    freePackage();
+
+    initPackage(0, 0, 0);
+    test_silence_gbc();
+    bdd_stats(&st);
+    TEST_ASSERT_MSG(st.varnum == 1, "0 varNum defaults to 1");
+    TEST_ASSERT_MSG(st.cachesize == 10000, "0 cacheSize defaults to 10000");
+    TEST_ASSERT_MSG(st.nodenum >= 10000, "0 nodeSize defaults to 10000");
+    freePackage();
+}
+
+static void test_leaf_print_prob(void) {
+    TEST_SECTION("setLeafPrintProb prints |z|^2");
+
+    setup_pkg();
+    LEAF_TYPE *p = heap_leaf(0.5, 0.0);
+    char buf[64];
+
+    setLeafPrintProb(true);
+    char *s = terminal_to_str_generic(p, buf, sizeof buf);
+    TEST_ASSERT(s != NULL);
+    TEST_ASSERT_NEAR(strtod(s, NULL), 0.25, 1e-6);
+    TEST_ASSERT(strchr(s, 'i') == NULL);
+
+    setLeafPrintProb(false);
+    s = terminal_to_str_generic(p, buf, sizeof buf);
+    TEST_ASSERT(s != NULL);
+    TEST_ASSERT(strchr(s, 'i') != NULL);
+
+    destroy_owned_leaf(p);
+    free(p);
+    freePackage();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -99,7 +146,6 @@ static void test_apply_free_unused_preserves_terminals(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 1);
-    qBDD_protect(circ);
 
     /* |0> --H--> equal superposition; forces addLeafS/subLeafS with false branches */
     gate_h(&circ, 0);
@@ -142,7 +188,6 @@ static void test_protect_unprotect_refcount(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 2);
-    qBDD_protect(circ);
 
     unsigned base = refcount(circ);
     TEST_ASSERT(base >= 1);
@@ -175,7 +220,6 @@ static void test_cnot_protect_balance(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 3);
-    qBDD_protect(circ);
 
     gate_h(&circ, 0);
     gate_cnot(&circ, 1, 0);
@@ -198,7 +242,6 @@ static void test_toffoli_norm_regression(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 3);
-    qBDD_protect(circ);
 
     gate_h(&circ, 0);
     gate_cnot(&circ, 1, 0);
@@ -232,7 +275,6 @@ static void test_gates_norm_and_idempotence(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 2);
-    qBDD_protect(circ);
 
     TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, 1e-9);
 
@@ -280,7 +322,6 @@ static void test_x_flips_computational_basis(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 2);
-    qBDD_protect(circ);
 
     TEST_ASSERT_NEAR(test_basis_prob(circ, "00"), 1.0, 1e-9);
     gate_x(&circ, 0);
@@ -301,7 +342,6 @@ static void test_grover_2q_marks_11(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 2);
-    qBDD_protect(circ);
 
     gate_h(&circ, 0);
     gate_h(&circ, 1);
@@ -330,7 +370,6 @@ static void test_bell_state(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 2);
-    qBDD_protect(circ);
 
     gate_h(&circ, 0);
     gate_cnot(&circ, 1, 0);
@@ -376,7 +415,6 @@ static void test_node_classification(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 1);
-    qBDD_protect(circ);
 
     TEST_ASSERT(!qBDD_isFalse(circ));
     TEST_ASSERT(qBDD_isInternal(circ) || qBDD_isTerminal(circ));
@@ -401,7 +439,6 @@ static void test_binary_apply_with_false(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 1);
-    qBDD_protect(circ);
 
     /* Walk to the |1> leaf (false on |0> cube) and add with false */
     qBDD leaf = circ;
@@ -531,6 +568,7 @@ static void test_maketerminal_dedup_frees_via_freepimpl(void) {
     LEAF_TYPE *first = heap_leaf(0.25, 0.75);
     medusa_mem_note_pimpl_alloc();
     qBDD t = qBDD_maketerminal(qBDD_classicLType(), first);
+    qBDD_protect(t);
 
     size_t a0, f0, w0;
     medusa_mem_get(&a0, &f0, &w0);
@@ -555,6 +593,7 @@ static void test_maketerminal_dedup_frees_via_freepimpl(void) {
     LEAF_TYPE v = qBDD_getTerminalValue(t);
     TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 0.25, 1e-12);
 
+    qBDD_unprotect(t);
     freePackage();
 }
 
@@ -564,7 +603,6 @@ static void test_cancel_apply_no_pimpl_leak(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 1);
-    qBDD_protect(circ);
 
     qBDD leaf = circ;
     while (qBDD_isInternal(leaf))
@@ -706,6 +744,7 @@ static void test_maketerminal_dedup_preserves_stored_value(void) {
 
     LEAF_TYPE *first = heap_leaf(0.3, 0.4);
     qBDD t = qBDD_maketerminal(qBDD_classicLType(), first);
+    qBDD_protect(t);
     TEST_ASSERT(qBDD_isTerminal(t));
 
     /* Many equal inserts — each unused copy must be freed; stored value stays */
@@ -724,6 +763,7 @@ static void test_maketerminal_dedup_preserves_stored_value(void) {
     /* Distinct value must allocate a new terminal */
     LEAF_TYPE *other = heap_leaf(-0.3, 0.4);
     qBDD t3 = qBDD_maketerminal(qBDD_classicLType(), other);
+    qBDD_protect(t3);
     TEST_ASSERT(t3 != t);
     LEAF_TYPE v3 = qBDD_getTerminalValue(t3);
     TEST_ASSERT_NEAR(to_double_generic(v3.pImpl->re), -0.3, 1e-12);
@@ -732,6 +772,8 @@ static void test_maketerminal_dedup_preserves_stored_value(void) {
     v = qBDD_getTerminalValue(t);
     TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 0.3, 1e-12);
 
+    qBDD_unprotect(t3);
+    qBDD_unprotect(t);
     freePackage();
 }
 
@@ -851,7 +893,6 @@ static void test_apply_cancel_and_reuse_terminals(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 1);
-    qBDD_protect(circ);
 
     qBDD leaf = circ;
     while (qBDD_isInternal(leaf))
@@ -890,7 +931,6 @@ static void test_unary_apply_identity_free_path(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 1);
-    qBDD_protect(circ);
 
     qBDD leaf = circ;
     while (qBDD_isInternal(leaf))
@@ -923,7 +963,6 @@ static void test_many_terminals_survive_gc_when_protected(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 3);
-    qBDD_protect(circ);
 
     /* Create a spread of leaf values via gates */
     gate_h(&circ, 0);
@@ -965,7 +1004,6 @@ static void test_stress_gates_with_gc_terminals_intact(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 4);
-    qBDD_protect(circ);
 
     for (int round = 0; round < 8; round++) {
         gate_h(&circ, (uint32_t)(round % 4));
@@ -1045,6 +1083,8 @@ static void test_get_terminal_value_null_safe_on_false(void) {
 int main(void) {
     printf("MEDUSA MoToBuddy API tests\n");
 
+    test_init_package_sizes();
+    test_leaf_print_prob();
     test_leaf_add_does_not_alias();
     test_freepimpl_registered_with_motobuddy();
     test_motobuddy_freepimpl_frees_unused_pimpl();

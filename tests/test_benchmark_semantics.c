@@ -1,5 +1,5 @@
 /**
- * Semantic checks on benchmark algorithms (doubles f64 / MoToBuddy).
+ * Semantic checks on benchmark algorithms (doubles f128 / MoToBuddy).
  * Verifies algorithm outcomes, not only unit-norm MTBDDs:
  *   - Bernstein–Vazirani recovers the secret bitstring
  *   - Grover amplifies the oracle-marked state

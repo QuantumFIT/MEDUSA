@@ -1,7 +1,7 @@
 /**
  * @file test_stress.c
  * Extreme stress tests for MoToBuddy GC, terminal ownership, and gate churn.
- * Built twice: LEAF_BACKEND_DOUBLES (f64) and LEAF_BACKEND_GMP.
+ * Built twice: LEAF_BACKEND_DOUBLES (default f128) and LEAF_BACKEND_GMP.
  *
  * Intensity via -DSTRESS_LEVEL=1|2|3 (default 2). Level 3 is intentionally brutal.
  */
@@ -281,7 +281,6 @@ static void stress_orphan_circuit_churn(void) {
     setup_pkg();
     qBDD survivor;
     circuit_init_interface(&survivor, 4);
-    qBDD_protect(survivor);
     gate_h(&survivor, 0);
     gate_cnot(&survivor, 1, 0);
 
@@ -325,7 +324,6 @@ static void stress_gate_storm_with_gc(void) {
     const int n = GATE_QUBITS;
     qBDD circ;
     circuit_init_interface(&circ, (uint32_t)n);
-    qBDD_protect(circ);
 
     for (int r = 0; r < GATE_ROUNDS; r++) {
         uint32_t a = (uint32_t)(r % n);
@@ -382,7 +380,6 @@ static void stress_apply_temp_churn(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 2);
-    qBDD_protect(circ);
     gate_h(&circ, 0);
     gate_h(&circ, 1);
 
@@ -435,7 +432,6 @@ static void stress_protect_thrash(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 5);
-    qBDD_protect(circ);
 
     for (int i = 0; i < APPLY_ITERS; i++) {
         qBDD snap = circ;
@@ -472,7 +468,6 @@ static void stress_ghz_ladder(void) {
     const int n = GATE_QUBITS > 8 ? 8 : GATE_QUBITS;
     qBDD circ;
     circuit_init_interface(&circ, (uint32_t)n);
-    qBDD_protect(circ);
 
     gate_h(&circ, 0);
     forceGC();
@@ -502,7 +497,6 @@ static void stress_mixed_toffoli_gc(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 6);
-    qBDD_protect(circ);
 
     gate_h(&circ, 0);
     gate_h(&circ, 1);
@@ -539,7 +533,6 @@ static void stress_replace_root_gc(void) {
     setup_pkg();
     qBDD circ;
     circuit_init_interface(&circ, 4);
-    qBDD_protect(circ);
 
     for (int i = 0; i < APPLY_ITERS / 2; i++) {
         qBDD old = circ;
@@ -561,7 +554,15 @@ static void stress_replace_root_gc(void) {
 
 int main(void) {
 #if defined(LEAF_BACKEND_DOUBLES)
+#if LEAF_FLOAT_TYPE == 0
+    const char *backend = "doubles_f32";
+#elif LEAF_FLOAT_TYPE == 2
+    const char *backend = "doubles_f80";
+#elif LEAF_FLOAT_TYPE == 3
+    const char *backend = "doubles_f128";
+#else
     const char *backend = "doubles_f64";
+#endif
 #elif defined(LEAF_BACKEND_GMP)
     const char *backend = "gmp";
 #else

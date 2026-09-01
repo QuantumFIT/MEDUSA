@@ -2,9 +2,9 @@
 
 ```
 make init-motobuddy   # once (clones/builds VeriFIT/MoToBuddy)
-make test             # unit API + small circuit smokes (doubles f64)
-make test-stress      # extreme GC/terminal stress for doubles f64 AND gmp
-make test-leaks       # valgrind definite-leak check (unit + stress LEVEL=1)
+make test             # unit API + small circuit smokes + metamorphic (doubles f128)
+make test-stress      # extreme GC/terminal stress for doubles f128 AND gmp
+make test-leaks       # valgrind definite+reachable (unit, stress LEVEL=1, symbolic Grover/05)
 make test-grover      # LP-Grover n=5,6,7 × {loop, loop-symbolic, NL} × {f32,f64,f80,f128,gmp}
 ```
 
@@ -13,20 +13,33 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
 
 - `make test-unit` — protect/unprotect, leaf ownership, apply free-of-unused, gates,
   plus counter checks that MoToBuddy actually calls `freePimpl`
-- `make test-circuits` — runs `MEDUSA_buddy_doubles_f64` on small QASM files
+- `make test-circuits` — runs `MEDUSA_buddy_doubles_f128` on small QASM files
 - `make test-benchmarks` — structural checks (`test_benchmarks.sh`: digraph + unit
   norm) **plus** semantic checks (`test_benchmark_semantics`):
   - **BV**: final MTBDD is the secret basis state (`|11⟩`, `|101011⟩`, …)
   - **MOGrover**: max basis prob ≫ uniform
   - **Reversible** (MCToffoli / Feynman / RevLib): returns `|0…0⟩`
   - **PF / QC**: unit norm + non-trivial / non-spurious support
+- `make test-metamorphic` — Stage 4 metamorphic checks via **OpenQASM** (`test_metamorphic`):
+  - fixtures in `tests/qasm/metamorphic/`; random circuits written under `/tmp` then `sim_file`
+  - random `U`: `U U† |0…0⟩ = |0…0⟩`
+  - `(UV)† = V† U†` as `U;V;V†;U†` round-trip to `|0…0⟩`
+  - identities `H²`, Paulis², `CX²`, `S⁴`, `T T†`, `Rx(π/2)⁴`
+  - **CZ both OpenQASM orders** (`cz c,t` with `c<t` and `c>t`) — relies on `sim.c` swap
+  - reverse-without-adj ≠ `(TH)†` on `|1⟩`
+  - **heavy GC**: after each success, repeated `forceGC` while the result root stays
+    protected; plus deep `U U†`, ~12k distinct `rx(θ)/rx(-θ)`, orphan+retry
+  - **mega terminals**: ~15k rx/ry flood (insertvalue churn) plus a 14-qubit product
+    state (~16k live amps past `INITIAL_TERMINAL_SIZE`), then GC + fresh `U U†`
 - `make test-stress` — brutal GC / terminal / gate churn on both backends
   - includes **terminal table realloc** past `INITIAL_TERMINAL_SIZE` (10000)
-  - `make test-stress-f64` / `make test-stress-gmp` individually
+  - `make test-stress-f128` / `make test-stress-gmp` individually (`test-stress-f64` still exists)
   - `make test-stress STRESS_LEVEL=3` for maximum intensity (default 2)
-- `make test-leaks` — valgrind `--leak-check=full` on unit + short stress (needs valgrind)
+- `make test-leaks` — valgrind `--leak-check=full` on unit, short stress, and
+  symbolic `LP-Grover/05` (needs valgrind)
+- `make test-mutation` — targeted mutants of known past bugs; each must be **killed** by tests
 - `make test-grover` — Grover amplification matrix (classic unroll, `--symbolic`, `NL_*`)
-  on f32/f64/f80/f128 and GMP; also `make test-grover-f64` / `test-grover-gmp`
+  on f32/f64/f80/f128 and GMP; also `make test-grover-f128` / `test-grover-gmp`
 
 ### freePimpl / leaks
 
@@ -39,10 +52,10 @@ MoToBuddy invokes it on:
 
 `freePimpl` frees only `LEAF_TYPE.pImpl`; MoToBuddy `free()`s the outer wrapper.
 
-Remaining known non-classic issues (not covered by these tests):
-
-- Symbolic terminal types still use `freefun = NULL`
-- Symbolic leaf ops that alias operand pointers
+Symbolic terminals register `terminal_symb_val_free` / `terminal_symb_map_free`
+(shell only — `symexp` lists live in the shared htab). Symb ops shallow-clone
+shells instead of aliasing operands. Teardown: `symexp_htab_delete`, `vmap`
+mapping list, `rdata->ref`, and `free_sim_info`.
 
 Terminal-table teardown (`bdd_done` union-aware free + `mtbdd_IndexStackFree`) and
 CUSTOM dedup free are in upstream MoToBuddy (`main`).
