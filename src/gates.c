@@ -142,9 +142,7 @@ qBDD interface_gate_rz(size_t xt, qBDD low, qBDD high, size_t param) {
 void gate_x(qBDD *p_t, uint32_t xt)
 {
     /* Skip only if xt is above the root (not in the diagram). Then both
-     * 0/1 children would be the current MTBDD, so X is identity.
-     * `xt >= LEVEL(root)` was inverted and skipped X on every present qubit
-     * (root is usually var 0) — that broke unrolled Grover vs symbolic X. */
+     * 0/1 children would be the current MTBDD, so X is identity. */
     if (!qBDD_isTerminal(*p_t) && xt < qBDD_level(*p_t)) {
         return;
     }
