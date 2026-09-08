@@ -163,7 +163,7 @@ qBDD qBDD_maketerminal(size_t type, void* valuep) {
 }
 
 qBDD cube(int value, int width, qBDD *variables, qBDD leaf1, qBDD leaf0) {
-    return mtbdd_cube2(0x0, width, variables, leaf1, leaf0);
+    return mtbdd_cube2(value, width, variables, leaf1, leaf0);
 }
 
 
