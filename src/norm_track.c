@@ -23,13 +23,13 @@ static uint64_t s_gate_idx = 0;
 
 /** Write the comment-header block (epsilon, backend). */
 static void write_header() {
-#if defined(LEAF_TYPE_FLOAT)
+#if LEAF_FLOAT_TYPE == LEAF_TYPE_FLOAT
     fprintf(s_csv, "# epsilon:%.10e\n",  (double)LEAF_ABS_EPS);
-#elif defined(LEAF_TYPE_DOUBLE)
+#elif LEAF_FLOAT_TYPE == LEAF_TYPE_DOUBLE
     fprintf(s_csv, "# epsilon:%.20e\n",  (double)LEAF_ABS_EPS);
-#elif defined(LEAF_TYPE_LONG_DOUBLE)
+#elif LEAF_FLOAT_TYPE == LEAF_TYPE_LONGDOUBLE
     fprintf(s_csv, "# epsilon:%.24Le\n", (long double)LEAF_ABS_EPS);
-#elif defined(LEAF_TYPE_QUAD)
+#elif LEAF_FLOAT_TYPE == LEAF_TYPE_QUAD
     fprintf(s_csv, "# epsilon:%.34e\n",  (double)LEAF_ABS_EPS);
 #else
     fprintf(s_csv, "# epsilon:unknown\n");

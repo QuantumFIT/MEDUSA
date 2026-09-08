@@ -162,7 +162,7 @@ int main(int argc, char *argv[])
         }
         norm_track_init(norm_csv_path);
     }
-    qBDD circ;
+    qBDD circ = qBDD_false();
     sim_info_t info;
     init_sim_info(&info);
     // Sim:
@@ -181,7 +181,7 @@ int main(int argc, char *argv[])
     } else {   
         sim_successful = sim_file(input, &circ, &flags, &info);
     }
-    if (opt_measure && info.is_measure) {
+    if (sim_successful && opt_measure && info.is_measure) {
         measure_all(samples, measure_output, circ, info.n_qubits, info.bits_to_measure);
     }
 
@@ -199,18 +199,20 @@ int main(int argc, char *argv[])
                    .use_loop = 1, .loop_idx = (int)info.n_loops,
                    .note = sim_successful ? "ok" : "sim_failed");
     }
-    lnum_map_init(LONG_NUMS_MAP_INIT_SIZE);
-    q_fprintdot(out, circ);
-    // Check if there are any large numbers outputted only as variables in the .dot file
-    if (!lnum_map_is_empty()) {
-        FILE *lnums_out = fopen(LONG_NUMS_OUT_FILE, "w");
-        if (lnums_out == NULL) {
-            error_exit("Cannot open the output file for the separate output for large numbers.\n");
+    if (sim_successful) {
+        lnum_map_init(LONG_NUMS_MAP_INIT_SIZE);
+        q_fprintdot(out, circ);
+        // Check if there are any large numbers outputted only as variables in the .dot file
+        if (!lnum_map_is_empty()) {
+            FILE *lnums_out = fopen(LONG_NUMS_OUT_FILE, "w");
+            if (lnums_out == NULL) {
+                error_exit("Cannot open the output file for the separate output for large numbers.\n");
+            }
+            lnum_map_print(lnums_out);
+            fclose(lnums_out);
         }
-        lnum_map_print(lnums_out);
-        fclose(lnums_out);
+        lnum_map_clear();
     }
-    lnum_map_clear();
 
     t_el = get_time_el(t_start, t_finish);
     if (flags.opt_info) {
