@@ -786,7 +786,12 @@ TASK_IMPL_5(MTBDD, syl_op, MTBDD, dd, uint64_t, opfn, uint64_t, targets_raw,
     size_t cidx = (ctrl_flags >> 16) & 0xffffu;
     int has_param = (int)((ctrl_flags >> 32) & 1u);
     uint64_t opid = has_param ? g_opid_op_param : g_opid_op;
+    /* cache_get3 has no dedicated param slot; fold the full size_t into tkey
+     * so distinct angles (e.g. rz(0) vs rz(0.1)) do not share one cache entry. */
     uint64_t tkey = targets_key(targets, controlNum, cidx);
+    if (has_param) {
+        tkey = tkey * 0x9e3779b97f4a7c15ULL + (uint64_t)param;
+    }
     MTBDD result;
 
     sylvan_gc_test();

@@ -350,6 +350,9 @@ test-sylvan:
 	$(MAKE) sylvan_gmp
 	MEDUSA_BIN=$(CURDIR)/MEDUSA_sylvan_doubles_f128 \
 	    bash $(TEST_DIR)/test_circuits.sh
+	@chmod +x $(TEST_DIR)/test_rotation_cache.sh
+	MEDUSA_BIN=$(CURDIR)/MEDUSA_sylvan_doubles_f128 \
+	    bash $(TEST_DIR)/test_rotation_cache.sh
 	MEDUSA_BIN=$(CURDIR)/MEDUSA_sylvan_doubles_f128 \
 	    MEDUSA_TEST_TIMEOUT=$(or $(SYLVAN_TEST_TIMEOUT),90) \
 	    bash $(TEST_DIR)/test_benchmarks.sh
@@ -382,6 +385,8 @@ $(TEST_SEM_BIN): $(TEST_SEM_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
 test-circuits:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
 	bash $(TEST_DIR)/test_circuits.sh
+	@chmod +x $(TEST_DIR)/test_rotation_cache.sh
+	bash $(TEST_DIR)/test_rotation_cache.sh
 
 test-benchmarks:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3

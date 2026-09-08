@@ -163,6 +163,67 @@ compare_prob "syl-vs-buddy-cx2"  "${ROOT}/tests/qasm/metamorphic/identity_cx2.qa
 compare_prob "syl-vs-buddy-bell" "${ROOT}/tests/qasm/metamorphic/bell_roundtrip.qasm"
 compare_prob "syl-vs-buddy-cz"   "${ROOT}/tests/qasm/metamorphic/cz_c0_t1.qasm"
 
+# Cross-backend: complex amplitudes after the rotation-cache review repro.
+compare_amps() {
+    local label="$1"
+    local file="$2"
+    local syl_dot="${WORKDIR}/${label}.syl.dot"
+    local bud_dot="${WORKDIR}/${label}.bud.dot"
+    local log="${WORKDIR}/${label}.amps.log"
+
+    if [[ ! -x "${BUD_F128}" ]]; then
+        echo "SKIP ${label}: Buddy binary missing"
+        summary_record "${label}" 0
+        return
+    fi
+
+    if ! (
+        cd "${WORKDIR}"
+        run_timeout "${TIMEOUT_SEC}" "${SYL_F128}" --file "${file}" >"${log}" 2>&1
+        cp -f res.dot "${syl_dot}"
+        run_timeout "${TIMEOUT_SEC}" "${BUD_F128}" --file "${file}" >>"${log}" 2>&1
+        cp -f res.dot "${bud_dot}"
+    ); then
+        echo "FAIL ${label}: compare run failed"
+        tail -20 "${log}" || true
+        summary_record "${label}" 1
+        return
+    fi
+
+    if python3 - "${syl_dot}" "${bud_dot}" <<'PY'
+import re, sys
+
+def amps(path):
+    out = []
+    text = open(path, encoding="utf-8", errors="replace").read()
+    for attrs in re.findall(r"\[([^\]]*)\]", text):
+        if "shape=box" not in attrs or "filled" not in attrs:
+            continue
+        m = re.search(r'label="([^"]*)"', attrs)
+        if not m:
+            continue
+        s = m.group(1).strip().replace(" ", "")
+        if not s or s in ("0", "F", "False", "false", "T", "True", "true", "NULL"):
+            continue
+        out.append(s)
+    return sorted(out)
+
+a, b = amps(sys.argv[1]), amps(sys.argv[2])
+sys.exit(0 if a and a == b else 1)
+PY
+    then
+        echo "OK   ${label}"
+        summary_record "${label}" 0
+    else
+        echo "FAIL ${label}: Sylvan vs Buddy amplitude labels differ"
+        summary_record "${label}" 1
+    fi
+}
+
+compare_amps "syl-vs-buddy-rz-round" "${ROOT}/tests/qasm/rotation_cache/h_rz0_rz1.qasm"
+compare_amps "syl-vs-buddy-rx-round" "${ROOT}/tests/qasm/rotation_cache/h_rx0_rx1.qasm"
+compare_amps "syl-vs-buddy-ry-round" "${ROOT}/tests/qasm/rotation_cache/h_ry0_ry1.qasm"
+
 if [[ -x "${SYL_GMP}" ]]; then
     run_one "syl-gmp-h2" "${SYL_GMP}" "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm"
     run_one "syl-gmp-Grover-05" "${SYL_GMP}" "${ROOT}/benchmarks/no-measure/LP-Grover/05.qasm"
