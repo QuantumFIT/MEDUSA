@@ -186,7 +186,8 @@ void init_symb_backend()
 
 bool symb_refine(mtbdd_symb_t *symbc, rdata_t *rdata)
 {
-    qBDD refined = my_mtbdd_symb_refine_i(symbc->map, symbc->val, rdata);
+    qBDD refined = my_mtbdd_symb_refine_i(symbc->map, symbc->val,
+                                          (size_t)(uintptr_t)rdata);
     qBDD_protect(refined);
     bool is_finished = (rdata->ref->first == NULL);
 
@@ -208,7 +209,9 @@ bool symb_refine(mtbdd_symb_t *symbc, rdata_t *rdata)
         qBDD_unprotect(symbc->map);
         qBDD_unprotect(symbc->val);
         symbc->map = refined;
-        symbc->val = my_mtbdd_map_to_symb_val_i(refined, symbc->vm->map, symbc->is_reduced);
+        symbc->val = my_mtbdd_map_to_symb_val_i(refined,
+                                                (size_t)(uintptr_t)symbc->vm->map,
+                                                symbc->is_reduced);
         qBDD_protect(symbc->val);
         return is_finished;
     }

@@ -580,7 +580,7 @@ qBDD mtbdd_map_to_symb_val_reduced_i(qBDD t, size_t raw_map) {
         new_data->d = symexp_init(t_data->vd);
         
         LEAF_TYPE *newLeaf = (LEAF_TYPE*)malloc(sizeof(LEAF_TYPE));
-        newLeaf->pImpl = new_data;
+        newLeaf->pImpl = (LEAF_TYPE_IMPL *)(void *)new_data;
 
         qBDD res = qBDD_maketerminal(qBDD_symbolicValLType(), (void *) newLeaf);
         validateApplyResult();
@@ -605,7 +605,7 @@ qBDD mtbdd_map_to_symb_val_i(qBDD t, size_t raw_map) {
         new_data->d = symexp_init(t_data->vd);
 
         LEAF_TYPE *newLeaf = (LEAF_TYPE*)malloc(sizeof(LEAF_TYPE));
-        newLeaf->pImpl = new_data;
+        newLeaf->pImpl = (LEAF_TYPE_IMPL *)(void *)new_data;
 
         qBDD res = qBDD_maketerminal(qBDD_symbolicValLType(), (void*) newLeaf);
         validateApplyResult();
@@ -700,7 +700,7 @@ qBDD mtbdd_symb_refine_i(qBDD map, qBDD val, size_t rd_raw) {
         new_data->vd = new_d;
 
         LEAF_TYPE *newLeaf = (LEAF_TYPE*)malloc(sizeof(LEAF_TYPE));
-        newLeaf->pImpl = new_data;
+        newLeaf->pImpl = (LEAF_TYPE_IMPL *)(void *)new_data;
 
         qBDD res = qBDD_maketerminal(qBDD_symbolicMapLType(), (void*)newLeaf);
         validateApplyResult();
@@ -757,7 +757,7 @@ qBDD mtbdd_to_symb_map_i(qBDD a, size_t raw_m) {
     new_data->vd = var_d;
     
     LEAF_TYPE *newLeaf = (LEAF_TYPE*)malloc(sizeof(LEAF_TYPE));
-    newLeaf->pImpl = new_data;
+    newLeaf->pImpl = (LEAF_TYPE_IMPL *)(void *)new_data;
 
     qBDD res = qBDD_maketerminal(qBDD_symbolicMapLType(), (void *) newLeaf);
     m->next_var += 4;
@@ -867,7 +867,7 @@ qBDD mtbdd_from_symb_i(qBDD t, size_t raw_map) {
         }
         
         LEAF_TYPE *newLeaf = (LEAF_TYPE*)malloc(sizeof(LEAF_TYPE));
-        newLeaf->pImpl = new_data;
+        newLeaf->pImpl = (LEAF_TYPE_IMPL *)(void *)new_data;
 
         qBDD res = qBDD_maketerminal(qBDD_classicLType(), (void*) newLeaf);
         validateApplyResult();
@@ -971,9 +971,11 @@ void symb_init(qBDD *circ, mtbdd_symb_t *symbc)
     symbc->is_reduced = true;  // initially tries to reduce symb. leaves into F
     symbc->is_refined = false;
     
-    symbc->map = my_mtbdd_to_symb_map_i(*circ, symbc->vm);
+    symbc->map = my_mtbdd_to_symb_map_i(*circ, (size_t)(uintptr_t)symbc->vm);
     qBDD_protect((symbc->map));
-    symbc->val = my_mtbdd_map_to_symb_val_i(symbc->map, symbc->vm->map, symbc->is_reduced);
+    symbc->val = my_mtbdd_map_to_symb_val_i(symbc->map,
+                                            (size_t)(uintptr_t)symbc->vm->map,
+                                            symbc->is_reduced);
     qBDD_protect((symbc->val));
     initInvSqrtCoeffSymb();
 }
