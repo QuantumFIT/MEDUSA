@@ -202,8 +202,9 @@ void gate_toffoli(qBDD *p_t, uint32_t xt, uint32_t xc1, uint32_t xc2);
  */
 void gate_mcx(qBDD *p_t, qparam_list_t *qparams);
 
-#endif
 #ifdef __cplusplus
 }
+#endif
+
 #endif
 /* end of "gates.h" */
