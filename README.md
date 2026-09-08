@@ -76,10 +76,6 @@ make plot
 ```
 When leaf values are very large, substitute variable names are used in `res.dot`. Their values are stored in `res-vars.txt`.
 
-## License
-
-Simulator sources in this tree are MIT (see `LICENSE`). MoToBuddy/BuDDy, Sylvan/Lace, and GMP have their own licenses.
-
 ## Profiling
 
 To profile with Valgrind's callgrind tool, build with `PROFILE=1`:
