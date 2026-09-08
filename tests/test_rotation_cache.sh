@@ -180,5 +180,33 @@ assert_differ "rz-0.1-then-0.2-vs-0.2"  h_rz02      h_rz01_rz02
 assert_differ "hh-rz-round-vs-hh"       hh          hh_rz0q0_rz1q0
 assert_same   "hh-rz-round-vs-rz1"      hh_rz0q0_rz1q0 hh_rz1q0
 
+# Blocker 4: arbitrary-angle rotations must error under --symbolic (no silent drop).
+assert_symb_rejects() {
+    local label="$1"
+    local file="$2"
+    local needle="$3"
+    local log="${WORKDIR}/${label}.log"
+    if (
+        cd "${WORKDIR}"
+        "${BIN}" --file "${file}" --symbolic >"${log}" 2>&1
+    ); then
+        echo "FAIL ${label}: expected non-zero exit under --symbolic"
+        summary_record "${label}" 1
+        return
+    fi
+    if ! grep -q "${needle}" "${log}"; then
+        echo "FAIL ${label}: missing error text '${needle}'"
+        sed 's/^/    /' "${log}" || true
+        summary_record "${label}" 1
+        return
+    fi
+    echo "OK   ${label}"
+    summary_record "${label}" 0
+}
+
+assert_symb_rejects "symb-reject-rz" "${QASM}/h_rz1.qasm" "Arbitrary-angle rz is not supported with symbolic"
+assert_symb_rejects "symb-reject-rx" "${QASM}/h_rx1.qasm" "Arbitrary-angle rx is not supported with symbolic"
+assert_symb_rejects "symb-reject-ry" "${QASM}/h_ry1.qasm" "Arbitrary-angle ry is not supported with symbolic"
+
 summary_print "test_rotation_cache"
 exit $?

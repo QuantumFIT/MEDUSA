@@ -482,6 +482,10 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                 (flags->opt_symb && is_loop)? gate_symb_ry_pihalf(&symbc.val, qt) : gate_ry_pihalf(circ, qt);
             }
             else if (strncasecmp(cmd, "rx(", 3) == 0 && strcasecmp(cmd, "rx(pi/2)") != 0) {
+                if (flags->opt_symb) {
+                    error_exit("Arbitrary-angle rx is not supported with symbolic simulation "
+                               "(only rx(pi/2) has a symbolic form); command '%s'.\n", cmd);
+                }
                 double angle;
                 if (sscanf(cmd + 3, "%lf", &angle) != 1) {
                     error_exit("Invalid rx angle in command '%s'.\n", cmd);
@@ -490,6 +494,10 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                 gate_rx(circ, qt, angle);
             }
             else if (strncasecmp(cmd, "ry(", 3) == 0 && strcasecmp(cmd, "ry(pi/2)") != 0) {
+                if (flags->opt_symb) {
+                    error_exit("Arbitrary-angle ry is not supported with symbolic simulation "
+                               "(only ry(pi/2) has a symbolic form); command '%s'.\n", cmd);
+                }
                 double angle;
                 if (sscanf(cmd + 3, "%lf", &angle) != 1) {
                     error_exit("Invalid ry angle in command '%s'.\n", cmd);
@@ -498,6 +506,10 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                 gate_ry(circ, qt, angle);
             }
             else if (strncasecmp(cmd, "rz(", 3) == 0) {
+                if (flags->opt_symb) {
+                    error_exit("Arbitrary-angle rz is not supported with symbolic simulation; "
+                               "command '%s'.\n", cmd);
+                }
                 double angle;
                 if (sscanf(cmd + 3, "%lf", &angle) != 1) {
                     error_exit("Invalid rz angle in command '%s'.\n", cmd);
