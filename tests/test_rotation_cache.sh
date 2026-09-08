@@ -187,7 +187,8 @@ assert_differ "rz-neg-pi8-vs-h"         h           h_rz_neg_pi8
 assert_same   "rz-2pi3-vs-numeric"      h_rz_2pi3   h_rz_2pi3_num
 assert_differ "rz-2pi3-vs-rz2"          h_rz_2pi3   h_rz2
 
-# Blocker 4: arbitrary-angle rotations must error under --symbolic (no silent drop).
+# Finding 16 / B4: arbitrary-angle rotations must error inside symbolic loops
+# (not for rotations outside the loop body on the classic path).
 assert_symb_rejects() {
     local label="$1"
     local file="$2"
@@ -211,9 +212,43 @@ assert_symb_rejects() {
     summary_record "${label}" 0
 }
 
-assert_symb_rejects "symb-reject-rz" "${QASM}/h_rz1.qasm" "Arbitrary-angle rz is not supported with symbolic"
-assert_symb_rejects "symb-reject-rx" "${QASM}/h_rx1.qasm" "Arbitrary-angle rx is not supported with symbolic"
-assert_symb_rejects "symb-reject-ry" "${QASM}/h_ry1.qasm" "Arbitrary-angle ry is not supported with symbolic"
+assert_symb_rejects "symb-reject-rz-in-loop" "${QASM}/loop_rz1.qasm" "Arbitrary-angle rz is not supported inside symbolic loops"
+assert_symb_rejects "symb-reject-rx-in-loop" "${QASM}/loop_rx1.qasm" "Arbitrary-angle rx is not supported inside symbolic loops"
+assert_symb_rejects "symb-reject-ry-in-loop" "${QASM}/loop_ry1.qasm" "Arbitrary-angle ry is not supported inside symbolic loops"
+
+# Rotation outside the loop must still run under --symbolic (classic path).
+assert_symb_outside_ok() {
+    local label="$1"
+    local file="$2"
+    local classic="${WORKDIR}/${label}_classic.dot"
+    local symb="${WORKDIR}/${label}_symb.dot"
+    local log="${WORKDIR}/${label}.log"
+    if ! (
+        cd "${WORKDIR}"
+        "${BIN}" --file "${file}" >"${log}.classic" 2>&1
+        mv -f res.dot "${classic}"
+        "${BIN}" --file "${file}" --symbolic >"${log}" 2>&1
+        mv -f res.dot "${symb}"
+    ); then
+        echo "FAIL ${label}: --symbolic should accept rotation outside loop"
+        sed 's/^/    /' "${log}" 2>/dev/null || true
+        summary_record "${label}" 1
+        return
+    fi
+    extract_amps "${classic}" >"${WORKDIR}/${label}_classic.amps"
+    extract_amps "${symb}" >"${WORKDIR}/${label}_symb.amps"
+    if ! cmp -s "${WORKDIR}/${label}_classic.amps" "${WORKDIR}/${label}_symb.amps"; then
+        echo "FAIL ${label}: classic vs --symbolic amplitudes differ"
+        sed 's/^/    classic: /' "${WORKDIR}/${label}_classic.amps"
+        sed 's/^/    symb:    /' "${WORKDIR}/${label}_symb.amps"
+        summary_record "${label}" 1
+        return
+    fi
+    echo "OK   ${label}"
+    summary_record "${label}" 0
+}
+
+assert_symb_outside_ok "symb-rz-outside-loop-ok" "${QASM}/rz_outside_loop.qasm"
 
 summary_print "test_rotation_cache"
 exit $?
