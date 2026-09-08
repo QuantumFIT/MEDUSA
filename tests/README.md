@@ -72,9 +72,3 @@ mapping list, `rdata->ref`, and `free_sim_info`.
 
 Terminal-table teardown (`bdd_done` union-aware free + `mtbdd_IndexStackFree`) and
 CUSTOM dedup free are in upstream MoToBuddy (`main`).
-
-If classic freefun causes crashes:
-
-```
-patch -p1 < patches/revert-classic-freepimpl.patch
-```

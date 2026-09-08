@@ -497,8 +497,7 @@ static void test_freepimpl_registered_with_motobuddy(void) {
     TEST_ASSERT(mtbdd_terminal_functions_list != NULL);
     TEST_ASSERT_MSG(
         mtbdd_terminal_functions_list[ty].freefun == freePimpl,
-        "lt_classic freefun must be freePimpl — revert with "
-        "patches/revert-classic-freepimpl.patch if this breaks");
+        "lt_classic freefun must be freePimpl");
 
     /* Exercise real MoToBuddy equal-result path: freefun(result)+free(wrapper) */
     LEAF_TYPE *a = heap_leaf(7.0, 1.0);

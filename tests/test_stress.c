@@ -576,8 +576,7 @@ int main(void) {
     setup_pkg();
     TEST_ASSERT_MSG(
         mtbdd_terminal_functions_list[qBDD_classicLType()].freefun == freePimpl,
-        "classic freefun not registered — apply will not free pImpl; "
-        "revert with patches/revert-classic-freepimpl.patch if enabling broke you");
+        "classic freefun not registered — apply will not free pImpl");
     freePackage();
 
     stress_terminal_table_realloc();
