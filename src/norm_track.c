@@ -79,13 +79,12 @@ void norm_track_record(const char *gate_name, qBDD circ, int n) {
     leaf_primitive_t total_primitive = { total };
     leaf_scalar_t dev = LEAF_ABS(total - LEAF_ONE);
     leaf_primitive_t dev_primitive = { dev };
-    leaf_primitive_t one_primitive = { LEAF_ONE };
 
     if (dev > max_dev) {
         max_dev = dev;
     }
 
-    int within = cmp_generic(total_primitive, one_primitive) == 0; // total == 1.0 within epsilon
+    int within = (dev <= LEAF_ABS_EPS);
 
     char buf_total[64], buf_dev[64];
     to_str_generic(total_primitive, buf_total, sizeof(buf_total));
@@ -98,7 +97,7 @@ void norm_track_record(const char *gate_name, qBDD circ, int n) {
             within);
 }
 
-#else /* GMP or unknown — provide the global definitions only */
+#else /* GMP or unknown - provide the global definitions only */
 
 int g_norm_track_enabled = 0;
 int g_num_qubits = 0;

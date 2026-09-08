@@ -18,7 +18,7 @@ mkdir -p "${WORKDIR}"
 trap 'rm -rf "${WORKDIR}"' EXIT
 
 if [[ ! -x "${SYL_F128}" ]]; then
-    echo "Binary ${SYL_F128} not found — build with: make init-sylvan && make sylvan_doubles"
+    echo "Binary ${SYL_F128} not found - build with: make init-sylvan && make sylvan_doubles"
     exit 1
 fi
 

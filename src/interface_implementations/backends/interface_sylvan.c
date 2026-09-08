@@ -74,7 +74,7 @@ int medusa_dbg_bdd_ref(int bdd)
 
 /* -------------------------------------------------------------------------- */
 /* Custom leaves: payload is LEAF_TYPE* (wrapper + pImpl). create() must deep
- * copy like original MEDUSA / Sylvan GMP — the unique table owns the copy and
+ * copy like original MEDUSA / Sylvan GMP - the unique table owns the copy and
  * destroy() always frees it. Sharing pImpl with the caller UAF's on intern
  * (duplicate probe) and on GC. */
 /* -------------------------------------------------------------------------- */
@@ -403,7 +403,7 @@ size_t qBDD_level(qBDD node)
 }
 
 /* -------------------------------------------------------------------------- */
-/* Reference counting — Sylvan values table (Buddy addref/delref analogue)
+/* Reference counting - Sylvan values table (Buddy addref/delref analogue)
  * -------------------------------------------------------------------------- */
 
 qBDD qBDD_protect(qBDD toProtect)
@@ -473,7 +473,7 @@ LEAF_TYPE qBDD_getTerminalValue(qBDD a)
 }
 
 /* -------------------------------------------------------------------------- */
-/* Apply — official Sylvan mtbdd_apply / uapply / applyp
+/* Apply - official Sylvan mtbdd_apply / uapply / applyp
  *
  * cache_get3(opid, dd, ...) requires opid from cache_next_opid() (high 24
  * bits). A function pointer OR'd into the node index collides and can hang.
@@ -755,7 +755,7 @@ qBDD unary_apply_guarded(qBDD l, qBDD (*op)(qBDD, size_t), size_t arg)
 }
 
 /* -------------------------------------------------------------------------- */
-/* bdd_operation — original mtbdd_apply_gate / apply_cgate
+/* bdd_operation - original mtbdd_apply_gate / apply_cgate
  *
  * targets[0 .. controlNum-1] = controls, targets[controlNum] = target.
  * Missing nodes are applied as op(var, dd, dd) (or control: makenode with

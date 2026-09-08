@@ -89,7 +89,7 @@ LEAF_TYPE multiplyByInvSqrt2(LEAF_TYPE a) {
 
 /**
  * Free internal leaf payload. MoToBuddy always free()s the outer LEAF_TYPE*
- * after calling the registered freefun — do NOT free(leafraw) here or it
+ * after calling the registered freefun - do NOT free(leafraw) here or it
  * double-frees the wrapper.
  */
 void freePimpl(void* leafraw) {
@@ -1234,7 +1234,7 @@ void terminal_symb_val_free(void *leafraw) {
 
 int terminal_symb_map_compare_generic(void* l_a, void* l_b) {
     /* Zero symb leaf: NULL wrapper (see convertedApply* returning NULL).
-     * pImpl==NULL on a non-NULL wrapper is a freed shell — not equal to zero
+     * pImpl==NULL on a non-NULL wrapper is a freed shell - not equal to zero
      * and must not compare equal to other shells (original Medusa semantics). */
     if (l_a == NULL && l_b == NULL) return 1;
     if ((l_a == NULL) != (l_b == NULL)) return 0;
@@ -1358,7 +1358,7 @@ void circuit_init_interface(qBDD *c, const uint32_t n) {
     qBDD leaf1   = mtbdd_maketerminal(onePtr, lt_classic);
     qBDD_protect(leaf1);
     qBDD cube_bdd = mtbdd_cube2(0x0, varNum, variables, leaf1, bdd_false());
-    qBDD_protect(cube_bdd); /* external root — CUSTOM leaves are not MAXREF */
+    qBDD_protect(cube_bdd); /* external root - CUSTOM leaves are not MAXREF */
     qBDD_unprotect(leaf1);
     free(variables);
     *c = cube_bdd;

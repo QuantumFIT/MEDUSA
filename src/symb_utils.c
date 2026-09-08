@@ -47,7 +47,7 @@ void rdata_delete(rdata_t *rd)
 
 /**
  * Algebraic-zero expressions (NULL from cancelled symexp_op) must not be stored
- * as NULL in upd[] — that collides with "slot unset". Use SYMEXP_NULL instead
+ * as NULL in upd[] - that collides with "slot unset". Use SYMEXP_NULL instead
  * (same meaning as a false-leaf refine for eval / can_be_reduced).
  */
 static inline symexp_list_t *upd_norm(symexp_list_t *data)

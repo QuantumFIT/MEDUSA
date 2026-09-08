@@ -498,7 +498,7 @@ void gate_symb_mcx(qBDD *p_t, qparam_list_t *qparams) {
     qBDD res;
 
     // at_t must run on the target-level node (swap or lockstep of its children).
-    // Controls below the target only select the HIGH branch, then continue down —
+    // Controls below the target only select the HIGH branch, then continue down -
     // same nesting as Toffoli's c1 < t0 case.
     NodeOp op = mtbdd_with_traverse_to(target, at_t);
     if (below_t.empty()) {

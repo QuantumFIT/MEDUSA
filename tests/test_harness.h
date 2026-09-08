@@ -97,7 +97,7 @@ static inline void test_section_begin(const char *name) {
 #define TEST_ASSERT_MSG(cond, msg) do { \
     g_tests_run++; \
     if (!(cond)) { \
-        fprintf(stderr, "FAIL %s:%d: %s — %s\n", __FILE__, __LINE__, #cond, (msg)); \
+        fprintf(stderr, "FAIL %s:%d: %s - %s\n", __FILE__, __LINE__, #cond, (msg)); \
         g_tests_failed++; \
     } \
 } while (0)

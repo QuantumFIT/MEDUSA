@@ -1,6 +1,6 @@
 /**
  * @file test_metamorphic.c
- * Stage 4 — metamorphic testing via OpenQASM + sim_file (doubles f128).
+ * Stage 4 - metamorphic testing via OpenQASM + sim_file (doubles f128).
  *
  * All circuits are loaded as OpenQASM 2.0 files (never direct gate_* API),
  * so CZ goes through sim.c's qc/qt swap (supports either argument order).
@@ -343,7 +343,7 @@ static void test_gate_identities_qasm(void) {
 static void test_cz_both_qasm_orders(void) {
     TEST_SECTION("metamorphic: CZ both OpenQASM argument orders (sim swap)");
 
-    /* OpenQASM: cz control, target — both index orderings must work via sim.c swap */
+    /* OpenQASM: cz control, target - both index orderings must work via sim.c swap */
     static const char *files[] = {
         "tests/qasm/metamorphic/cz_c0_t1.qasm", /* qc < qt */
         "tests/qasm/metamorphic/cz_c1_t0.qasm", /* qc > qt → swapped in sim */
@@ -624,7 +624,7 @@ static void test_heavy_gc_metamorphic(void) {
 
     rng_seed(0x6C6C6Cu);
 
-    /* Deep random circuits — freelist pressure during sim + GC hammer after */
+    /* Deep random circuits - freelist pressure during sim + GC hammer after */
     for (int t = 0; t < META_HEAVY_TRIALS; t++) {
         int n = 4 + (int)rng_below(3);           /* 4..6 */
         int depth = 24 + (int)rng_below(24);     /* 24..47 */

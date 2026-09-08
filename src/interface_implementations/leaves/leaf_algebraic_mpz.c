@@ -82,7 +82,7 @@ LEAF_TYPE clonePimpl(LEAF_TYPE a) {
 
 /**
  * Free internal leaf payload. MoToBuddy always free()s the outer LEAF_TYPE*
- * after calling the registered freefun — do NOT free(leafraw) here.
+ * after calling the registered freefun - do NOT free(leafraw) here.
  */
 void freePimpl(void* leafraw) {
     if (!leafraw) return;

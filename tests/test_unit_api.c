@@ -113,7 +113,7 @@ static void test_leaf_add_does_not_alias(void) {
     LEAF_TYPE r1 = addLeaf(z, a);
     TEST_ASSERT(r1.pImpl != NULL);
     TEST_ASSERT_MSG(r1.pImpl != a.pImpl,
-        "addLeaf(NULL,a) must clone — aliasing breaks MoToBuddy free-of-unused");
+        "addLeaf(NULL,a) must clone - aliasing breaks MoToBuddy free-of-unused");
     TEST_ASSERT_NEAR(to_double_generic(r1.pImpl->re), 1.0, 1e-12);
     TEST_ASSERT_NEAR(to_double_generic(r1.pImpl->im), 2.0, 1e-12);
 
@@ -162,7 +162,7 @@ static void test_apply_free_unused_preserves_terminals(void) {
     p = qBDD_total_prob(circ, 1);
     TEST_ASSERT_NEAR(p, 1.0, 1e-9);
 
-    /* Read a terminal value after GC — must not be freed-as-unused */
+    /* Read a terminal value after GC - must not be freed-as-unused */
     qBDD walk = circ;
     while (qBDD_isInternal(walk))
         walk = qBDD_getLow(walk);
@@ -255,7 +255,7 @@ static void test_toffoli_norm_regression(void) {
     TEST_ASSERT_MSG(fabs((double)p - 0.5) < 1e-9 || fabs((double)p - 1.0) < 1e-9,
         "Toffoli total_prob neither 0.5 (known bug) nor 1.0 (fixed)");
     if (fabs((double)p - 1.0) < 1e-9) {
-        fprintf(stdout, "    NOTE: Toffoli norm looks fixed — set EXPECT_TOFFOLI_OK=1\n");
+        fprintf(stdout, "    NOTE: Toffoli norm looks fixed - set EXPECT_TOFFOLI_OK=1\n");
     } else {
         fprintf(stdout, "    KNOWN BUG: Toffoli total_prob=%g (expected 1.0)\n", (double)p);
     }
@@ -524,7 +524,7 @@ static void test_motobuddy_freepimpl_frees_unused_pimpl(void) {
     medusa_mem_reset();
 
     LEAF_TYPE *a = heap_leaf(1.0, 0.0);
-    /* heap_leaf bypasses allocPimpl counters — note manually for the stored one */
+    /* heap_leaf bypasses allocPimpl counters - note manually for the stored one */
     medusa_mem_note_pimpl_alloc();
     qBDD t = qBDD_maketerminal(qBDD_classicLType(), a);
     qBDD_protect(t);
@@ -548,7 +548,7 @@ static void test_motobuddy_freepimpl_frees_unused_pimpl(void) {
         "expected apply wrapper alloc per iteration");
     /* Net live pImpl from this loop should not grow by N (clones were freed) */
     TEST_ASSERT_MSG((a1 - f1) <= (a0 - f0) + 2,
-        "live pImpl grew — unused results not freed via freePimpl");
+        "live pImpl grew - unused results not freed via freePimpl");
 
     LEAF_TYPE v = qBDD_getTerminalValue(t);
     TEST_ASSERT(v.pImpl != NULL);
@@ -626,7 +626,7 @@ static void test_cancel_apply_no_pimpl_leak(void) {
     (void)w0; (void)w1;
 
     /* Temps from invert should be freed when unprotected+GC and/or when
-     * unused apply results are discarded — live delta must stay small. */
+     * unused apply results are discarded - live delta must stay small. */
     TEST_ASSERT_MSG((a1 - f1) <= (a0 - f0) + 8,
         "cancel loop leaked many pImpl payloads");
     TEST_ASSERT(f1 > f0);
@@ -746,7 +746,7 @@ static void test_maketerminal_dedup_preserves_stored_value(void) {
     qBDD_protect(t);
     TEST_ASSERT(qBDD_isTerminal(t));
 
-    /* Many equal inserts — each unused copy must be freed; stored value stays */
+    /* Many equal inserts - each unused copy must be freed; stored value stays */
     for (int i = 0; i < 32; i++) {
         LEAF_TYPE *dup = heap_leaf(0.3, 0.4);
         qBDD t2 = qBDD_maketerminal(qBDD_classicLType(), dup);
@@ -972,7 +972,7 @@ static void test_many_terminals_survive_gc_when_protected(void) {
     forceGC();
     TEST_ASSERT_NEAR(qBDD_total_prob(circ, 3), 1.0, 1e-8);
 
-    /* Walk all terminals reachable from root — none may have NULL pImpl */
+    /* Walk all terminals reachable from root - none may have NULL pImpl */
     qBDD stack[64];
     int sp = 0;
     stack[sp++] = circ;

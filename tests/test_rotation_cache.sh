@@ -23,7 +23,7 @@ mkdir -p "${WORKDIR}"
 trap 'rm -rf "${WORKDIR}"' EXIT
 
 if [[ ! -x "${BIN}" ]]; then
-    echo "Binary ${BIN} not found — build with: make buddy_doubles_f128"
+    echo "Binary ${BIN} not found - build with: make buddy_doubles_f128"
     echo "(or MEDUSA_BIN=./MEDUSA_sylvan_doubles_f128 after make sylvan_doubles)"
     exit 1
 fi
@@ -162,7 +162,7 @@ assert_same   "rz0-is-identity"         h           h_rz0
 assert_differ "rz-0-then-0.1-vs-h"      h           h_rz0_rz01
 assert_same   "rz-0-then-0.1-vs-0.1"    h_rz0_rz01  h_rz01
 
-# Another round-double pair (0.5 and 1.0) — neither is identity
+# Another round-double pair (0.5 and 1.0) - neither is identity
 assert_differ "rz-0.5-then-1-vs-h"      h           h_rz05_rz1
 assert_differ "rz-0.5-then-1-vs-0.5"    h_rz05      h_rz05_rz1
 assert_differ "rz-0.5-then-1-vs-1"      h_rz1       h_rz05_rz1

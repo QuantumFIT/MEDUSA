@@ -310,7 +310,7 @@ buddy_mpfr:
 	@false
 
 # ==============================================================================
-# Tests — MoToBuddy is the preferred suite (`make test`).
+# Tests - MoToBuddy is the preferred suite (`make test`).
 # `make test-sylvan` is optional and needs `make init-sylvan`.
 # ==============================================================================
 
@@ -539,7 +539,7 @@ ifeq ($(LEAF_FLOAT_TYPE),3)
 	ln -sfn MEDUSA_buddy_doubles_$(FLOAT_SUFFIX) $(EXEC)
 endif
 
-# Convenience aliases — recurse with the correct LEAF_FLOAT_TYPE
+# Convenience aliases - recurse with the correct LEAF_FLOAT_TYPE
 buddy_doubles_f32:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=0
 
@@ -560,7 +560,7 @@ buddy_doubles_all:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
 
 # ==============================================================================
-# Object rules — buddy_doubles
+# Object rules - buddy_doubles
 # gates.o and gates_symb.o use GATES_CC/GATES_FLAGS (g++ -x c++ when USE_CXX=1).
 # main.o gets USE_MOSF_FLAG to conditionally expose sim_mosf_file.
 # sim_mosf.o only built when USE_CXX=1.
@@ -605,7 +605,7 @@ $(DOUBLES_OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(DOUBLES_OBJ_DIR)
 	    -MMD -MP -c $< -o $@
 
 # ==============================================================================
-# Object rules — buddy_gmp
+# Object rules - buddy_gmp
 # ==============================================================================
 
 $(OBJ_DIR)/buddy_gmp/gates.o: $(SRC_DIR)/gates.c | $(OBJ_DIR)/buddy_gmp

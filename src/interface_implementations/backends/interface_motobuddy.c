@@ -186,7 +186,7 @@ size_t qBDD_getVar(qBDD a) {
 LEAF_TYPE qBDD_getTerminalValue(qBDD a) {
     void* val = mtbdd_getTerminalValue(a);
     if (val == NULL) {
-        /* false / freelist / collected leaf — do not dereference */
+        /* false / freelist / collected leaf - do not dereference */
         printf("Warning: qBDD_getTerminalValue called on node %d with NULL value\n", a);
         LEAF_TYPE empty = { .pImpl = NULL };
         return empty;
@@ -524,7 +524,7 @@ void initPackage(unsigned cacheSize, unsigned nodeSize, unsigned varNum) {
     lt_classic = mtbdd_new_terminal_type();
     mtbdd_register_compare_function(lt_classic, terminal_compare);
     /* freefun must only release LEAF_TYPE.pImpl (see freePimpl). Do not free the
-     * outer LEAF_TYPE* — MoToBuddy free()s that after freefun. */
+     * outer LEAF_TYPE* - MoToBuddy free()s that after freefun. */
     mtbdd_register_free_function(lt_classic, freePimpl);
     mtbdd_register_hash_function(lt_classic, terminal_hash);
     mtbdd_register_to_str_function(lt_classic, terminal_to_str_generic);

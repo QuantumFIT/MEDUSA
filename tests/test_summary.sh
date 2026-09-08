@@ -1,4 +1,4 @@
-# Sourced by bash test scripts — colorful pass/fail summary table.
+# Sourced by bash test scripts - colorful pass/fail summary table.
 # Usage:
 #   source "$(dirname "$0")/test_summary.sh"
 #   summary_init

@@ -102,7 +102,7 @@ run_one() {
 }
 
 if [[ ! -x "${BIN}" ]]; then
-    echo "Binary ${BIN} not found — build with: make buddy_doubles_f128"
+    echo "Binary ${BIN} not found - build with: make buddy_doubles_f128"
     echo "(or MEDUSA_BIN=./MEDUSA_sylvan_doubles_f128 after make sylvan_doubles)"
     exit 1
 fi

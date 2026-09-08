@@ -252,7 +252,7 @@ static void stress_terminal_flood_and_dedup(void) {
         qBDD t = qBDD_maketerminal(qBDD_classicLType(), leaf);
         TEST_ASSERT(qBDD_isTerminal(t) || qBDD_isFalse(t));
 
-        /* Re-insert same logical value — must dedup / free unused copy */
+        /* Re-insert same logical value - must dedup / free unused copy */
         LEAF_TYPE *dup = heap_unique_leaf(i);
         qBDD t2 = qBDD_maketerminal(qBDD_classicLType(), dup);
         TEST_ASSERT(t2 == t);
@@ -285,7 +285,7 @@ static void stress_orphan_circuit_churn(void) {
     gate_cnot(&survivor, 1, 0);
 
     for (int i = 0; i < ORPHAN_CIRCUITS; i++) {
-        /* Build throwaway DAGs via apply — never protect them */
+        /* Build throwaway DAGs via apply - never protect them */
         qBDD junk = unary_apply(survivor, invertLeaf);
         qBDD junk2 = unary_apply(junk, invertLeaf);
         qBDD junk3 = binary_apply(junk, junk2, addLeaf);
@@ -396,7 +396,7 @@ static void stress_apply_temp_churn(void) {
     qBDD_protect(leaf);
 
     for (int i = 0; i < APPLY_ITERS; i++) {
-        /* Unprotected temps — MoToBuddy may free equal results / GC nodes */
+        /* Unprotected temps - MoToBuddy may free equal results / GC nodes */
         qBDD a = unary_apply(leaf, invertLeaf);
         qBDD b = unary_apply(a, invertLeaf);
         qBDD s = binary_apply(leaf, qBDD_false(), addLeaf);
@@ -439,7 +439,7 @@ static void stress_protect_thrash(void) {
         gate_h(&circ, (uint32_t)(i % 5));
         if ((i & 1) == 0)
             gate_cnot(&circ, (uint32_t)(i % 5), (uint32_t)((i + 1) % 5));
-        /* Drop old snap — may be equal to circ after no-op levels */
+        /* Drop old snap - may be equal to circ after no-op levels */
         qBDD_unprotect(snap);
         if ((i % GC_EVERY) == 0) {
             forceGC();
@@ -576,7 +576,7 @@ int main(void) {
     setup_pkg();
     TEST_ASSERT_MSG(
         mtbdd_terminal_functions_list[qBDD_classicLType()].freefun == freePimpl,
-        "classic freefun not registered — apply will not free pImpl");
+        "classic freefun not registered - apply will not free pImpl");
     freePackage();
 
     stress_terminal_table_realloc();
