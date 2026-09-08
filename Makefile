@@ -9,6 +9,11 @@ BIN_DIR     := .
 LIB_DIR     := lib
 BUDDY_DIR   := $(LIB_DIR)/MoToBuddy
 
+# MoToBuddy commit that keys the op-cache on the full size_t param (rotation angles).
+# Pin like Sylvan's tag so `make init` does not silently keep an old clone.
+MOTOBUDDY_REPO   := https://github.com/VeriFIT/MoToBuddy.git
+MOTOBUDDY_COMMIT := 61b4195f8517a080185a824528d2e8fadcae8805
+
 # ==============================================================================
 # Source and object file lists
 # ==============================================================================
@@ -202,7 +207,7 @@ help:
 	@echo "  make buddy_gmp        algebraic GMP leaves (MoToBuddy)"
 	@echo "  make buddy_doubles_f32|f64|f80|f128|all"
 	@echo "  make USE_CXX=1 ...    C++ tree gates + MOSF (MoToBuddy only, experimental)"
-	@echo "  make init             clone and build lib/MoToBuddy"
+	@echo "  make init             clone/pin MoToBuddy @ $(MOTOBUDDY_COMMIT) and build"
 	@echo "  make init-sylvan      clone and build lib/sylvan (optional; Lace via CMake)"
 	@echo "  make sylvan_gmp       algebraic GMP leaves on Sylvan (C path, no MOSF)"
 	@echo "  make sylvan_doubles   float leaves on Sylvan (LEAF_FLOAT_TYPE, default f128)"
@@ -693,7 +698,11 @@ make-motobuddy: download-motobuddy
 	make -j$(N_JOBS) buddy
 
 download-motobuddy:
-	@git clone https://github.com/VeriFIT/MoToBuddy.git || true
+	@if [ ! -d MoToBuddy/.git ]; then \
+		rm -rf MoToBuddy && \
+		git clone "$(MOTOBUDDY_REPO)" MoToBuddy; \
+	fi
+	@cd MoToBuddy && git fetch --quiet origin && git checkout --quiet "$(MOTOBUDDY_COMMIT)"
 
 make-sliqsim:
 	cd .. && \
