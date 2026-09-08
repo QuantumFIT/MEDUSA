@@ -1,14 +1,16 @@
 #include "gates.h"
-#include "sylvan_int.h" // Because of 'mtbddnode_t'
-
-prob_t measure(MTBDD *a, uint32_t xt, char *curr_state, int n)
+#include "interface.h"
+#include "norm_track.h"
+#include "mtbddop.h"
+#include <string.h>
+prob_t measure(qBDD *a, uint32_t xt, char *curr_state, int n)
 {
     uint32_t var_t;
-    if (mtbdd_isleaf(*a)) {
+    if (qBDD_isTerminal(*a)) {
         var_t = n;
     }
     else {
-        var_t = mtbdd_getvar(*a);
+        var_t = qBDD_getVar(*a);
     }
     long skip_coef;
     if (var_t == 0) {
@@ -17,475 +19,741 @@ prob_t measure(MTBDD *a, uint32_t xt, char *curr_state, int n)
     else {
         skip_coef = get_coef(0, var_t, xt, curr_state);
     }
-    prob_t prob = my_mtbdd_prob_sum(*a, xt, curr_state, n);
+    prob_t prob = interface_prob_sum(*a, xt, curr_state, n);
     prob *= skip_coef;
+    
     return prob;
 }
 
-// Decl in header file as this implementation is used by symbolic as well
-// can use regular uapply (simpler) because it doesn't create any new nodes
-TASK_IMPL_2(MTBDD, _gate_x, MTBDD, t, uint64_t, xt_raw)
-{
-    // Partial function check
-    if (t == mtbdd_false) return mtbdd_false;
-
-    // Change high and low successors if node variable is the target qubit
-    if (mtbdd_isnode(t)) {
-        uint32_t xt = (uint32_t)xt_raw; // variables are uint32_t, but TASK_IMPL_2 needs 2 uint64_t
-        uint32_t var = mtbdd_getvar(t);
-        if (var == xt) { 
-            return mtbdd_makenode(xt, mtbdd_gethigh(t), mtbdd_getlow(t));
-        }
-        else if (var > xt) {
-            // Already skipped xt -> can end the recursion
-            return t;
-        }
-    }
-    else { // is a leaf
-        return t;
-    }
-
-    return mtbdd_invalid; // Recurse deeper
+qBDD interface_gate_x(size_t xt, qBDD low, qBDD high) {
+    return newqBDD(xt, high, low);
 }
 
-TASK_IMPL_3(MTBDD, mtbdd_apply_gate, MTBDD, dd, mtbdd_apply_gate_op, op, uint32_t, xt)
-{
-    sylvan_gc_test();
-    sylvan_stats_count(MTBDD_UAPPLY);
-
-    // Check cache
-    MTBDD result;
-    if (cache_get3(mtbdd_apply_gate_id, dd, (size_t)op, xt, &result)) {
-        sylvan_stats_count(MTBDD_UAPPLY_CACHED);
-        return result;
-    }
-
-    // Every gate on 0 returns 0
-    if (dd == mtbdd_false) {
-        return mtbdd_false;
-    }
-
-    mtbddnode_t n = MTBDD_GETNODE(dd);
-    MTBDD target_dd = dd;
-    // Add the missing node if needed
-    if (mtbddnode_isleaf(n) || xt < mtbddnode_getvariable(n)) {
-        target_dd = _mtbdd_makenode(xt, dd, dd);
-    }
-
-    // Check if not xt
-    result = WRAP(op, target_dd, xt);
-    if (result != mtbdd_invalid) {
-        if (cache_put3(mtbdd_apply_gate_id, dd, (size_t)op, xt, result)) {
-            sylvan_stats_count(MTBDD_UAPPLY_CACHEDPUT);
-        }
-        return result;
-    }
-    // Else recursion
-    MTBDD low = node_getlow(dd, n); // can use dd as if the target dd is different, it means xt is the root
-    MTBDD high = node_gethigh(dd, n);
-
-    mtbdd_refs_spawn(SPAWN(mtbdd_apply_gate, high, op, xt));
-    MTBDD new_low = mtbdd_refs_push(CALL(mtbdd_apply_gate, low, op, xt));
-    MTBDD new_high = mtbdd_refs_sync(SYNC(mtbdd_apply_gate));
-    mtbdd_refs_pop(1);
-    result = mtbdd_makenode(mtbddnode_getvariable(n), new_low, new_high);
-
-    if (cache_put3(mtbdd_apply_gate_id, dd, (size_t)op, xt, result)) {
-        sylvan_stats_count(MTBDD_UAPPLY_CACHEDPUT);
-    }
-
-    return result;
+qBDD interface_gate_y(size_t xt, qBDD low, qBDD high) {
+    qBDD nhigh = unary_apply(high, invertLeaf);
+    qBDD_protect(nhigh);
+    qBDD updated = newqBDD(xt, nhigh, low);
+    qBDD_protect(updated);
+    qBDD_unprotect(nhigh);
+    qBDD res = unary_apply(updated, rotateCoef2);
+    qBDD_unprotect(updated);
+    return res;
 }
 
-TASK_IMPL_5(MTBDD, mtbdd_apply_cgate, MTBDD, dd, mtbdd_apply_gate_op, op, uint32_t, xc, uint32_t, xt, bool, xc_generated)
-{
-    sylvan_gc_test();
-    sylvan_stats_count(MTBDD_UAPPLY);
+qBDD interface_gate_z(size_t xt, qBDD low, qBDD high) {
+    qBDD nhigh = unary_apply(high, invertLeaf);
+    qBDD_protect(nhigh);
+    qBDD res = newqBDD(xt, low, nhigh);
+    qBDD_unprotect(nhigh);
+    return res;
+}
 
-    // Check cache
-    MTBDD result;
-    if (cache_get3(mtbdd_apply_cgate_id, dd, xc, xt, &result)) {
-        sylvan_stats_count(MTBDD_UAPPLY_CACHED);
-        return result;
+qBDD interface_gate_s(size_t xt, qBDD low, qBDD high) {
+    qBDD newH = unary_apply(high, rotateCoef2);
+    qBDD_protect(newH);
+    qBDD res = newqBDD(xt, low, newH);
+    qBDD_unprotect(newH);
+    return res;
+}
+
+qBDD interface_gate_t(size_t xt, qBDD low, qBDD high) {
+    qBDD newH = unary_apply(high, rotateCoef1S);
+    qBDD_protect(newH);
+    qBDD res = newqBDD(xt, low, newH);
+    qBDD_unprotect(newH);
+    return res;
+}
+
+qBDD interface_gate_h(size_t xt, qBDD low, qBDD high) {
+    if (low == high) {
+        qBDD nlow = unary_apply(low , times2LeafS);
+        qBDD_protect(nlow);
+        qBDD res = newqBDD(xt, nlow, qBDD_false());
+        qBDD_unprotect(nlow);
+        return res;
+    } else {
+        qBDD nh = qBDD_protect(binary_apply(low, high, subLeafS));
+        qBDD nl = qBDD_protect(binary_apply(low, high, addLeafS));
+        qBDD new_bdd = newqBDD(xt, nl, nh);
+        qBDD_unprotect(nh);
+        qBDD_unprotect(nl);
+
+        return new_bdd;
     }
+}
 
-    // Every gate on 0 returns 0
-    if (dd == mtbdd_false) {
-        return mtbdd_false;
+qBDD interface_gate_rx_pihalf(size_t xt, qBDD low, qBDD high) {
+    qBDD rot_low, rot_high;
+
+    rot_low = unary_apply(low, rotateCoef2);
+    qBDD_protect(rot_low);
+    rot_high = unary_apply(high, rotateCoef2);
+    qBDD_protect(rot_high);
+    qBDD newLow = binary_apply(low, rot_high, subLeafS);
+    qBDD_protect(newLow);
+    qBDD newHigh = binary_apply(high, rot_low, subLeafS);
+    qBDD_protect(newHigh);
+    qBDD_unprotect(rot_high);
+    qBDD_unprotect(rot_low);
+    qBDD res = newqBDD(xt, newLow, newHigh);
+    qBDD_unprotect(newLow);
+    qBDD_unprotect(newHigh);
+    return res;
+}
+
+qBDD interface_gate_ry_pihalf(size_t xt, qBDD low, qBDD high) {
+    qBDD newLow = binary_apply(low, high, subLeafS);
+    qBDD_protect(newLow);
+    qBDD newHigh = binary_apply(low, high, addLeafS);
+    qBDD_protect(newHigh);
+    qBDD res = newqBDD(xt, newLow, newHigh);
+    qBDD_unprotect(newLow);
+    qBDD_unprotect(newHigh);
+    return res;
+}
+
+qBDD interface_gate_rx(size_t xt, qBDD low, qBDD high, size_t param) {
+    qBDD newLow  = qBDD_protect(binary_apply_param(low, high, rx_low_leaf,  param));
+    qBDD newHigh = qBDD_protect(binary_apply_param(low, high, rx_high_leaf, param));
+    qBDD res = newqBDD(xt, newLow, newHigh);
+    qBDD_unprotect(newLow);
+    qBDD_unprotect(newHigh);
+    return res;
+}
+
+qBDD interface_gate_ry(size_t xt, qBDD low, qBDD high, size_t param) {
+    qBDD newLow  = qBDD_protect(binary_apply_param(low, high, ry_low_leaf,  param));
+    qBDD newHigh = qBDD_protect(binary_apply_param(low, high, ry_high_leaf, param));
+    qBDD res = newqBDD(xt, newLow, newHigh);
+    qBDD_unprotect(newLow);
+    qBDD_unprotect(newHigh);
+    return res;
+}
+
+qBDD interface_gate_rz(size_t xt, qBDD low, qBDD high, size_t param) {
+    qBDD newLow  = qBDD_protect(unary_apply_param(low,  rz_low_leaf,  param));
+    qBDD newHigh = qBDD_protect(unary_apply_param(high, rz_high_leaf, param));
+    qBDD res = newqBDD(xt, newLow, newHigh);
+    qBDD_unprotect(newLow);
+    qBDD_unprotect(newHigh);
+    return res;
+}
+
+void gate_x(qBDD *p_t, uint32_t xt)
+{
+    /* Skip only if xt is above the root (not in the diagram). Then both
+     * 0/1 children would be the current MTBDD, so X is identity. */
+    if (!qBDD_isTerminal(*p_t) && xt < qBDD_level(*p_t)) {
+        return;
     }
+    qBDD res;
+#ifndef __cplusplus
+    size_t newxt = (size_t) xt;
+    res = bdd_operation(*p_t, &newxt, 0, interface_gate_x);
 
-    mtbddnode_t n = MTBDD_GETNODE(dd);
-    MTBDD target_dd = dd;
-    // Add the missing node if needed
-    if (!xc_generated && (mtbddnode_isleaf(n) || xc < mtbddnode_getvariable(n))) {
-        target_dd = _mtbdd_makenode(xc, dd, dd);
-    }
-    else if (xc_generated && (mtbddnode_isleaf(n) || xt < mtbddnode_getvariable(n))) {
-        target_dd = _mtbdd_makenode(xt, dd, dd);
-    }
-
-    // Check if not xc
-    if (mtbdd_getvar(target_dd) == xc) {
-        xc_generated = true;
-        MTBDD new_high = mtbdd_refs_push(CALL(mtbdd_apply_cgate, mtbdd_gethigh(target_dd), op, xc, xt, xc_generated));
-        mtbdd_refs_pop(1);
-        result = mtbdd_makenode(xc, mtbdd_getlow(target_dd), new_high);
-
-        if (cache_put3(mtbdd_apply_cgate_id, dd, xc, xt, result)) {
-            sylvan_stats_count(MTBDD_UAPPLY_CACHEDPUT);
-        }
-        return result;
-    }
-    // Else check if not xt
-    result = WRAP(op, target_dd, xt);
-    if (result != mtbdd_invalid) {
-        if (cache_put3(mtbdd_apply_gate_id, dd, xc, xt, result)) {
-            sylvan_stats_count(MTBDD_UAPPLY_CACHEDPUT);
-        }
-        return result;
-    }
-    // Else recursion (both successors)
-    MTBDD low = node_getlow(dd, n); // can use dd and n as if the target dd is different, it means xc/xt is the root
-    MTBDD high = node_gethigh(dd, n);
-
-    mtbdd_refs_spawn(SPAWN(mtbdd_apply_cgate, high, op, xc, xt, xc_generated));
-    MTBDD new_low = mtbdd_refs_push(CALL(mtbdd_apply_cgate, low, op, xc, xt, xc_generated));
-    MTBDD new_high = mtbdd_refs_sync(SYNC(mtbdd_apply_cgate));
-    mtbdd_refs_pop(1);
-    result = mtbdd_makenode(mtbddnode_getvariable(n), new_low, new_high);
-
-    if (cache_put3(mtbdd_apply_cgate_id, dd, xc, xt, result)) {
-        sylvan_stats_count(MTBDD_UAPPLY_CACHEDPUT);
-    }
-
-    return result;
-}
-
-/**
- * Permutation based implementation of the Y gate on the given MTBDD.
- */
-TASK_DECL_2(MTBDD, _gate_y, MTBDD, uint32_t);
-TASK_IMPL_2(MTBDD, _gate_y, MTBDD, t, uint32_t, xt)
-{
-    // t has to be a nonterminal because of the apply
-    uint32_t var = mtbdd_getvar(t);
-
-    if (var == xt) {
-        MTBDD high = mtbdd_gethigh(t);
-        MTBDD low = mtbdd_getlow(t);
-
-        // Change high and low successors and negate the low successor
-        MTBDD updated = mtbdd_makenode(xt, my_mtbdd_neg(high), low);
-        // Perform the rotations
-        return my_mtbdd_coef_rot2(updated);
-    }
-
-    return mtbdd_invalid; // Recurse deeper
-}
-
-/**
- * Permutation based implementation of the Z gate on the given MTBDD.
- */
-TASK_DECL_2(MTBDD, _gate_z, MTBDD, uint32_t);
-TASK_IMPL_2(MTBDD, _gate_z, MTBDD, t, uint32_t, xt)
-{
-    // t has to be a nonterminal because of the apply
-    uint32_t var = mtbdd_getvar(t);
-
-    if (var == xt) {
-        MTBDD high = mtbdd_gethigh(t);
-        MTBDD low = mtbdd_getlow(t);
-
-        // Negate the high successor
-        return mtbdd_makenode(xt, low, my_mtbdd_neg(high));
-    }
-
-    return mtbdd_invalid; // Recurse deeper
-}
-
-/**
- * Permutation based implementation of the S gate on the given MTBDD.
- */
-TASK_DECL_2(MTBDD, _gate_s, MTBDD, uint32_t);
-TASK_IMPL_2(MTBDD, _gate_s, MTBDD, t, uint32_t, xt)
-{
-    // t has to be a nonterminal because of the apply
-    uint32_t var = mtbdd_getvar(t);
-
-    if (var == xt) {
-        MTBDD high = mtbdd_gethigh(t);
-        MTBDD low = mtbdd_getlow(t);
-
-        // Multiply the high successor by i
-        return mtbdd_makenode(xt, low, my_mtbdd_coef_rot2(high));
-    }
-
-    return mtbdd_invalid; // Recurse deeper
-}
-
-/**
- * Permutation based implementation of the T gate on the given MTBDD.
- */
-TASK_DECL_2(MTBDD, _gate_t, MTBDD, uint32_t);
-TASK_IMPL_2(MTBDD, _gate_t, MTBDD, t, uint32_t, xt)
-{
-    // t has to be a nonterminal because of the apply
-    uint32_t var = mtbdd_getvar(t);
-
-    if (var == xt) {
-        MTBDD high = mtbdd_gethigh(t);
-        MTBDD low = mtbdd_getlow(t);
-
-        // Multiply the high successor by e^(i*pi/4)
-        return mtbdd_makenode(xt, low, my_mtbdd_coef_rot1(high));
-    }
-
-    return mtbdd_invalid; // Recurse deeper
-}
-
-/**
- * Permutation based implementation of the Hadamard gate on the given MTBDD.
- */
-TASK_DECL_2(MTBDD, _gate_h, MTBDD, uint32_t);
-TASK_IMPL_2(MTBDD, _gate_h, MTBDD, t, uint32_t, xt)
-{
-    // t has to be a nonterminal because of the apply
-    uint32_t var = mtbdd_getvar(t);
-
-    if (var == xt) {
-        MTBDD high = mtbdd_gethigh(t);
-        MTBDD low = mtbdd_getlow(t);
-
-        // low = low + high, high = low - high
-        if (low == high) {
-            return mtbdd_makenode(xt, my_mtbdd_times_c(low, 2), mtbdd_false);
-        }
-        else {
-            return mtbdd_makenode(xt, my_mtbdd_plus(low, high), my_mtbdd_minus(low, high));
-        }
-    }
-
-    return mtbdd_invalid; // Recurse deeper
-}
-
-/**
- * Permutation based implementation of the Rx(π/2) gate on the given MTBDD.
- */
-TASK_DECL_2(MTBDD, _gate_rx_pihalf, MTBDD, uint32_t);
-TASK_IMPL_2(MTBDD, _gate_rx_pihalf, MTBDD, t, uint32_t, xt)
-{
-    // t has to be a nonterminal because of the apply
-    uint32_t var = mtbdd_getvar(t);
-
-    if (var == xt) {
-        MTBDD high = mtbdd_gethigh(t);
-        MTBDD low = mtbdd_getlow(t);
-        MTBDD rot_low, rot_high;
-
-        // low = low - i * high, high = -i * low + high
-        rot_low = my_mtbdd_coef_rot2(low);
-        if (low == high) {
-            return my_mtbdd_minus(low, rot_low); // new low and high of xt are always the same
-        }
-        else {
-            rot_high = my_mtbdd_coef_rot2(high);
-            return mtbdd_makenode(xt, my_mtbdd_minus(low, rot_high), my_mtbdd_minus(high, rot_low));
-        }
-    }
-
-    return mtbdd_invalid; // Recurse deeper
-}
-
-/**
- * Permutation based implementation of the Ry(π/2) gate on the given MTBDD.
- */
-TASK_DECL_2(MTBDD, _gate_ry_pihalf, MTBDD, uint32_t);
-TASK_IMPL_2(MTBDD, _gate_ry_pihalf, MTBDD, t, uint32_t, xt)
-{
-    // t has to be a nonterminal because of the apply
-    uint32_t var = mtbdd_getvar(t);
-
-    if (var == xt) {
-        MTBDD high = mtbdd_gethigh(t);
-        MTBDD low = mtbdd_getlow(t);
-
-        // low = low - high, high = low + high
-        if (low == high) {
-            return mtbdd_makenode(xt, mtbdd_false, my_mtbdd_times_c(low, 2));
-        }
-        else {
-            return mtbdd_makenode(xt, my_mtbdd_minus(low, high), my_mtbdd_plus(low, high));
-        }
-    }
-
-    return mtbdd_invalid; // Recurse deeper
-}
-
-void gate_x(MTBDD *p_t, uint32_t xt)
-{
-    // Check if xt is a missing root not needed -> swap is identical with the original MTBDD
-    *p_t = mtbdd_uapply(*p_t, TASK(_gate_x), xt);
-}
-
-void gate_y(MTBDD *p_t, uint32_t xt)
-{
-    *p_t = my_mtbdd_apply_gate(*p_t, TASK(_gate_y), xt);
-}
-
-void gate_z(MTBDD *p_t, uint32_t xt)
-{
-    *p_t = my_mtbdd_apply_gate(*p_t, TASK(_gate_z), xt);
-}
-
-void gate_s(MTBDD *p_t, uint32_t xt)
-{
-    *p_t = my_mtbdd_apply_gate(*p_t, TASK(_gate_s), xt);
-}
-
-void gate_t(MTBDD *p_t, uint32_t xt)
-{
-    *p_t = my_mtbdd_apply_gate(*p_t, TASK(_gate_t), xt);
-}
-
-void gate_h(MTBDD *p_t, uint32_t xt)
-{
-    *p_t = my_mtbdd_apply_gate(*p_t, TASK(_gate_h), xt );
-    mpz_add_ui(c_k, c_k, 1);
-}
-
-void gate_rx_pihalf(MTBDD *p_t, uint32_t xt)
-{
-    *p_t = my_mtbdd_apply_gate(*p_t, TASK(_gate_rx_pihalf), xt);
-    mpz_add_ui(c_k, c_k, 1);
-}
-
-void gate_ry_pihalf(MTBDD *p_t, uint32_t xt)
-{
-    *p_t = my_mtbdd_apply_gate(*p_t, TASK(_gate_ry_pihalf), xt);
-    mpz_add_ui(c_k, c_k, 1);
-}
-
-void gate_cnot(MTBDD *p_t, uint32_t xt, uint32_t xc)
-{
-    MTBDD t = *p_t;
-    mtbdd_protect(&t);
-    MTBDD res;
-
-    res = my_mtbdd_b_xt_comp_mul(t, xc); // Bxc_c * T
-    mtbdd_protect(&res);
-
-    MTBDD t_xt = my_mtbdd_t_xt(t, xt);
-    mtbdd_protect(&t_xt);
-    MTBDD bracket_left = my_mtbdd_b_xt_comp_mul(t_xt, xt); // Bxt_c * Txt
-    mtbdd_protect(&bracket_left);
-    mtbdd_unprotect(&t_xt);
-
-    MTBDD t_xt_comp = my_mtbdd_t_xt_comp(t, xt);
-    mtbdd_protect(&t_xt_comp);
-    mtbdd_unprotect(&t);
-    MTBDD bracket_right = my_mtbdd_b_xt_mul(t_xt_comp, xt); // Bxt * Txt_c
-    mtbdd_protect(&bracket_right);
-    mtbdd_unprotect(&t_xt_comp);
-
-    MTBDD inter_res = my_mtbdd_plus(bracket_left, bracket_right); // (Bxt_c * Txt) + (Bxt * Txt_c)
-    mtbdd_protect(&inter_res);
-    mtbdd_unprotect(&bracket_left);
-    mtbdd_unprotect(&bracket_right);
-    inter_res = my_mtbdd_b_xt_mul(inter_res, xc); // Bxc * (Bxt_c * Txt + Bxt * Txt_c)
-
-    res = my_mtbdd_plus(res, inter_res); // (Bxc_c * T) + (Bxc * (Bxt_c * Txt + Bxt * Txt_c))
-    mtbdd_unprotect(&inter_res);
-
+#else
+    auto instruction = mtbdd_with_traverse_to(xt, mtbdd_make_swap());
+    res = instruction(*p_t);
+#endif
+    qBDD_protect(res);
+    qBDD_unprotect(*p_t);
     *p_t = res;
-    mtbdd_unprotect(&res);
+
+    if (g_norm_track_enabled) {
+        char label[32];
+        snprintf(label, sizeof(label), "X(%u)", xt);
+        norm_track_record(label, *p_t, g_num_qubits);
+    }
 }
 
-void gate_cz(MTBDD *p_t, uint32_t xt, uint32_t xc)
+void gate_y(qBDD *p_t, uint32_t xt)
 {
-    *p_t = my_mtbdd_apply_cgate(*p_t, TASK(_gate_z), xc, xt);
+    size_t newxt = (size_t) xt;
+    qBDD res = qBDD_protect(bdd_operation(*p_t, &newxt, 0, interface_gate_y));
+    qBDD_unprotect(*p_t);
+    *p_t = res;
+
+    if (g_norm_track_enabled) {
+        char label[32];
+        snprintf(label, sizeof(label), "Y(%u)", xt);
+        norm_track_record(label, *p_t, g_num_qubits);
+    }
 }
 
-void gate_toffoli(MTBDD *p_t, uint32_t xt, uint32_t xc1, uint32_t xc2)
+void gate_z(qBDD *p_t, uint32_t xt)
 {
-    MTBDD t = *p_t;
-    mtbdd_protect(&t);
-    MTBDD res;
+    size_t newxt = (size_t) xt;
+    qBDD res = qBDD_protect(bdd_operation(*p_t, &newxt, 0, interface_gate_z));
+    qBDD_unprotect(*p_t);
+    *p_t = res;
 
-    res = my_mtbdd_b_xt_comp_mul(t, xc1); // Bxc_c * T
-    mtbdd_protect(&res);
+    if (g_norm_track_enabled) {
+        char label[32];
+        snprintf(label, sizeof(label), "Z(%u)", xt);
+        norm_track_record(label, *p_t, g_num_qubits);
+    }
+}
 
-    MTBDD t_xt = my_mtbdd_t_xt(t, xt);
-    mtbdd_protect(&t_xt);
-    MTBDD bracket_left = my_mtbdd_b_xt_comp_mul(t_xt, xt); // Bxt_c * Txt
-    mtbdd_protect(&bracket_left);
-    mtbdd_unprotect(&t_xt);
+void gate_rz(qBDD *p_t, uint32_t xt, double theta)
+{
+    size_t newxt = (size_t) xt;
+    size_t param;
+    memcpy(&param, &theta, sizeof(double));
+    qBDD res = qBDD_protect(bdd_operation_param(*p_t, &newxt, 0, interface_gate_rz, param));
+    qBDD_unprotect(*p_t);
+    *p_t = res;
 
-    MTBDD t_xt_comp = my_mtbdd_t_xt_comp(t, xt);
-    mtbdd_protect(&t_xt_comp);
-    MTBDD bracket_right = my_mtbdd_b_xt_mul(t_xt_comp, xt); // Bxt * Txt_c
-    mtbdd_protect(&bracket_right);
-    mtbdd_unprotect(&t_xt_comp);
+    if (g_norm_track_enabled) {
+        char label[48];
+        snprintf(label, sizeof(label), "Rz(%u,%.6f)", xt, theta);
+        norm_track_record(label, *p_t, g_num_qubits);
+    }
+}
 
-    MTBDD inter_res = my_mtbdd_plus(bracket_left, bracket_right); // (Bxt_c * Txt) + (Bxt * Txt_c)
-    mtbdd_protect(&inter_res);
+void gate_s(qBDD *p_t, uint32_t xt)
+{
+    size_t newxt = (size_t) xt;
 
-    bracket_right = my_mtbdd_b_xt_mul(inter_res, xc2); // Bxc' * (Bxt_c * Txt + Bxt * Txt_c)
-    bracket_left = my_mtbdd_b_xt_comp_mul(t, xc2); // Bxc'_c * T
-    mtbdd_unprotect(&t);
+    qBDD res = qBDD_protect(bdd_operation(*p_t, &newxt, 0, interface_gate_s));
+
+    qBDD_unprotect(*p_t);
+    *p_t = res;
+
+    if (g_norm_track_enabled) {
+        char label[32];
+        snprintf(label, sizeof(label), "S(%u)", xt);
+        norm_track_record(label, *p_t, g_num_qubits);
+    }
+}
+
+void gate_t(qBDD *p_t, uint32_t xt)
+{   
+    size_t newxt = (size_t) xt;
+    qBDD res = qBDD_protect(bdd_operation(*p_t, &newxt, 0, interface_gate_t));
+    qBDD_unprotect(*p_t);
+    *p_t = res;
+
+    if (g_norm_track_enabled) {
+        char label[32];
+        snprintf(label, sizeof(label), "T(%u)", xt);
+        norm_track_record(label, *p_t, g_num_qubits);
+    }
+}
+
+void gate_h(qBDD *p_t, uint32_t xt)
+{   
+    size_t newxt = (size_t) xt;
+    qBDD res = qBDD_protect(bdd_operation(*p_t, &newxt, 0, interface_gate_h));
+    incInvSqrtCoeff();
+    qBDD_unprotect(*p_t);
+    *p_t = res;
+
+    if (g_norm_track_enabled) {
+        char label[32];
+        snprintf(label, sizeof(label), "H(%u)", xt);
+        norm_track_record(label, *p_t, g_num_qubits);
+    }
+}
+
+void gate_rx_pihalf(qBDD *p_t, uint32_t xt)
+{
+    size_t newxt = (size_t) xt;
+    qBDD res = qBDD_protect(bdd_operation(*p_t, &newxt, 0, interface_gate_rx_pihalf));
+    incInvSqrtCoeff();
+    qBDD_unprotect(*p_t);
+    *p_t = res;
+
+    if (g_norm_track_enabled) {
+        char label[32];
+        snprintf(label, sizeof(label), "Rx_pihalf(%u)", xt);
+        norm_track_record(label, *p_t, g_num_qubits);
+    }
+}
+
+void gate_rx(qBDD *p_t, uint32_t xt, double theta)
+{
+    size_t newxt = (size_t) xt;
+    size_t param;
+    memcpy(&param, &theta, sizeof(double));
+    qBDD res = qBDD_protect(bdd_operation_param(*p_t, &newxt, 0, interface_gate_rx, param));
+    qBDD_unprotect(*p_t);
+    *p_t = res;
+
+    if (g_norm_track_enabled) {
+        char label[48];
+        snprintf(label, sizeof(label), "Rx(%u,%.6f)", xt, theta);
+        norm_track_record(label, *p_t, g_num_qubits);
+    }
+}
+
+void gate_ry(qBDD *p_t, uint32_t xt, double theta)
+{
+    size_t newxt = (size_t) xt;
+    size_t param;
+    memcpy(&param, &theta, sizeof(double));
+    qBDD res = qBDD_protect(bdd_operation_param(*p_t, &newxt, 0, interface_gate_ry, param));
+    qBDD_unprotect(*p_t);
+    *p_t = res;
+
+    if (g_norm_track_enabled) {
+        char label[48];
+        snprintf(label, sizeof(label), "Ry(%u,%.6f)", xt, theta);
+        norm_track_record(label, *p_t, g_num_qubits);
+    }
+}
+qBDD interface_gate_tdg(size_t xt, qBDD low, qBDD high) {
+    qBDD newH = unary_apply(high, rotateCoef1S_inv);
+    qBDD_protect(newH);
+    qBDD res = newqBDD(xt, low, newH);
+    qBDD_unprotect(newH);
+    return res;
+}
+
+void gate_tdg(qBDD *p_t, uint32_t xt)
+{
+    size_t newxt = (size_t) xt;
+    qBDD res = qBDD_protect(bdd_operation(*p_t, &newxt, 0, interface_gate_tdg));
+    qBDD_unprotect(*p_t);
+    *p_t = res;
+
+    if (g_norm_track_enabled) {
+        char label[32];
+        snprintf(label, sizeof(label), "Tdg(%u)", xt);
+        norm_track_record(label, *p_t, g_num_qubits);
+    }
+}
+
+
+void gate_ry_pihalf(qBDD *p_t, uint32_t xt)
+{
+    size_t newxt = (size_t) xt;
+    qBDD res = qBDD_protect(bdd_operation(*p_t, &newxt, 0, interface_gate_ry_pihalf));
+    incInvSqrtCoeff();
+    qBDD_unprotect(*p_t);
+    *p_t = res;
+
+    if (g_norm_track_enabled) {
+        char label[32];
+        snprintf(label, sizeof(label), "Ry_pihalf(%u)", xt);
+        norm_track_record(label, *p_t, g_num_qubits);
+    }
+
+}
+
+void gate_cnot(qBDD *p_t, uint32_t xt, uint32_t xc)
+{
+    qBDD t = *p_t;
+    qBDD_protect(t);
+    qBDD res;
+
+#ifndef __cplusplus
+    res = my_mtbdd_b_xt_comp_mul_i(t, xc); // Bxc_c * T
+    qBDD_protect(res);
+
+    qBDD t_xt = my_mtbdd_t_xt_i(t, xt); // Txt
+    qBDD_protect(t_xt);
+    qBDD bracket_left = my_mtbdd_b_xt_comp_mul_i(t_xt, xt); // Bxt_c * Txt
+    qBDD_protect(bracket_left);
+    qBDD_unprotect(t_xt);
+
+    qBDD t_xt_comp = my_mtbdd_t_xt_comp_i(t, xt); // Txt_c
+    qBDD_protect(t_xt_comp);
+    qBDD_unprotect(t);
+    qBDD bracket_right =  my_mtbdd_b_xt_mul_i(t_xt_comp, xt); // Bxt * Txt_c
+    qBDD_protect(bracket_right);
+    qBDD_unprotect(t_xt_comp);
+
+    qBDD inter_res = binary_apply(bracket_left, bracket_right, addLeaf); // (Bxt_c * Txt) + (Bxt * Txt_c)
+    qBDD_protect(inter_res);
+    qBDD_unprotect(bracket_left);
+    qBDD_unprotect(bracket_right);
+    qBDD inter_res2 = my_mtbdd_b_xt_mul_i(inter_res, xc); // Bxc * (Bxt_c * Txt + Bxt * Txt_c)
+    qBDD_unprotect(inter_res);
+    qBDD_protect(inter_res2);
+    qBDD res2 = qBDD_protect(binary_apply(res, inter_res2, addLeaf)); // (Bxc_c * T) + (Bxc * (Bxt_c * Txt + Bxt * Txt_c))
+    qBDD_unprotect(inter_res2);
+    qBDD_unprotect(res);
+    qBDD_unprotect(*p_t);
+    *p_t = res2;
+
+#else
+    SwapParam high_swap_param = {
+        .put_up = +[](BDD node) -> BDD {
+            return HIGH(node);
+        },
+        .put_in = +[](BDD node, BDD received) -> BDD {
+            PUSHREF(LOW(node));
+            PUSHREF(received);
+            BDD updated = bdd_makenode(LEVEL(node), READREF(2), READREF(1));
+            POPREF(2);
+            return updated;
+        }
+    };
+
+    if (xt < xc) {
+        /* t is above c in the tree (lower level index = closer to root).
+            At level t the LOW and HIGH subtrees must be kept in lockstep
+            as we descend to c, then swap their HIGH children there.     */
+        auto swap_action = mtbdd_make_swap(high_swap_param, high_swap_param);
+        auto do_lockstep = mtbdd_with_lockstep_to(xc, swap_action);
+        auto cx = mtbdd_with_traverse_to(xt,
+            [=](BDD node) -> BDD {
+                auto [new_L, new_R] = do_lockstep(LOW(node), HIGH(node));
+                PUSHREF(new_L);
+                PUSHREF(new_R);
+                BDD out = bdd_makenode(LEVEL(node), READREF(2), READREF(1));
+                POPREF(2);
+                return out;
+            }
+        );
+        res = cx(t);
+    } else {
+        /* c is above t: follow only the HIGH branch at c (control = 1),
+            then descend independently to t and do a simple subtree swap. */
+        auto cx = mtbdd_with_traverse_to(
+            xc,
+            mtbdd_with_traverse_to(xt, mtbdd_make_swap()),
+            Branch::LR, Branch::R
+        );
+        res = cx(t);
+    }
+    qBDD_protect(res);
+    qBDD_unprotect(*p_t);
+    *p_t = res;
+#endif
+
+    if (g_norm_track_enabled) {
+        char label[32];
+        snprintf(label, sizeof(label), "CNOT(%u,%u)", xt, xc);
+        norm_track_record(label, *p_t, g_num_qubits);
+    }
+
+}
+
+void gate_cz(qBDD *p_t, uint32_t xt, uint32_t xc)
+{
+    size_t newxt = (size_t) xt;
+    size_t newxc = (size_t) xc;
+    size_t ctrls[2] = {newxc, newxt};
+    qBDD res = qBDD_protect(bdd_operation(*p_t, ctrls, 1, interface_gate_z));
+    qBDD_unprotect(*p_t);
+    *p_t = res;
+
+    if (g_norm_track_enabled) {
+        char label[32];
+        snprintf(label, sizeof(label), "CZ(%u,%u)", xt, xc);
+        norm_track_record(label, *p_t, g_num_qubits);
+    }
+}
+
+void gate_toffoli(qBDD *p_t, uint32_t xt, uint32_t xc1, uint32_t xc2) {
     
-    inter_res = my_mtbdd_plus(bracket_left, bracket_right); // (Bxc'_c * T) + (Bxc' * (Bxt_c * Txt + Bxt * Txt_c))
-    mtbdd_unprotect(&bracket_left);
-    mtbdd_unprotect(&bracket_right);
+    qBDD t = *p_t;
+    qBDD_protect(t);
+    qBDD res;
+#ifndef __cplusplus
+    res = my_mtbdd_b_xt_comp_mul_i(t, xc1); // Bxc_c * T
+    qBDD_protect(res);
+    qBDD t_xt = my_mtbdd_t_xt_i(t, xt);
+    qBDD_protect(t_xt);
+    qBDD bracket_left = my_mtbdd_b_xt_comp_mul_i(t_xt, xt); // Bxt_c * Txt
+    qBDD_protect(bracket_left);
+    qBDD_unprotect(t_xt);
+    qBDD t_xt_comp = my_mtbdd_t_xt_comp_i(t, xt);
+    qBDD_protect(t_xt_comp);
+    qBDD bracket_right = my_mtbdd_b_xt_mul_i(t_xt_comp, xt); // Bxt * Txt_c
+    qBDD_protect(bracket_right);
+    qBDD_unprotect(t_xt_comp);
+    qBDD inter_res = binary_apply(bracket_left, bracket_right, addLeaf); // (Bxt_c * Txt) + (Bxt * Txt_c)
+    qBDD_protect(inter_res);
+    qBDD_unprotect(bracket_left);
+    qBDD_unprotect(bracket_right);
+    qBDD bracket_right2 = my_mtbdd_b_xt_mul_i(inter_res, xc2); // Bxc' * (Bxt_c * Txt + Bxt * Txt_c)
+    qBDD_protect(bracket_right2);
+    qBDD_unprotect(inter_res);
+    qBDD bracket_left2 = my_mtbdd_b_xt_comp_mul_i(t, xc2); // Bxc'_c * T
+    qBDD_protect(bracket_left2);
+    qBDD_unprotect(t);
+    qBDD inter_res2 = binary_apply(bracket_left2, bracket_right2, addLeaf); // (Bxc'_c * T) + (Bxc' * (Bxt_c * Txt + Bxt * Txt_c))
+    qBDD_protect(inter_res2);
+    qBDD_unprotect(bracket_left2);
+    qBDD_unprotect(bracket_right2);
+    qBDD inter_res3 = my_mtbdd_b_xt_mul_i(inter_res2, xc1); // Bxc * (Bxc'_c * T + Bxc' * (Bxt_c * Txt + Bxt * Txt_c))
+    qBDD_protect(inter_res3);
+    qBDD_unprotect(inter_res2);
+    qBDD res2 = binary_apply(res, inter_res3, addLeaf); // (Bxc_c * T) + (Bxc * (Bxc'_c * T + Bxc' * (Bxt_c * Txt + Bxt * Txt_c)))
+    qBDD_protect(res2);
+    qBDD_unprotect(res);
+    qBDD_unprotect(inter_res3);
+    qBDD_unprotect(*p_t);
+    *p_t = res2;
+    
+#else
+    SwapParam high_swap_param = {
+        .put_up = +[](BDD node) -> BDD {
+            return HIGH(node);
+        },
+        .put_in = +[](BDD node, BDD received) -> BDD {
+            PUSHREF(LOW(node));
+            PUSHREF(received);
+            BDD updated = bdd_makenode(LEVEL(node), READREF(2), READREF(1));
+            POPREF(2);
+            return updated;
+        }
+    };
 
-    inter_res = my_mtbdd_b_xt_mul(inter_res, xc1); // Bxc * (Bxc'_c * T + Bxc' * (Bxt_c * Txt + Bxt * Txt_c))
-    res = my_mtbdd_plus(res, inter_res); // (Bxc_c * T) + (Bxc * (Bxc'_c * T + Bxc' * (Bxt_c * Txt + Bxt * Txt_c)))
-    mtbdd_unprotect(&inter_res);
+    int c1 = (int) xc1;
+    int c2 = (int) xc2;
+    int t0 = (int) xt;
 
+    if (c1 > c2) { int tmp = c1; c1 = c2; c2 = tmp; }
+
+    /* Auto-select implementation variant by relative level ordering */
+
+    if (t0 < c1) {
+        /* t0 < c1 < c2
+            Target is above both controls. Traverse to t0, then use two
+            nested locksteps - outer down to c1, inner down to c2 - each
+            filtering to the HIGH branch only before descending further.  */
+        auto swap_action    = mtbdd_make_swap(high_swap_param, high_swap_param);
+        /* Swap HIGHs on the virtualized c2 nodes (ITSELF), same as CX.
+         * action_on R here would feed raw HIGH cofactors (often bdd_false)
+         * into swap, which then makenode(LEVEL(false)==varnum, ...). */
+        auto inner_lockstep = mtbdd_with_lockstep_to(c2, swap_action);
+        auto outer_lockstep = mtbdd_with_lockstep_to(c1, inner_lockstep,
+                                                        Branch::LR, Branch::R,
+                                                        Branch::LR, Branch::R);
+        auto ccx = mtbdd_with_traverse_to(
+            t0,
+            [=](BDD node) -> BDD {
+                auto [new_L, new_R] = outer_lockstep(LOW(node), HIGH(node));
+                PUSHREF(new_L);
+                PUSHREF(new_R);
+                BDD out = bdd_makenode(LEVEL(node), READREF(2), READREF(1));
+                POPREF(2);
+                return out;
+            }
+        );
+        res = ccx(t);
+
+    } else if (c1 < t0 && t0 < c2) {
+        /* c1 < t0 < c2
+            First control is above the target, second control is below.
+            Traverse to c1 filtering HIGH only, then to t0 where LOW and
+            HIGH are lockstepped down to c2, swapping HIGH children there. */
+        auto swap_action2 = mtbdd_make_swap(high_swap_param, high_swap_param);
+        auto at_t = [=](BDD node) -> BDD {
+            auto do_lockstep = mtbdd_with_lockstep_to(c2, swap_action2);
+            auto [new_L, new_R] = do_lockstep(LOW(node), HIGH(node));
+            PUSHREF(new_L);
+            PUSHREF(new_R);
+            BDD out = bdd_makenode(LEVEL(node), READREF(2), READREF(1));
+            POPREF(2);
+            return out;
+        };
+        auto ccx = mtbdd_with_traverse_to(
+            c1,
+            mtbdd_with_traverse_to(t0, at_t),
+            Branch::LR, Branch::R
+        );
+        res = ccx(t);
+
+    } else {
+        /* c1 < c2 < t0
+            Both controls are above the target. Traverse to c1 (HIGH),
+            then to c2 (HIGH), then to t0 for a straightforward subtree swap.
+            No lockstep needed - each subtree is independent at this point. */
+        auto ccx = mtbdd_with_traverse_to(
+            c1,
+            mtbdd_with_traverse_to(
+                c2,
+                mtbdd_with_traverse_to(t0, mtbdd_make_swap()),
+                Branch::LR, Branch::R
+            ),
+            Branch::LR, Branch::R
+        );
+        res = ccx(t);
+    }
+
+    qBDD_protect(res);
+    qBDD_unprotect(*p_t);
     *p_t = res;
-    mtbdd_unprotect(&res);
+#endif
+
+    if (g_norm_track_enabled) {
+        char label[32];
+        snprintf(label, sizeof(label), "Toffoli(%u,%u,%u)", xt, xc1, xc2);
+        norm_track_record(label, *p_t, g_num_qubits);
+    }
 }
 
-void gate_mcx(MTBDD *p_t, qparam_list_t *qparams)
-{
-    // Assumes indices in qparams are in the reverse order of the input file! (target qubit first, qc1 last)
+void gate_mcx(qBDD *p_t, qparam_list_t *qparams) {
+// Assumes indices in qparams are in the reverse order of the input file! (target qubit first, qc1 last)
+    qBDD t = *p_t;
+    qBDD_protect(t);
 
-    MTBDD t = *p_t;
-    mtbdd_protect(&t);
-    MTBDD res;
+#ifndef __cplusplus
+
+    qBDD res;
 
     qparam_list_first(qparams);
 
-    // Target qubit part
-    MTBDD t_xt = my_mtbdd_t_xt(t, qparams->active->q_index);
-    mtbdd_protect(&t_xt);
-    MTBDD bracket_left = my_mtbdd_b_xt_comp_mul(t_xt, qparams->active->q_index); // Bxt_c * Txt
-    mtbdd_protect(&bracket_left);
-    mtbdd_unprotect(&t_xt);
+    qBDD t_xt = my_mtbdd_t_xt_i(t, qparams->active->q_index);
+    qBDD_protect(t_xt);
+    qBDD bracket_left = my_mtbdd_b_xt_comp_mul_i(t_xt, qparams->active->q_index);
+    qBDD_protect(bracket_left);
+    qBDD_unprotect(t_xt);
 
-    MTBDD t_xt_comp = my_mtbdd_t_xt_comp(t, qparams->active->q_index);
-    mtbdd_protect(&t_xt_comp);
-    MTBDD bracket_right = my_mtbdd_b_xt_mul(t_xt_comp, qparams->active->q_index); // Bxt * Txt_c
-    mtbdd_protect(&bracket_right);
-    mtbdd_unprotect(&t_xt_comp);
+    qBDD t_xt_comp = my_mtbdd_t_xt_comp_i(t, qparams->active->q_index);
+    qBDD_protect(t_xt_comp);
+    qBDD bracket_right = my_mtbdd_b_xt_mul_i(t_xt_comp, qparams->active->q_index);
+    qBDD_protect(bracket_right);
+    qBDD_unprotect(t_xt_comp);
 
-    res = my_mtbdd_plus(bracket_left, bracket_right); // (Bxt_c * Txt) + (Bxt * Txt_c)
-    mtbdd_protect(&res);
+    res = binary_apply(bracket_left, bracket_right, addLeaf);
+    qBDD_protect(res);
 
-    // Get the last control qubit
     qparam_list_next(qparams);
 
-    // Handling the control qubits
     while (qparams->active) {
-        bracket_right = my_mtbdd_b_xt_mul(res, qparams->active->q_index);   // BxcN * (result so far)
-        bracket_left = my_mtbdd_b_xt_comp_mul(t, qparams->active->q_index); // BxcN_c * T
-        res = my_mtbdd_plus(bracket_left, bracket_right);                   // (BxcN_c * T) + (BxcN * (result so far))
-        qparam_list_next(qparams);  // move to the next control qubit
+        qBDD bracket_right1 = my_mtbdd_b_xt_mul_i(res, qparams->active->q_index);
+        qBDD_protect(bracket_right1);
+        qBDD bracket_left1 = my_mtbdd_b_xt_comp_mul_i(t, qparams->active->q_index);
+        qBDD_protect(bracket_left1);
+        qBDD_unprotect(res);
+        res = binary_apply(bracket_left1, bracket_right1, addLeaf);
+        qBDD_protect(res);
+        qBDD_unprotect(bracket_left1);
+        qBDD_unprotect(bracket_right1);
+        qparam_list_next(qparams);
     }
-    mtbdd_unprotect(&t);
-    mtbdd_unprotect(&bracket_left);
-    mtbdd_unprotect(&bracket_right);
+    qBDD_unprotect(t);
+    qBDD_unprotect(bracket_left);
+    qBDD_unprotect(bracket_right);
 
+#else
+    // --- Extract target + controls ---
+    qparam_list_first(qparams);
+    int target = qparams->active->q_index;
+    qparam_list_next(qparams);
+
+    std::vector<int> controls;
+    while (qparams->active) {
+        controls.push_back(qparams->active->q_index);
+        qparam_list_next(qparams);
+    }
+    std::sort(controls.begin(), controls.end());
+
+    std::vector<int> below_t, above_t;
+    for (int c : controls) {
+        if      (c < target) below_t.push_back(c);
+        else if (c > target) above_t.push_back(c);
+    }
+
+
+
+    NodeOp at_t;
+    if (above_t.empty()) {
+        at_t = mtbdd_make_swap();
+    } else {
+        SwapParam high_swap_param = {
+            .put_up = +[](BDD node) -> BDD {
+                return HIGH(node);
+            },
+            .put_in = +[](BDD node, BDD received) -> BDD {
+                PUSHREF(LOW(node));
+                PUSHREF(received);
+                qBDD updated = bdd_makenode(LEVEL(node), READREF(2), READREF(1));
+                POPREF(2);
+                return updated;
+            }
+        };
+        auto swap_action = mtbdd_make_swap(high_swap_param, high_swap_param);
+
+        BinaryNodeOp do_lockstep;
+        int last_c_above = above_t.back(); above_t.pop_back();
+        do_lockstep = mtbdd_with_lockstep_to(last_c_above, swap_action);
+
+        for (int i = (int)above_t.size() - 1; i >= 0; --i) {
+            int c = above_t[i];
+            do_lockstep = mtbdd_with_lockstep_to(c, do_lockstep,
+                                                            Branch::LR, Branch::R,
+                                                            Branch::LR, Branch::R);
+        }
+
+        
+        at_t = [=](BDD node) -> BDD {
+            auto [new_L, new_R] = do_lockstep(LOW(node), HIGH(node));
+            PUSHREF(new_L);
+            PUSHREF(new_R);
+            BDD res = bdd_makenode(LEVEL(node), READREF(2), READREF(1));
+            POPREF(2);
+            return res;
+        };
+    
+
+    }
+
+    qBDD res;
+
+    // at_t must run on the target-level node (swap or lockstep of its children).
+    // Controls below the target only select the HIGH branch, then continue down -
+    // same nesting as Toffoli's c1 < t0 case.
+    NodeOp op = mtbdd_with_traverse_to(target, at_t);
+    if (below_t.empty()) {
+        res = op(t);
+    } else {
+        int last_c_below = below_t.back(); below_t.pop_back();
+        auto mcx = mtbdd_with_traverse_to(last_c_below, op, Branch::LR, Branch::R);
+
+        for (int i = (int)below_t.size() - 1; i >= 0; --i) {
+            int c = below_t[i];
+            mcx = mtbdd_with_traverse_to(c, mcx, Branch::LR, Branch::R);
+        }
+
+        res = mcx(t);
+    }
+
+
+#endif
+
+    /* C path already protect(res) in the apply loop; C++ must protect here.
+     * Protect before unprotect so GC cannot drop res. */
+#ifdef __cplusplus
+    qBDD_protect(res);
+#endif
+    qBDD_unprotect(*p_t);
     *p_t = res;
-    mtbdd_unprotect(&res);
+
+    if (g_norm_track_enabled) {
+        /* snprintf returns the untruncated length; never let offset grow past
+         * sizeof(label) or (sizeof(label) - offset) underflows to SIZE_MAX. */
+        char label[64];
+        size_t offset = 0;
+        int n = snprintf(label, sizeof(label), "MCX(%u", qparams->first->q_index);
+        if (n > 0)
+            offset = (size_t)n < sizeof(label) ? (size_t)n : sizeof(label) - 1;
+
+        qparam_t *iter = qparams->first->next;
+        while (iter && offset + 1 < sizeof(label)) {
+            n = snprintf(label + offset, sizeof(label) - offset, ",%u", iter->q_index);
+            if (n < 0)
+                break;
+            if ((size_t)n >= sizeof(label) - offset) {
+                offset = sizeof(label) - 1;
+                break;
+            }
+            offset += (size_t)n;
+            iter = iter->next;
+        }
+
+        if (offset + 1 < sizeof(label))
+            snprintf(label + offset, sizeof(label) - offset, ")");
+        else {
+            label[sizeof(label) - 2] = ')';
+            label[sizeof(label) - 1] = '\0';
+        }
+        norm_track_record(label, *p_t, g_num_qubits);
+    }
 }
 /* end of "gates.c" */

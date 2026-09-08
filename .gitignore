@@ -1,11 +1,22 @@
 /.vscode
 
-# Libraries
+# Libraries (cloned by make init / init-sylvan)
 /lib
+/sylvan
 
 # Build files
 MEDUSA
+MEDUSA_*
+/test_unit_api
+/test_metamorphic
+/test_stress_f64
+/test_stress_f128
+/test_stress_gmp
 /obj
+
+# Scratch / local dumps
+tmp_*
+.test-work/
 
 /doc
 
@@ -18,3 +29,7 @@ res-vars.txt
 # For debug purposes
 gmon.out
 /logs
+/test_benchmark_semantics
+/test_grover_*
+.cursor/
+norm_track.csv

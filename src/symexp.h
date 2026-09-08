@@ -19,7 +19,7 @@
 /**
  * Initializes the symbolic hash table - must be initialized before any symbolic value MTBDD can be initialized!
  */
-void symexp_htab_init();
+void symexp_htab_init(size_t size);
 
 /**
  * Clears the symbolic hash table - deletes all items (the array size is not changed)
@@ -40,6 +40,11 @@ symexp_list_t* symexp_init(vars_t v);
  * Multiplies the tree with the given coefficient
  */
 symexp_list_t* symexp_mul_c(symexp_list_t *a, unsigned long c);
+
+/**
+ * Multiplies the expression by 1/√2 (per-term scale, interned).
+ */
+symexp_list_t* symexp_mul_sqrt2inv(symexp_list_t *a);
 
 /**
  * Performs the given operation on the two trees (a op b) and returns the result

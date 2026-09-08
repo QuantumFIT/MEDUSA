@@ -2,6 +2,8 @@
 #include <gmp.h>
 #include "symexp_list.h"
 #include "error.h"
+#include <stdio.h>
+#include "interface.h"
 
 symexp_list_t* symexp_list_create()
 {
@@ -31,6 +33,7 @@ void symexp_list_insert_first(symexp_list_t *l, symexp_val_t *val)
         symexp_el_t *new_el = my_malloc(sizeof(symexp_el_t));
         new_el->data = my_malloc(sizeof(symexp_val_t));
         new_el->data->var = val->var;
+        new_el->data->sqrt2_inv = val->sqrt2_inv;
         mpz_init_set(new_el->data->coef, val->coef);
         new_el->next = l->first;
         l->first = new_el;
@@ -43,6 +46,7 @@ void symexp_list_insert_after(symexp_list_t *l, symexp_val_t *val)
         symexp_el_t *new_el = my_malloc(sizeof(symexp_el_t));
         new_el->data = my_malloc(sizeof(symexp_val_t));
         new_el->data->var = val->var;
+        new_el->data->sqrt2_inv = val->sqrt2_inv;
         mpz_init_set(new_el->data->coef, val->coef);
         new_el->next = l->active->next;
         l->active->next = new_el;
@@ -82,7 +86,18 @@ void symexp_list_neg(symexp_list_t *l)
     if(l){
         symexp_list_first(l);
         while (l->active) {
-            mpz_neg (l->active->data->coef, l->active->data->coef);
+            mpz_neg(l->active->data->coef, l->active->data->coef);
+            symexp_list_next(l);
+        }
+    }
+}
+
+void symexp_list_mul_sqrt2inv(symexp_list_t *l)
+{
+    if (l) {
+        symexp_list_first(l);
+        while (l->active) {
+            l->active->data->sqrt2_inv++;
             symexp_list_next(l);
         }
     }
@@ -131,6 +146,7 @@ symexp_list_t* symexp_list_mkcpy(symexp_list_t *l)
             tmp = my_malloc(sizeof(symexp_el_t));
             tmp->data = my_malloc(sizeof(symexp_val_t));
             tmp->data->var = l->active->data->var;
+            tmp->data->sqrt2_inv = l->active->data->sqrt2_inv;
             tmp->next = NULL;
             mpz_init_set(tmp->data->coef, l->active->data->coef);
 

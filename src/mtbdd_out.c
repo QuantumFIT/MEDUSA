@@ -3,7 +3,7 @@
 #include "mtbdd_out.h"
 #include "error.h"
 
-/// Global variable for the map (needed as custom arguments cannot be added to Sylvan's mtbdd_fprintdot())
+/// Global map (Buddy's print-dot API does not take extra arguments)
 static lnum_map_t out_map;
 
 /// Step for array reallocation when the array size isn't sufficient when adding
@@ -39,6 +39,7 @@ bool lnum_map_is_empty()
 
 void lnum_map_print(FILE *f)
 {
+#if defined(LEAF_BACKEND_GMP)
     mpz_t temp;
     mpz_init(temp);
     for (size_t i = 0; i < out_map.next_var; i++) {
@@ -50,6 +51,10 @@ void lnum_map_print(FILE *f)
         fprintf(f,"\n\n");
     }
     mpz_clear(temp);
+#else
+    /* Float builds store leaf_primitive_t, not mpz; lnum_map is GMP-only. */
+    (void)f;
+#endif
 }
 
 void lnum_map_clear()

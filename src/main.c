@@ -2,11 +2,14 @@
 #include <getopt.h>
 #include <time.h>
 #include <sys/resource.h>
-#include "mtbdd.h"
 #include "symb_utils.h"
 #include "sim.h"
 #include "mtbdd_out.h"
 #include "error.h"
+#include "interface.h"
+#include "norm_track.h"
+#include "sim_mosf.h"
+#include "medusa_debug.h"
 
 /// Name of the output .dot file
 #define OUT_FILE "res"
@@ -18,18 +21,21 @@
 " Usage: MEDUSA [options] \n\
 \n\
  Options with no argument:\n\
- --help,        -h          show this message\n\
- --info,        -i          measure the simulation runtime and peak memory usage\n\
- --symbolic,    -s          perform symbolic simulation if possible\n\
- --probability, -p       show probabilities of measuring the basis state in the result MTBDD instead\n\
+ --help,            -h          show this message\n\
+ --info,            -i          measure the simulation runtime and peak memory usage\n\
+ --symbolic,        -s          perform symbolic simulation if possible\n\
+ --probability,     -p          print |amp|^2 on res.dot terminals instead of amplitudes\n\
+ --norm-error,      -e          enable tracking of the state vector norm during simulation\n\
+ --tree-simulation, -t          use MOSF tree simulation instead of apply gates (needs USE_CXX=1)\n\
  \n\
  Options with a required argument:\n\
- --file,        -f          specify the input QASM file (default STDIN)\n\
- --nsamples,    -n          specify the number of samples used for measurement (default 1024)\n\
+ --file,            -f          specify the input QASM file (default STDIN)\n\
+ --nsamples,        -n          number of samples used for measurement (default 1024)\n\
+ --norm-csv,        -c          CSV path for norm tracking (default 'norm_track.csv'; requires -e)\n\
  \n\
  Options with an optional argument:\n\
- --measure,     -m          perform the measure operations encountered in the circuit, \n\
-                         optional arg specifies the file for saving the measurement result (default STDOUT)\n\
+ --measure,         -m          perform measure operations at the end of the circuit;\n\
+                                optional arg is the result file (default STDOUT)\n\
  \n\
  The MTBDD result is saved in the file 'res.dot'.\n\
  The evaluation of variables for large numbers is saved (if necessary) in 'res-vars.txt'.\n"
@@ -62,6 +68,12 @@ int main(int argc, char *argv[])
     sim_flags_t flags = { .opt_symb = false,
                           .opt_info = false };
     unsigned long samples = 1024;
+
+    char *norm_csv_path = NULL;
+    bool norm_enabled  = false;
+
+    bool use_tree_sim = false;
+
     
     int opt;
     static struct option long_options[] = {
@@ -72,10 +84,14 @@ int main(int argc, char *argv[])
         {"nsamples", required_argument,  0, 'n'},
         {"symbolic", no_argument,        0, 's'},
         {"probability", no_argument,     0, 'p'},
+        {"norm-csv",   required_argument, 0, 'c'},
+        {"tree-simulation", no_argument,  0, 't'},
+        {"norm-error", no_argument,       0, 'e'},
+
         {0, 0, 0, 0}
     };
     char *endptr;
-    while((opt = getopt_long(argc, argv, "hif:m::n:sp", long_options, 0)) != -1) {
+    while((opt = getopt_long(argc, argv, "hif:m::n:spc:et", long_options, 0)) != -1) {
         switch(opt) {
             case 'h':
                 printf("%s\n", HELP_MSG);
@@ -94,6 +110,8 @@ int main(int argc, char *argv[])
                 opt_measure = true;
                 if (!optarg && optind < argc && argv[optind][0] != '-') {
                     optarg = argv[optind++];
+                }
+                if (optarg) {
                     measure_output = fopen(optarg, "w");
                     if (measure_output == NULL) {
                         error_exit("Invalid output file '%s'.\n", optarg);
@@ -112,57 +130,95 @@ int main(int argc, char *argv[])
             case 'p':
                 opt_probability = true;
                 break;
+            case 'c': 
+                norm_csv_path = optarg;
+                break;
+            case 'e': 
+                norm_enabled = true;
+                break;
+            case 't':
+                use_tree_sim = true;
+                break;
+
             case '?':
                 exit(1); // error msg already printed by getopt_long
         }
     }
 
     // Init:
-    init_sylvan();
-    init_my_leaf(opt_probability);
+    medusa_dbg_init();
+    initPackage(0,0,0);
+    setLeafPrintProb(opt_probability);
     if (flags.opt_symb) {
-        init_sylvan_symb();
+        init_symb_backend();
     }
     FILE *out = fopen(OUT_FILE".dot", "w");
     if (out == NULL) {
         error_exit("Cannot open the output file.\n");
     }
-    MTBDD circ;
+    if (norm_enabled) {
+        if (norm_csv_path == NULL) {
+            norm_csv_path = "norm_track.csv";
+        }
+        norm_track_init(norm_csv_path);
+    }
+    qBDD circ = qBDD_false();
     sim_info_t info;
     init_sim_info(&info);
-
     // Sim:
     struct timespec t_start, t_finish;
     double t_el;
     clock_gettime(CLOCK_MONOTONIC, &t_start); // Start the timer
+    bool sim_successful = false;
+    if (use_tree_sim) {
+    #ifdef USE_MOSF
+            sim_successful = sim_mosf_file(input, &circ, &flags, &info);
+    #else
+        fprintf(stderr, "MOSF support not compiled in (build with USE_CXX=1)\n");
+        exit(1);
+    #endif
 
-    bool sim_successful = sim_file(input, &circ, &flags, &info);
-
-    if (opt_measure && info.is_measure) {
+    } else {   
+        sim_successful = sim_file(input, &circ, &flags, &info);
+    }
+    if (sim_successful && opt_measure && info.is_measure) {
         measure_all(samples, measure_output, circ, info.n_qubits, info.bits_to_measure);
     }
 
     clock_gettime(CLOCK_MONOTONIC, &t_finish); // End the timer
-    
+    long peak_mem = get_peak_mem();
     // Output:
-    lnum_map_init(LONG_NUMS_MAP_INIT_SIZE);
-    mtbdd_fprintdot(out, circ);
-    // Check if there are any large numbers outputted only as variables in the .dot file
-    if (!lnum_map_is_empty()) {
-        FILE *lnums_out = fopen(LONG_NUMS_OUT_FILE, "w");
-        if (lnums_out == NULL) {
-            error_exit("Cannot open the output file for the separate output for large numbers.\n");
-        }
-        lnum_map_print(lnums_out);
-        fclose(lnums_out);
+    {
+        double tp = sim_successful
+            ? (double)qBDD_total_prob(circ, info.n_qubits) : 0.0;
+        MEDUSA_DBG(.cat = MEDUSA_DBG_NORM, .evt = "sim_done", .where = "main",
+                   .use_bdd = 1, .bdd = (int)circ, .ref = medusa_dbg_bdd_ref((int)circ),
+                   .is_false = qBDD_isFalse(circ), .leaves = qBDD_leafcount(circ),
+                   .use_total = 1, .total = tp,
+                   .use_n = 1, .n_qubits = info.n_qubits,
+                   .use_loop = 1, .loop_idx = (int)info.n_loops,
+                   .note = sim_successful ? "ok" : "sim_failed");
     }
-    lnum_map_clear();
+    if (sim_successful) {
+        lnum_map_init(LONG_NUMS_MAP_INIT_SIZE);
+        q_fprintdot(out, circ);
+        // Check if there are any large numbers outputted only as variables in the .dot file
+        if (!lnum_map_is_empty()) {
+            FILE *lnums_out = fopen(LONG_NUMS_OUT_FILE, "w");
+            if (lnums_out == NULL) {
+                error_exit("Cannot open the output file for the separate output for large numbers.\n");
+            }
+            lnum_map_print(lnums_out);
+            fclose(lnums_out);
+        }
+        lnum_map_clear();
+    }
 
     t_el = get_time_el(t_start, t_finish);
     if (flags.opt_info) {
         printf("Time=%.3gs\n", t_el);
         #if defined(__unix__) || defined(__APPLE__)
-            printf("Peak Memory Usage=%ldkB\n", get_peak_mem());
+            printf("Peak Memory Usage=%ldkB\n", peak_mem);
         #else
             printf("Peak Memory Usage not supported for this OS.\n");
         #endif
@@ -180,12 +236,17 @@ int main(int argc, char *argv[])
 
     // Finish:
     if (sim_successful) {
-        circuit_delete(&circ);
+        deleteCircuit(&circ);
     }
-    stop_sylvan();
+    free_sim_info(&info);
+    freePackage();
     fclose(out);
+    norm_track_close();
     if (opt_infile) {
         fclose(input);
+    }
+    if (measure_output != stdout && measure_output != NULL) {
+        fclose(measure_output);
     }
 
     return 0;

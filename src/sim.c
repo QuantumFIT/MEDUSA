@@ -10,6 +10,10 @@
 #include "qparam.h"
 #include "htab.h"
 #include "error.h"
+#include "interface.h"
+#include <assert.h>
+#include "norm_track.h"
+#include "medusa_debug.h"
 
 /// Max. supported length of the string with classical bit register identifier (includes '\0')
 #define BIT_REG_ID_MAX_LEN (30+1)
@@ -37,20 +41,33 @@ void init_sim_info(sim_info_t *i)
     i->t_el_eval = NULL;
 }
 
+void free_sim_info(sim_info_t *i)
+{
+    free(i->bits_to_measure);
+    i->bits_to_measure = NULL;
+    free(i->t_el_loop);
+    i->t_el_loop = NULL;
+    free(i->t_el_eval);
+    i->t_el_eval = NULL;
+    i->t_len = 0;
+    i->n_loops = 0;
+}
+
 /**
  * Resizes both the arrays used for time tracking to the new size (or allocates memory if empty)
  */
 static void sim_info_times_addsize(sim_info_t *i, int inc)
 {
-    size_t size = inc;
+    size_t size;
     if (i->t_len == 0) {
+        size = (size_t)inc;
         i->t_el_loop = my_malloc(sizeof(double) * size);
         i->t_el_eval = my_malloc(sizeof(double) * size);
     }
     else {
-        size += inc;
+        size = i->t_len + (size_t)inc;
         i->t_el_loop = my_realloc(i->t_el_loop, sizeof(double) * size);
-        i->t_el_eval = my_realloc(i->t_el_loop, sizeof(double) * size);
+        i->t_el_eval = my_realloc(i->t_el_eval, sizeof(double) * size);
     }
     i->t_len = size;
 }
@@ -105,6 +122,115 @@ static long long parse_num(FILE *in, char end, char alt_end)
         error_exit("Invalid format - not a valid number.\n");
     }
     return n;
+}
+
+/**
+ * Parse an OpenQASM-style angle expression (inner text of rx(...)/ry(...)/rz(...)).
+ * Grammar (left-associative * and / only):
+ *   expr := term (('*'|'/') term)*
+ *   term := ['+'|'-'] (number | "pi")
+ * Rejects leftovers after a successful parse (aside from whitespace).
+ */
+static bool parse_qasm_angle(const char *inner, double *out)
+{
+    const char *p = inner;
+    double value;
+
+    while (isspace((unsigned char)*p))
+        p++;
+
+    /* ---- first term ---- */
+    {
+        int sign = 1;
+        double term;
+        while (*p == '+' || *p == '-') {
+            if (*p == '-')
+                sign = -sign;
+            p++;
+            while (isspace((unsigned char)*p))
+                p++;
+        }
+        if (strncasecmp(p, "pi", 2) == 0 &&
+            !isalnum((unsigned char)p[2]) && p[2] != '_') {
+            term = M_PI;
+            p += 2;
+        } else {
+            char *end = NULL;
+            errno = 0;
+            term = strtod(p, &end);
+            if (end == p || errno != 0)
+                return false;
+            p = end;
+        }
+        value = sign * term;
+    }
+
+    while (isspace((unsigned char)*p))
+        p++;
+
+    /* ---- (*|/) term)* ---- */
+    while (*p == '*' || *p == '/') {
+        char op = *p++;
+        int sign = 1;
+        double term;
+
+        while (isspace((unsigned char)*p))
+            p++;
+        while (*p == '+' || *p == '-') {
+            if (*p == '-')
+                sign = -sign;
+            p++;
+            while (isspace((unsigned char)*p))
+                p++;
+        }
+        if (strncasecmp(p, "pi", 2) == 0 &&
+            !isalnum((unsigned char)p[2]) && p[2] != '_') {
+            term = M_PI;
+            p += 2;
+        } else {
+            char *end = NULL;
+            errno = 0;
+            term = strtod(p, &end);
+            if (end == p || errno != 0)
+                return false;
+            p = end;
+        }
+        term *= sign;
+        if (op == '*')
+            value *= term;
+        else {
+            if (term == 0.0)
+                return false;
+            value /= term;
+        }
+        while (isspace((unsigned char)*p))
+            p++;
+    }
+
+    if (*p != '\0')
+        return false;
+    *out = value;
+    return true;
+}
+
+/**
+ * Extract "..." from "rx(...)" / "ry(...)" / "rz(...)" into angle.
+ */
+static bool parse_rotation_cmd_angle(const char *cmd, double *angle)
+{
+    const char *open = strchr(cmd, '(');
+    const char *close = strrchr(cmd, ')');
+    char buf[CMD_MAX_LEN];
+    size_t n;
+
+    if (!open || !close || close <= open + 1)
+        return false;
+    n = (size_t)(close - open - 1);
+    if (n >= sizeof(buf))
+        return false;
+    memcpy(buf, open + 1, n);
+    buf[n] = '\0';
+    return parse_qasm_angle(buf, angle);
 }
 
 /** 
@@ -198,7 +324,7 @@ static int skip_one_line_comments(char c, FILE *in)
     return 0;
 }
 
-bool sim_file(FILE *in, MTBDD *circ, const sim_flags_t *flags, sim_info_t *info)
+bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
 {
     int c;
     char cmd[CMD_MAX_LEN]; // initialized to 0s in the loop
@@ -211,7 +337,6 @@ bool sim_file(FILE *in, MTBDD *circ, const sim_flags_t *flags, sim_info_t *info)
     mtbdd_symb_t symbc;
     uint64_t iters;
     struct timespec t_loop_start, t_loop_finish, t_eval_start;
-
     while ((c = fgetc(in)) != EOF) {
         for (int i=0; i < CMD_MAX_LEN; i++) {
             cmd[i] = '\0';
@@ -302,12 +427,12 @@ bool sim_file(FILE *in, MTBDD *circ, const sim_flags_t *flags, sim_info_t *info)
 
             uint32_t n = get_q_num(in);
             info->n_qubits = (int)n;
+            g_num_qubits = (int)n; // for norm tracking
             if (n_bits != 0 && n != n_bits) { // != 0 check because maybe it's not initialized yet
                 error_exit("Bit register size is different than the size of the qubit register - currently not supported.\n");
             }
 
-            circuit_init(circ, n);
-            mtbdd_protect(circ);
+            circuit_init_interface(circ, n); /* returns already protected root */
             init = true;
         }
         else if (init) {
@@ -336,6 +461,12 @@ bool sim_file(FILE *in, MTBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                         symexp_htab_init(1LL<<17);
                     }
                     symb_init(circ, &symbc);
+                    MEDUSA_DBG(.cat = MEDUSA_DBG_SYMB, .evt = "loop_start", .where = "sim_file",
+                               .use_bdd = 1, .bdd = (int)*circ, .ref = medusa_dbg_bdd_ref((int)*circ),
+                               .is_false = qBDD_isFalse(*circ), .leaves = qBDD_leafcount(*circ),
+                               .use_n = 1, .n_qubits = info->n_qubits,
+                               .use_iters = 1, .iters = iters,
+                               .use_loop = 1, .loop_idx = (int)info->n_loops);
                 }
                 if (fgetpos(in, &loop_start) != 0) {
                     error_exit("Could not get the current position of the stream to mark the start of a loop.\n");
@@ -375,7 +506,27 @@ bool sim_file(FILE *in, MTBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                         clock_gettime(CLOCK_MONOTONIC, &t_loop_finish);
                         info->t_el_loop[info->n_loops] = get_time_el(t_loop_start, t_loop_finish);
                         info->t_el_eval[info->n_loops] = get_time_el(t_eval_start, t_loop_finish);
+
+                        {
+                            double tp = (double)qBDD_total_prob(*circ, info->n_qubits);
+                            MEDUSA_DBG(.cat = MEDUSA_DBG_NORM, .evt = "loop_done", .where = "sim_file",
+                                       .use_bdd = 1, .bdd = (int)*circ,
+                                       .ref = medusa_dbg_bdd_ref((int)*circ),
+                                       .is_false = qBDD_isFalse(*circ),
+                                       .leaves = qBDD_leafcount(*circ),
+                                       .use_total = 1, .total = tp,
+                                       .use_n = 1, .n_qubits = info->n_qubits,
+                                       .use_iters = 1, .iters = iters,
+                                       .use_loop = 1, .loop_idx = (int)info->n_loops);
+                        }
+
                         info->n_loops++;
+
+                        if (g_norm_track_enabled) {
+                            char label[32];
+                            snprintf(label, sizeof(label), "LOOP (%lu iters)", (unsigned long)iters);
+                            norm_track_record(label, *circ, g_num_qubits);
+                        }
                     }
                     else {
                         if (fsetpos(in, &loop_start) != 0) {
@@ -427,6 +578,10 @@ bool sim_file(FILE *in, MTBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                 uint32_t qt = get_q_num(in);
                 (flags->opt_symb && is_loop)? gate_symb_t(&symbc.val, qt) : gate_t(circ, qt);
             }
+            else if (strcasecmp(cmd, "tdg") == 0) {
+                uint32_t qt = get_q_num(in);
+                (flags->opt_symb && is_loop)? gate_symb_tdg(&symbc.val, qt) : gate_tdg(circ, qt);
+            }
             else if (strcasecmp(cmd, "rx(pi/2)") == 0) {
                 uint32_t qt = get_q_num(in);
                 (flags->opt_symb && is_loop)? gate_symb_rx_pihalf(&symbc.val, qt) : gate_rx_pihalf(circ, qt);
@@ -434,6 +589,42 @@ bool sim_file(FILE *in, MTBDD *circ, const sim_flags_t *flags, sim_info_t *info)
             else if (strcasecmp(cmd, "ry(pi/2)") == 0) {
                 uint32_t qt = get_q_num(in);
                 (flags->opt_symb && is_loop)? gate_symb_ry_pihalf(&symbc.val, qt) : gate_ry_pihalf(circ, qt);
+            }
+            else if (strncasecmp(cmd, "rx(", 3) == 0 && strcasecmp(cmd, "rx(pi/2)") != 0) {
+                if (flags->opt_symb && is_loop) {
+                    error_exit("Arbitrary-angle rx is not supported inside symbolic loops "
+                               "(only rx(pi/2) has a symbolic form); command '%s'.\n", cmd);
+                }
+                double angle;
+                if (!parse_rotation_cmd_angle(cmd, &angle)) {
+                    error_exit("Invalid rx angle in command '%s'.\n", cmd);
+                }
+                uint32_t qt = get_q_num(in);
+                gate_rx(circ, qt, angle);
+            }
+            else if (strncasecmp(cmd, "ry(", 3) == 0 && strcasecmp(cmd, "ry(pi/2)") != 0) {
+                if (flags->opt_symb && is_loop) {
+                    error_exit("Arbitrary-angle ry is not supported inside symbolic loops "
+                               "(only ry(pi/2) has a symbolic form); command '%s'.\n", cmd);
+                }
+                double angle;
+                if (!parse_rotation_cmd_angle(cmd, &angle)) {
+                    error_exit("Invalid ry angle in command '%s'.\n", cmd);
+                }
+                uint32_t qt = get_q_num(in);
+                gate_ry(circ, qt, angle);
+            }
+            else if (strncasecmp(cmd, "rz(", 3) == 0) {
+                if (flags->opt_symb && is_loop) {
+                    error_exit("Arbitrary-angle rz is not supported inside symbolic loops; "
+                               "command '%s'.\n", cmd);
+                }
+                double angle;
+                if (!parse_rotation_cmd_angle(cmd, &angle)) {
+                    error_exit("Invalid rz angle in command '%s'.\n", cmd);
+                }
+                uint32_t qt = get_q_num(in);
+                gate_rz(circ, qt, angle);
             }
             else if (strcasecmp(cmd, "cx") == 0) {
                 uint32_t qc = get_q_num(in);
@@ -502,11 +693,12 @@ bool sim_file(FILE *in, MTBDD *circ, const sim_flags_t *flags, sim_info_t *info)
 
     if (flags->opt_symb && info->n_loops > 0) {
         symexp_htab_clear();
+        symexp_htab_delete();
     }
     return init;
 }
 
-void measure_all(unsigned long samples, FILE *output, MTBDD circ, int n, int *bits_to_measure)
+void measure_all(unsigned long samples, FILE *output, qBDD circ, int n, int *bits_to_measure)
 {
     prob_t random;
     prob_t p_qt_is_one;
