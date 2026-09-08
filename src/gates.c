@@ -726,14 +726,33 @@ void gate_mcx(qBDD *p_t, qparam_list_t *qparams) {
     *p_t = res;
 
     if (g_norm_track_enabled) {
+        /* snprintf returns the untruncated length; never let offset grow past
+         * sizeof(label) or (sizeof(label) - offset) underflows to SIZE_MAX. */
         char label[64];
-        int offset = snprintf(label, sizeof(label), "MCX(%u", qparams->first->q_index);
+        size_t offset = 0;
+        int n = snprintf(label, sizeof(label), "MCX(%u", qparams->first->q_index);
+        if (n > 0)
+            offset = (size_t)n < sizeof(label) ? (size_t)n : sizeof(label) - 1;
+
         qparam_t *iter = qparams->first->next;
-        while (iter) {
-            offset += snprintf(label + offset, sizeof(label) - offset, ",%u", iter->q_index);
+        while (iter && offset + 1 < sizeof(label)) {
+            n = snprintf(label + offset, sizeof(label) - offset, ",%u", iter->q_index);
+            if (n < 0)
+                break;
+            if ((size_t)n >= sizeof(label) - offset) {
+                offset = sizeof(label) - 1;
+                break;
+            }
+            offset += (size_t)n;
             iter = iter->next;
         }
-        snprintf(label + offset, sizeof(label) - offset, ")");
+
+        if (offset + 1 < sizeof(label))
+            snprintf(label + offset, sizeof(label) - offset, ")");
+        else {
+            label[sizeof(label) - 2] = ')';
+            label[sizeof(label) - 1] = '\0';
+        }
         norm_track_record(label, *p_t, g_num_qubits);
     }
 }
