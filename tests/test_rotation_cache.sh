@@ -144,6 +144,7 @@ FIXTURES=(
     h_ry1 h_ry0_ry1
     h_rz02 h_rz01_rz02
     hh hh_rz1q0 hh_rz0q0_rz1q0
+    h_rz_pi4 h_rz_neg_pi8 h_rz_2pi3 h_rz_2pi3_num h_rz2
 )
 
 for f in "${FIXTURES[@]}"; do
@@ -179,6 +180,12 @@ assert_differ "rz-0.1-then-0.2-vs-0.2"  h_rz02      h_rz01_rz02
 # Two-qubit diagram: angle still in key with H on both qubits
 assert_differ "hh-rz-round-vs-hh"       hh          hh_rz0q0_rz1q0
 assert_same   "hh-rz-round-vs-rz1"      hh_rz0q0_rz1q0 hh_rz1q0
+
+# Blocker 3: OpenQASM pi-relative angles
+assert_differ "rz-pi4-vs-h"             h           h_rz_pi4
+assert_differ "rz-neg-pi8-vs-h"         h           h_rz_neg_pi8
+assert_same   "rz-2pi3-vs-numeric"      h_rz_2pi3   h_rz_2pi3_num
+assert_differ "rz-2pi3-vs-rz2"          h_rz_2pi3   h_rz2
 
 # Blocker 4: arbitrary-angle rotations must error under --symbolic (no silent drop).
 assert_symb_rejects() {

@@ -124,6 +124,115 @@ static long long parse_num(FILE *in, char end, char alt_end)
     return n;
 }
 
+/**
+ * Parse an OpenQASM-style angle expression (inner text of rx(...)/ry(...)/rz(...)).
+ * Grammar (left-associative * and / only):
+ *   expr := term (('*'|'/') term)*
+ *   term := ['+'|'-'] (number | "pi")
+ * Rejects leftovers after a successful parse (aside from whitespace).
+ */
+static bool parse_qasm_angle(const char *inner, double *out)
+{
+    const char *p = inner;
+    double value;
+
+    while (isspace((unsigned char)*p))
+        p++;
+
+    /* ---- first term ---- */
+    {
+        int sign = 1;
+        double term;
+        while (*p == '+' || *p == '-') {
+            if (*p == '-')
+                sign = -sign;
+            p++;
+            while (isspace((unsigned char)*p))
+                p++;
+        }
+        if (strncasecmp(p, "pi", 2) == 0 &&
+            !isalnum((unsigned char)p[2]) && p[2] != '_') {
+            term = M_PI;
+            p += 2;
+        } else {
+            char *end = NULL;
+            errno = 0;
+            term = strtod(p, &end);
+            if (end == p || errno != 0)
+                return false;
+            p = end;
+        }
+        value = sign * term;
+    }
+
+    while (isspace((unsigned char)*p))
+        p++;
+
+    /* ---- (*|/) term)* ---- */
+    while (*p == '*' || *p == '/') {
+        char op = *p++;
+        int sign = 1;
+        double term;
+
+        while (isspace((unsigned char)*p))
+            p++;
+        while (*p == '+' || *p == '-') {
+            if (*p == '-')
+                sign = -sign;
+            p++;
+            while (isspace((unsigned char)*p))
+                p++;
+        }
+        if (strncasecmp(p, "pi", 2) == 0 &&
+            !isalnum((unsigned char)p[2]) && p[2] != '_') {
+            term = M_PI;
+            p += 2;
+        } else {
+            char *end = NULL;
+            errno = 0;
+            term = strtod(p, &end);
+            if (end == p || errno != 0)
+                return false;
+            p = end;
+        }
+        term *= sign;
+        if (op == '*')
+            value *= term;
+        else {
+            if (term == 0.0)
+                return false;
+            value /= term;
+        }
+        while (isspace((unsigned char)*p))
+            p++;
+    }
+
+    if (*p != '\0')
+        return false;
+    *out = value;
+    return true;
+}
+
+/**
+ * Extract "..." from "rx(...)" / "ry(...)" / "rz(...)" into angle.
+ */
+static bool parse_rotation_cmd_angle(const char *cmd, double *angle)
+{
+    const char *open = strchr(cmd, '(');
+    const char *close = strrchr(cmd, ')');
+    char buf[CMD_MAX_LEN];
+    size_t n;
+
+    if (!open || !close || close <= open + 1)
+        return false;
+    n = (size_t)(close - open - 1);
+    if (n >= sizeof(buf))
+        return false;
+    memcpy(buf, open + 1, n);
+    buf[n] = '\0';
+    return parse_qasm_angle(buf, angle);
+}
+
 /** 
  * Function for getting the next qubit index for the command on the given line.
  */
@@ -487,7 +596,7 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                                "(only rx(pi/2) has a symbolic form); command '%s'.\n", cmd);
                 }
                 double angle;
-                if (sscanf(cmd + 3, "%lf", &angle) != 1) {
+                if (!parse_rotation_cmd_angle(cmd, &angle)) {
                     error_exit("Invalid rx angle in command '%s'.\n", cmd);
                 }
                 uint32_t qt = get_q_num(in);
@@ -499,7 +608,7 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                                "(only ry(pi/2) has a symbolic form); command '%s'.\n", cmd);
                 }
                 double angle;
-                if (sscanf(cmd + 3, "%lf", &angle) != 1) {
+                if (!parse_rotation_cmd_angle(cmd, &angle)) {
                     error_exit("Invalid ry angle in command '%s'.\n", cmd);
                 }
                 uint32_t qt = get_q_num(in);
@@ -511,7 +620,7 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                                "command '%s'.\n", cmd);
                 }
                 double angle;
-                if (sscanf(cmd + 3, "%lf", &angle) != 1) {
+                if (!parse_rotation_cmd_angle(cmd, &angle)) {
                     error_exit("Invalid rz angle in command '%s'.\n", cmd);
                 }
                 uint32_t qt = get_q_num(in);
