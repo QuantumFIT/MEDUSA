@@ -51,6 +51,14 @@ jobs:
       - name: Run test suite
         run: make test
 
+      # The unit suite against every float leaf representation, not just the
+      # default f128. The terminal-dedup assertions already detected the long
+      # double padding bug, but nothing built them for f80, so it only ever
+      # showed up as an intermittent test-grover-f80 failure. See issues #6
+      # and #7.
+      - name: Run the unit suite across leaf types
+        run: make test-unit-leaf-types
+
       # Grover amplification across f32/f64/f80/f128/gmp, each in classic,
       # --symbolic and non-loop form. This is the only CI coverage of the
       # symbolic gate path (src/gates_symb.c), and it costs ~11s.

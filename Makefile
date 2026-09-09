@@ -203,7 +203,8 @@ BSCRIPT_PATH       := benchmark-utils/scripts
         buddy_doubles                                                      \
         buddy_doubles_f32 buddy_doubles_f64 buddy_doubles_f80              \
         buddy_doubles_f128 buddy_doubles_all                               \
-        test test-unit test-circuits test-benchmarks test-metamorphic      \
+        test test-unit test-unit-leaf-types test-circuits                  \
+        test-benchmarks test-metamorphic                                   \
         coverage coverage-all coverage-cxx coverage-report                 \
         test-sylvan test-all                                               \
         test-stress test-stress-f64 test-stress-f128 test-stress-gmp       \
@@ -389,6 +390,27 @@ test-unit:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
 	$(MAKE) $(TEST_UNIT_BIN) LEAF_FLOAT_TYPE=3
 	$(TEST_UNIT_BIN)
+
+# The unit suite across leaf representations, not just the default f128.
+#
+# This is the guard that was missing: the terminal-dedup assertions already
+# detected the long double padding bug (see the LEAF_SCALAR_HASH_BYTES comment
+# in leaf_primitive_double.h), but nothing ever built them for f80, so it only
+# ever surfaced as an intermittent test-grover-f80 failure.
+#
+# All four float representations. The comparison tolerances in test_unit_api.c
+# are floored per leaf type (UNIT_EPS there), because the literals at those call
+# sites are finer than single precision can resolve at all.
+UNIT_LEAF_TYPES := 0 1 2 3
+
+test-unit-leaf-types:
+	@for t in $(UNIT_LEAF_TYPES); do \
+	    echo "=== test_unit_api with LEAF_FLOAT_TYPE=$$t ==="; \
+	    $(MAKE) --no-print-directory clean-artifacts || exit 1; \
+	    $(MAKE) --no-print-directory buddy_doubles LEAF_FLOAT_TYPE=$$t || exit 1; \
+	    $(MAKE) --no-print-directory $(TEST_UNIT_BIN) LEAF_FLOAT_TYPE=$$t || exit 1; \
+	    $(TEST_UNIT_BIN) || exit 1; \
+	done
 
 $(TEST_UNIT_BIN): $(TEST_UNIT_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
                   $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
