@@ -44,13 +44,16 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
 - `make test-leaks` - valgrind `--leak-check=full` on unit, short stress, and
   symbolic `LP-Grover/05` (needs valgrind)
 - `make test-mutation` - targeted mutants of known past bugs; each must be **killed** by tests
-- `make test-unit-leaf-types` - replays `test_unit_api` for `LEAF_FLOAT_TYPE=1,2,3`.
-  Representation-dependent bugs hide from a single-type run: the x87 80-bit
-  `long double` carries its value in 10 of its 16 bytes, and hashing the 6
-  indeterminate padding bytes broke terminal dedup on f80 only (issue #6). The
-  existing dedup assertions caught it as soon as they were built for that type.
-  f32 is excluded for now - it fails 13 norm/precision assertions independently,
-  single precision being too narrow for tolerances tuned to wider types.
+- `make test-unit-leaf-types` - replays `test_unit_api` for every float leaf type
+  (`LEAF_FLOAT_TYPE=0,1,2,3`). Representation-dependent bugs hide from a
+  single-type run: the x87 80-bit `long double` carries its value in 10 of its 16
+  bytes, and hashing the 6 indeterminate padding bytes broke terminal dedup on
+  f80 only (issue #6). The existing dedup assertions caught it as soon as they
+  were built for that type.
+  Comparison tolerances are floored per leaf type via `UNIT_EPS` in
+  `test_unit_api.c`: the literals at those sites run from 1e-6 to 1e-12, which
+  single precision cannot resolve at all (`FLT_EPSILON` is 1.19e-7), so f32 is
+  held to 1e-4 while wider types keep the original values (issue #7).
 - `make test-grover` - Grover amplification matrix (classic unroll, `--symbolic`, `NL_*`)
   on f32/f64/f80/f128 and GMP; also `make test-grover-f128` / `test-grover-gmp`
 - `make test-sylvan` - optional Sylvan backend (not the default product):

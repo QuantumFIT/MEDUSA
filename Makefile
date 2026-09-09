@@ -377,11 +377,10 @@ test-unit:
 # in leaf_primitive_double.h), but nothing ever built them for f80, so it only
 # ever surfaced as an intermittent test-grover-f80 failure.
 #
-# f32 (LEAF_FLOAT_TYPE=0) is excluded: it fails 13 norm/precision assertions
-# independently of this, since single precision carries about seven significant
-# digits against tolerances tuned for wider types. Add it here once that is
-# resolved.
-UNIT_LEAF_TYPES := 1 2 3
+# All four float representations. The comparison tolerances in test_unit_api.c
+# are floored per leaf type (UNIT_EPS there), because the literals at those call
+# sites are finer than single precision can resolve at all.
+UNIT_LEAF_TYPES := 0 1 2 3
 
 test-unit-leaf-types:
 	@for t in $(UNIT_LEAF_TYPES); do \
