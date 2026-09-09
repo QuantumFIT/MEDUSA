@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # gmp is the only library not already on the runner image; cmake and g++
       # (needed to build MoToBuddy) and python3 (used by the test scripts) are
