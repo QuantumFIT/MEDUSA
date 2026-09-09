@@ -48,3 +48,10 @@ jobs:
 
       - name: Run test suite
         run: make test
+
+      # The unit suite against each leaf representation, not just the default
+      # f128. The terminal-dedup assertions already detected the long double
+      # padding bug, but nothing built them for f80, so it only ever showed up
+      # as an intermittent test-grover-f80 failure. See issue #6.
+      - name: Run the unit suite across leaf types
+        run: make test-unit-leaf-types

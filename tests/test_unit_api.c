@@ -1051,6 +1051,55 @@ static void test_terminal_hash_compare_consistency(void) {
     destroy_owned_leaf(c); free(c);
 }
 
+/*
+ * Regression: the leaf hash must depend on the value, not on the padding bytes
+ * of its representation.
+ *
+ * x86-64 long double is a ten-byte x87 value stored in sixteen bytes, and
+ * leaves are malloc'd, so those six padding bytes hold whatever was there
+ * before. cmp_generic compares scalars numerically, so folding the padding into
+ * the hash lets two leaves that compare equal hash differently - terminal dedup
+ * then stores duplicates of the same amplitude, intermittently and depending on
+ * heap contents. Only long double is affected; for float, double and
+ * __float128 LEAF_SCALAR_HASH_BYTES == sizeof(leaf_scalar_t) and both leaves
+ * below end up byte-identical, so the test is trivially satisfied.
+ *
+ * The neighbouring hash/compare consistency test does not catch this: it builds
+ * both leaves the same way, so their padding usually coincides.
+ */
+static void test_hash_ignores_scalar_padding(void) {
+    TEST_SECTION("leaf hash ignores representation padding");
+
+    const leaf_scalar_t v = (leaf_scalar_t)0.70710678118654752440L;
+
+    /* Two scalars holding v, with every non-value byte set differently. */
+    leaf_primitive_t p0, p1;
+    memset(p0, 0x00, sizeof(leaf_primitive_t));
+    memset(p1, 0xAA, sizeof(leaf_primitive_t));
+    memcpy(&p0[0], &v, LEAF_SCALAR_HASH_BYTES);
+    memcpy(&p1[0], &v, LEAF_SCALAR_HASH_BYTES);
+
+    /* Numerically equal, therefore required to hash identically. */
+    TEST_ASSERT(cmp_generic(p0, p1) == 0);
+    TEST_ASSERT(hash_comb_generic(p0) == hash_comb_generic(p1));
+
+    /* Same at leaf level, which is what the dedup table actually looks up. */
+    LEAF_TYPE *l0 = heap_leaf(0.0, 0.0);
+    LEAF_TYPE *l1 = heap_leaf(0.0, 0.0);
+    memset(l0->pImpl, 0x00, sizeof(LEAF_TYPE_IMPL));
+    memset(l1->pImpl, 0x5C, sizeof(LEAF_TYPE_IMPL));
+    memcpy(&l0->pImpl->re[0], &v, LEAF_SCALAR_HASH_BYTES);
+    memcpy(&l1->pImpl->re[0], &v, LEAF_SCALAR_HASH_BYTES);
+    memcpy(&l0->pImpl->im[0], &v, LEAF_SCALAR_HASH_BYTES);
+    memcpy(&l1->pImpl->im[0], &v, LEAF_SCALAR_HASH_BYTES);
+
+    TEST_ASSERT(terminal_compare_generic(l0, l1));
+    TEST_ASSERT(terminal_hash_generic(l0) == terminal_hash_generic(l1));
+
+    destroy_owned_leaf(l0); free(l0);
+    destroy_owned_leaf(l1); free(l1);
+}
+
 static void test_get_terminal_value_null_safe_on_false(void) {
     TEST_SECTION("false terminal / NULL leaf handling in apply");
 
@@ -1094,6 +1143,7 @@ int main(void) {
     test_apply_equal_result_free_does_not_touch_live();
     test_leaf_ops_null_and_cancel();
     test_terminal_hash_compare_consistency();
+    test_hash_ignores_scalar_padding();
     test_terminal_compare_and_maketerminal();
     test_maketerminal_dedup_preserves_stored_value();
     test_terminal_table_realloc_preserves_values();

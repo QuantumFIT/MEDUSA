@@ -9,6 +9,7 @@ make test-all         # test + test-sylvan
 make test-stress      # extreme GC/terminal stress for doubles f128 AND gmp
 make test-leaks       # valgrind definite+reachable (unit, stress LEVEL=1, symbolic Grover/05)
 make test-grover      # LP-Grover n=5,6,7 × {loop, loop-symbolic, NL} × {f32,f64,f80,f128,gmp}
+make test-unit-leaf-types # the unit suite against each leaf representation
 ```
 
 Each C/bash suite ends with a **colorful pass/fail summary table** (ANSI when stdout is a TTY;
@@ -43,6 +44,13 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
 - `make test-leaks` - valgrind `--leak-check=full` on unit, short stress, and
   symbolic `LP-Grover/05` (needs valgrind)
 - `make test-mutation` - targeted mutants of known past bugs; each must be **killed** by tests
+- `make test-unit-leaf-types` - replays `test_unit_api` for `LEAF_FLOAT_TYPE=1,2,3`.
+  Representation-dependent bugs hide from a single-type run: the x87 80-bit
+  `long double` carries its value in 10 of its 16 bytes, and hashing the 6
+  indeterminate padding bytes broke terminal dedup on f80 only (issue #6). The
+  existing dedup assertions caught it as soon as they were built for that type.
+  f32 is excluded for now - it fails 13 norm/precision assertions independently,
+  single precision being too narrow for tolerances tuned to wider types.
 - `make test-grover` - Grover amplification matrix (classic unroll, `--symbolic`, `NL_*`)
   on f32/f64/f80/f128 and GMP; also `make test-grover-f128` / `test-grover-gmp`
 - `make test-sylvan` - optional Sylvan backend (not the default product):
