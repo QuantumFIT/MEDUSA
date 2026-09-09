@@ -11,14 +11,18 @@ int cmp_generic(leaf_primitive_t a, leaf_primitive_t b) {
 }
 
 uint64_t hash_comb_generic(leaf_primitive_t data) {
+    // Only the value-carrying bytes, never the padding: see the comment on
+    // LEAF_SCALAR_HASH_BYTES. cmp_generic compares numerically, so hashing
+    // indeterminate padding would let equal leaves hash differently and break
+    // terminal dedup.
     uint8_t bytes[sizeof(leaf_scalar_t)];
-    memcpy(bytes, &data[0], sizeof(leaf_scalar_t));
+    memcpy(bytes, &data[0], LEAF_SCALAR_HASH_BYTES);
 
     // edited fmix64 finalizer from MurmurHash3 by Austin Appleby (public domain)
     // https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
     uint64_t bits = 0;
     // fold bytes based on the scalar for each size
-    for (size_t i = 0; i < sizeof(leaf_scalar_t); i++) {
+    for (size_t i = 0; i < LEAF_SCALAR_HASH_BYTES; i++) {
         bits ^= (uint64_t)bytes[i] << ((i % 8) * 8);
     }
     bits ^= bits >> 33;
