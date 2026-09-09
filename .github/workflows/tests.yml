@@ -16,8 +16,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The default product: MoToBuddy across every leaf type. This is the job
+  # worth making a required status check.
   test:
-    name: make test (MoToBuddy, f128)
+    name: MoToBuddy (default product)
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -48,3 +50,79 @@ jobs:
 
       - name: Run test suite
         run: make test
+
+      # Grover amplification across f32/f64/f80/f128/gmp, each in classic,
+      # --symbolic and non-loop form. This is the only CI coverage of the
+      # symbolic gate path (src/gates_symb.c), and it costs ~11s.
+      - name: Run Grover matrix (all leaf types, incl. symbolic)
+        run: make test-grover
+
+  # Sylvan is the optional comparison backend, not the shipped product, so it
+  # gets its own job: a Sylvan-side regression should be visible without
+  # reddening the check that guards MoToBuddy.
+  test-sylvan:
+    name: Sylvan (optional backend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+              libgmp-dev cmake g++ python3
+
+      - name: Build MoToBuddy
+        run: make init
+
+      # Shallow-clones Sylvan v1.8.1 and Lace v1.4.1 and builds them (~7s).
+      - name: Build Sylvan and Lace
+        run: make init-sylvan
+
+      # Replays the circuit and benchmark smokes on Sylvan, then harder
+      # Grover/CCX cases and cross-backend amplitude checks against MoToBuddy.
+      - name: Run Sylvan test suite
+        run: make test-sylvan
+
+  # gates.c and gates_symb.c carry #ifndef __cplusplus splits: seven gates
+  # (x, cnot, toffoli, mcx, and the symbolic cnot/toffoli/mcx) have a second,
+  # traversal-based implementation - mtbdd_with_traverse_to / mtbdd_make_swap -
+  # that is selected only when those files are compiled as C++. Nothing built
+  # that configuration, so those branches were never compiled, never run, and
+  # never even appeared in the coverage denominator.
+  #
+  # USE_CXX=1 also defines -DUSE_MOSF and builds sim_mosf.cpp, so this job
+  # keeps the MOSF translation unit compiling too. Note it does not exercise
+  # MOSF at runtime: sim_mosf_file reads MOSF JSON rather than OpenQASM, and
+  # the repository has no such fixture.
+  test-cxx:
+    name: C++ gate implementations (USE_CXX=1)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+              libgmp-dev cmake g++ python3
+
+      - name: Build MoToBuddy
+        run: make init
+
+      # The suite asserts absolute correctness (gate identities, and symbolic
+      # runs matching classic amplitude by amplitude), so passing it under both
+      # USE_CXX=0 and USE_CXX=1 is what establishes that the two gate
+      # implementations agree.
+      - name: Run test suite against the C++ gate implementations
+        run: make test USE_CXX=1
+
+      # Mirrors the default-product job. Beyond exercising the C++ gates across
+      # every leaf type, LP-Grover's loop body uses bare x and z, which no
+      # symbolic fixture does - so this is what covers gate_symb_x/gate_symb_z.
+      - name: Run Grover matrix against the C++ gate implementations
+        run: make test-grover USE_CXX=1

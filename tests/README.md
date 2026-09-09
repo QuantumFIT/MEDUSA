@@ -9,6 +9,11 @@ make test-all         # test + test-sylvan
 make test-stress      # extreme GC/terminal stress for doubles f128 AND gmp
 make test-leaks       # valgrind definite+reachable (unit, stress LEVEL=1, symbolic Grover/05)
 make test-grover      # LP-Grover n=5,6,7 × {loop, loop-symbolic, NL} × {f32,f64,f80,f128,gmp}
+make test USE_CXX=1   # same suite against the C++ gate implementations
+make test-grover USE_CXX=1   # ...and the Grover matrix (covers symbolic x/z)
+make coverage         # gcov/gcovr report over test + test-grover
+make coverage-cxx     # same, but the C++ gate implementations (USE_CXX=1)
+make coverage-all     # as CI measures it: also test-sylvan (needs init-sylvan)
 ```
 
 Each C/bash suite ends with a **colorful pass/fail summary table** (ANSI when stdout is a TTY;
@@ -32,6 +37,12 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   - identities `H²`, Paulis², `CX²`, `S⁴`, `T T†`, `Rx(π/2)⁴`
   - **CZ both OpenQASM orders** (`cz c,t` with `c<t` and `c>t`) - relies on `sim.c` swap
   - reverse-without-adj ≠ `(TH)†` on `|1⟩`
+  - **symbolic gates vs classic**: fixtures in `tests/qasm/symbolic/` pair a loop
+    body with its unrolled equivalent, one pair per gate (`cx`, `s`, `y`,
+    `rx(π/2)`, `ry(π/2)`, `mcx`), plus the dense Clifford+T `mixed_th` pair.
+    Each asserts the `--symbolic` run matches the classic run on **every basis
+    amplitude** - a norm check would miss a dropped phase. This is what covers
+    `src/gates_symb.c`, which `LP-Grover/05` alone leaves at ~16%.
   - **heavy GC**: after each success, repeated `forceGC` while the result root stays
     protected; plus deep `U U†`, ~12k distinct `rx(θ)/rx(-θ)`, orphan+retry
   - **mega terminals**: ~15k rx/ry flood (insertvalue churn) plus a 14-qubit product
@@ -53,6 +64,36 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   amplitude checks for `rx`/`ry`/`rz` round-angle repros, and Sylvan GMP Grover/05
 
 MoToBuddy is the preferred backend. `make test` never requires Sylvan.
+
+### C++ gate implementations (`USE_CXX=1`)
+
+`gates.c` and `gates_symb.c` contain `#ifndef __cplusplus` splits: `gate_x`,
+`gate_cnot`, `gate_toffoli`, `gate_mcx` and the symbolic `cnot`/`toffoli`/`mcx`
+each have a second implementation built on MoToBuddy's C++ traversal
+combinators (`mtbdd_with_traverse_to`, `mtbdd_make_swap`) instead of the
+apply-algebra composition used by the C path. `USE_CXX=1` compiles those two
+files with `g++ -x c++ -std=c++17`, links with `g++`, and additionally defines
+`-DUSE_MOSF` and builds `sim_mosf.cpp`.
+
+```
+make test USE_CXX=1
+```
+
+Because the suite asserts absolute correctness rather than comparing the two
+builds, passing it under both `USE_CXX=0` and `USE_CXX=1` is what establishes
+that the two gate implementations agree. CI runs both.
+
+Coverage is collected for both paths, but not in one report: the two builds
+instrument *different line sets* of the same sources (in the C build the C++
+branches are preprocessed away, and vice versa), and they share
+`obj/buddy_doubles_f128`, so the profiles would clobber each other. `make
+coverage-cxx` therefore starts from a clean tree and writes `coverage-cxx.xml`.
+CI uploads the two runs under the Codecov flags `c` and `cxx`, which unions
+them per line: a line covered by either build counts as covered, and a line
+absent from one report is unmeasured there rather than a miss.
+
+MOSF itself is not exercised: `sim_mosf_file` parses MOSF JSON rather than
+OpenQASM, and there is no such fixture in the repository.
 
 ### freePimpl / leaks
 

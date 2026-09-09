@@ -92,6 +92,20 @@ ifeq ($(PROFILE), 1)
 endif
 
 # ==============================================================================
+# Coverage instrumentation (gcov), used by CI to report to Codecov.
+# Usage: make test COVERAGE=1   then   make coverage-report
+# CFLAGS is used for both compiling and linking here, so --coverage in it
+# instruments the objects and pulls in libgcov at link time. -O0 keeps the
+# line attribution honest; optimised builds fold lines together.
+# ==============================================================================
+
+COVERAGE ?= 0
+
+ifeq ($(COVERAGE), 1)
+  CFLAGS := -O0 -g --coverage
+endif
+
+# ==============================================================================
 # Float type selection for buddy_doubles
 # 0 = float   1 = double   2 = long double   3 = __float128 (default)
 # ==============================================================================
@@ -169,6 +183,8 @@ N_JOBS             := $(shell nproc 2>/dev/null || echo 4)
 OF_TYPE            := pdf
 F_OUT_NAME         := res
 LONG_NUMS_OUT_FILE := res-vars.txt
+COVERAGE_XML       := coverage.xml
+COVERAGE_XML_CXX   := coverage-cxx.xml
 BSCRIPT_PATH       := benchmark-utils/scripts
 
 # ==============================================================================
@@ -188,6 +204,7 @@ BSCRIPT_PATH       := benchmark-utils/scripts
         buddy_doubles_f32 buddy_doubles_f64 buddy_doubles_f80              \
         buddy_doubles_f128 buddy_doubles_all                               \
         test test-unit test-circuits test-benchmarks test-metamorphic      \
+        coverage coverage-all coverage-cxx coverage-report                 \
         test-sylvan test-all                                               \
         test-stress test-stress-f64 test-stress-f128 test-stress-gmp       \
         test-leaks                                                         \
@@ -214,6 +231,10 @@ help:
 	@echo "  make test             MoToBuddy unit + circuits + benchmarks + metamorphic"
 	@echo "  make test-sylvan      Sylvan circuit/benchmark replay + harder Grover/CCX"
 	@echo "  make test-all         test + test-sylvan"
+	@echo "  make test USE_CXX=1   the same suite against the C++ gate impls"
+	@echo "  make coverage         gcov/gcovr report (test + test-grover)"
+	@echo "  make coverage-all     as CI measures it (adds test-sylvan)"
+	@echo "  make coverage-cxx     report for the C++ gate impls (USE_CXX=1)"
 	@echo "buddy_mpfr is not implemented."
 
 # ==============================================================================
@@ -494,6 +515,43 @@ test-mutation:
 	@chmod +x $(TEST_DIR)/test_mutation.sh
 	bash $(TEST_DIR)/test_mutation.sh
 
+# Instrumented build + full suite + Cobertura XML for Codecov.
+# clean-artifacts first: reusing non-instrumented objects would report no data.
+# Default product (MoToBuddy, all leaf types). Needs no optional dependency.
+coverage:
+	$(MAKE) clean-artifacts
+	$(MAKE) test COVERAGE=1
+	$(MAKE) test-grover COVERAGE=1
+	$(MAKE) coverage-report
+
+# Coverage for the C++ gate implementations (the #else branches of the
+# __cplusplus splits in gates.c / gates_symb.c). USE_CXX=1 writes into the same
+# $(DOUBLES_OBJ_DIR) as the C build, so the two profiles would clobber one
+# another: this target starts from a clean tree, and CI keeps it in its own job.
+# The report goes to a separate file because the two builds instrument
+# different line sets of the same sources; Codecov unions them via flags.
+coverage-cxx:
+	$(MAKE) clean-artifacts
+	$(MAKE) test USE_CXX=1 COVERAGE=1
+	$(MAKE) test-grover USE_CXX=1 COVERAGE=1
+	$(MAKE) coverage-report COVERAGE_XML=$(COVERAGE_XML_CXX)
+
+# Exactly what CI measures: adds the optional Sylvan backend, so the number
+# matches the Codecov badge. Requires init-sylvan.
+coverage-all:
+	$(MAKE) clean-artifacts
+	$(MAKE) test COVERAGE=1
+	$(MAKE) test-grover COVERAGE=1
+	$(MAKE) init-sylvan
+	$(MAKE) test-sylvan COVERAGE=1
+	$(MAKE) coverage-report
+
+# Turn the .gcda/.gcno files under $(OBJ_DIR) into a report over $(SRC_DIR).
+# Needs gcovr (pip install gcovr).
+coverage-report:
+	gcovr --root . --filter '$(SRC_DIR)/' --exclude '$(TEST_DIR)/' \
+	      --xml-pretty --output $(COVERAGE_XML) --print-summary
+
 $(TEST_STRESS_DOUBLES_BIN): $(TEST_STRESS_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
                         $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
 	$(CC) $(INC_DIRS_BUDDY_DOUBLES) -I $(TEST_DIR) $(CFLAGS) \
@@ -735,6 +793,7 @@ clean-artifacts:
 	       $(BIN_DIR)/test_grover_f32 $(BIN_DIR)/test_grover_f64 \
 	       $(BIN_DIR)/test_grover_f80 $(BIN_DIR)/test_grover_f128 \
 	       $(TEST_GROVER_GMP_BIN)
+	@rm -f $(COVERAGE_XML) $(COVERAGE_XML_CXX) $(BIN_DIR)/*.gcda $(BIN_DIR)/*.gcno $(BIN_DIR)/*.gcov
 
 clean-deps:
 	rm -rf $(LIB_DIR)

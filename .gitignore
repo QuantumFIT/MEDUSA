@@ -33,3 +33,12 @@ gmon.out
 /test_grover_*
 .cursor/
 norm_track.csv
+
+# Coverage output
+*.gcda
+*.gcno
+*.gcov
+coverage*.xml
+
+# Python bytecode from tools/
+__pycache__/
