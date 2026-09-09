@@ -111,6 +111,19 @@ static inline void test_section_begin(const char *name) {
     } \
 } while (0)
 
+/* As TEST_ASSERT_NEAR, but names the case. Needed where one assertion line is
+ * reached from a table of fixtures and the line number alone cannot say which
+ * one diverged. */
+#define TEST_ASSERT_NEAR_MSG(a, b, eps, msg) do { \
+    g_tests_run++; \
+    double _a = (double)(a), _b = (double)(b), _e = (double)(eps); \
+    if (fabs(_a - _b) > _e) { \
+        fprintf(stderr, "FAIL %s:%d: |%g - %g| > %g - %s\n", \
+                __FILE__, __LINE__, _a, _b, _e, (msg)); \
+        g_tests_failed++; \
+    } \
+} while (0)
+
 #define TEST_SECTION(name) test_section_begin(name)
 
 static inline void test_print_hline(int name_w, int status_w, int asserts_w) {
