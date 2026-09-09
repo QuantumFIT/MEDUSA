@@ -1,5 +1,10 @@
 # MEDUSA: An MTBDD-based quantum circuit simulator
 
+[![tests](https://github.com/QuantumFIT/MEDUSA/actions/workflows/tests.yml/badge.svg)](https://github.com/QuantumFIT/MEDUSA/actions/workflows/tests.yml)
+[![tag](https://img.shields.io/github/v/tag/QuantumFIT/MEDUSA?sort=semver)](https://github.com/QuantumFIT/MEDUSA/tags)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![DOI](https://img.shields.io/badge/DOI-10.1145%2F3676536.3676711-blue.svg)](https://doi.org/10.1145/3676536.3676711)
+
 **MEDUSA** (**M**ulti-Terminal Binary Decision Diagram-based **Q**uantum **S**imulator) is an MTBDD-based quantum circuit simulator supporting `OpenQASM` circuits. It is written in C and supports multiple MTBDD backends.
 
 **MoToBuddy is the preferred backend** (`make` / `./MEDUSA`). Sylvan is an optional C-only package for comparison with original MEDUSA; it does not support MOSF / `USE_CXX=1`.
@@ -87,3 +92,43 @@ This disables optimisation (`-O0`) and keeps debug symbols so callgrind can anno
 valgrind --tool=callgrind ./MEDUSA --file benchmarks/...
 callgrind_annotate callgrind.out.<pid>
 ```
+
+## Citing MEDUSA
+
+MEDUSA is MIT-licensed, so you are free to use it without conditions beyond
+keeping the copyright notice. If MEDUSA contributes to academic work, we would
+be grateful if you cited the paper it is based on:
+
+> Tian-Fu Chen, Yu-Fang Chen, Jie-Hong Roland Jiang, Sára Jobranová, and
+> Ondřej Lengál. *Accelerating Quantum Circuit Simulation with Symbolic
+> Execution and Loop Summarization*. In Proceedings of the 43rd IEEE/ACM
+> International Conference on Computer-Aided Design (ICCAD '24), pages 1-9.
+> ACM, 2024. [doi:10.1145/3676536.3676711](https://doi.org/10.1145/3676536.3676711)
+
+```bibtex
+@inproceedings{medusa-iccad24,
+  author    = {Chen, Tian-Fu and Chen, Yu-Fang and Jiang, Jie-Hong Roland and
+               Jobranov{\'a}, S{\'a}ra and Leng{\'a}l, Ond{\v r}ej},
+  title     = {Accelerating Quantum Circuit Simulation with Symbolic Execution
+               and Loop Summarization},
+  booktitle = {Proceedings of the 43rd IEEE/ACM International Conference on
+               Computer-Aided Design (ICCAD '24)},
+  publisher = {Association for Computing Machinery},
+  year      = {2024},
+  pages     = {1--9},
+  doi       = {10.1145/3676536.3676711}
+}
+```
+
+This request is a courtesy, not a licence condition. Contributors are listed in
+[`AUTHORS`](AUTHORS).
+
+## License
+
+MEDUSA is released under the [MIT License](LICENSE).
+
+It builds against third-party components under their own licenses - notably
+GMP (LGPL-3.0-or-later or GPL-2.0-or-later, linked dynamically), MoToBuddy /
+BuDDy (permissive, BSD-like), and optionally Sylvan and Lace (Apache-2.0).
+Their notices, which must be reproduced in redistributions including binaries,
+are collected in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
