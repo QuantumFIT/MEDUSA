@@ -21,6 +21,27 @@ struct LEAF_TYPE_IMPL {
     leaf_primitive_t im;
 };
 
+/*
+ * Tolerance floor for the leaf representation.
+ *
+ * The literals at the comparison sites below (1e-6 down to 1e-12) are
+ * unsatisfiable in single precision. FLT_EPSILON is 1.19e-7, so a probability
+ * near 1.0 cannot be resolved any finer than that; a norm summed over as few as
+ * sixteen terminals was measured 2e-6 away from 1.0, and widening a float
+ * amplitude of 0.3 back to double lands about 1.2e-8 out. None of that is a
+ * fault - it is what the type can represent - so the comparisons are floored per
+ * leaf type rather than loosened for every type.
+ *
+ * For double and wider the floor is zero and the literals apply unchanged: 1e-12
+ * is still some four thousand times DBL_EPSILON, so there is ample headroom.
+ */
+#if LEAF_FLOAT_TYPE == LEAF_TYPE_FLOAT
+#define UNIT_EPS_FLOOR 1e-4
+#else
+#define UNIT_EPS_FLOOR 0.0
+#endif
+#define UNIT_EPS(e) ((e) > (UNIT_EPS_FLOOR) ? (e) : (UNIT_EPS_FLOOR))
+
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -87,7 +108,7 @@ static void test_leaf_print_prob(void) {
     setLeafPrintProb(true);
     char *s = terminal_to_str_generic(p, buf, sizeof buf);
     TEST_ASSERT(s != NULL);
-    TEST_ASSERT_NEAR(strtod(s, NULL), 0.25, 1e-6);
+    TEST_ASSERT_NEAR(strtod(s, NULL), 0.25, UNIT_EPS(1e-6));
     TEST_ASSERT(strchr(s, 'i') == NULL);
 
     setLeafPrintProb(false);
@@ -114,8 +135,8 @@ static void test_leaf_add_does_not_alias(void) {
     TEST_ASSERT(r1.pImpl != NULL);
     TEST_ASSERT_MSG(r1.pImpl != a.pImpl,
         "addLeaf(NULL,a) must clone - aliasing breaks MoToBuddy free-of-unused");
-    TEST_ASSERT_NEAR(to_double_generic(r1.pImpl->re), 1.0, 1e-12);
-    TEST_ASSERT_NEAR(to_double_generic(r1.pImpl->im), 2.0, 1e-12);
+    TEST_ASSERT_NEAR(to_double_generic(r1.pImpl->re), 1.0, UNIT_EPS(1e-12));
+    TEST_ASSERT_NEAR(to_double_generic(r1.pImpl->im), 2.0, UNIT_EPS(1e-12));
 
     /* Simulate MoToBuddy apply path: free unused equal result */
     LEAF_TYPE *wrap = malloc(sizeof(LEAF_TYPE));
@@ -124,8 +145,8 @@ static void test_leaf_add_does_not_alias(void) {
     free(wrap);
 
     /* Original must still be intact */
-    TEST_ASSERT_NEAR(to_double_generic(a.pImpl->re), 1.0, 1e-12);
-    TEST_ASSERT_NEAR(to_double_generic(a.pImpl->im), 2.0, 1e-12);
+    TEST_ASSERT_NEAR(to_double_generic(a.pImpl->re), 1.0, UNIT_EPS(1e-12));
+    TEST_ASSERT_NEAR(to_double_generic(a.pImpl->im), 2.0, UNIT_EPS(1e-12));
 
     LEAF_TYPE r2 = subLeaf(a, z);
     TEST_ASSERT(r2.pImpl != a.pImpl);
@@ -154,13 +175,13 @@ static void test_apply_free_unused_preserves_terminals(void) {
     TEST_ASSERT(qBDD_isInternal(circ) || qBDD_isTerminal(circ));
     prob_t p = qBDD_total_prob(circ, 1);
     /* After H on |0>, amplitudes are 1/sqrt(2); total prob ~ 1 */
-    TEST_ASSERT_NEAR(p, 1.0, 1e-9);
+    TEST_ASSERT_NEAR(p, 1.0, UNIT_EPS(1e-9));
 
     /* Apply again: results equal to existing leaves must free clones only */
     gate_h(&circ, 0);
     forceGC();
     p = qBDD_total_prob(circ, 1);
-    TEST_ASSERT_NEAR(p, 1.0, 1e-9);
+    TEST_ASSERT_NEAR(p, 1.0, UNIT_EPS(1e-9));
 
     /* Read a terminal value after GC - must not be freed-as-unused */
     qBDD walk = circ;
@@ -224,7 +245,7 @@ static void test_cnot_protect_balance(void) {
     gate_h(&circ, 0);
     gate_cnot(&circ, 1, 0);
     forceGC();
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 3), 1.0, 1e-9);
+    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 3), 1.0, UNIT_EPS(1e-9));
     TEST_ASSERT(refcount(circ) >= 1);
 
     qBDD_unprotect(circ);
@@ -250,11 +271,12 @@ static void test_toffoli_norm_regression(void) {
 
     prob_t p = qBDD_total_prob(circ, 3);
 #if EXPECT_TOFFOLI_OK
-    TEST_ASSERT_NEAR(p, 1.0, 1e-9);
+    TEST_ASSERT_NEAR(p, 1.0, UNIT_EPS(1e-9));
 #else
-    TEST_ASSERT_MSG(fabs((double)p - 0.5) < 1e-9 || fabs((double)p - 1.0) < 1e-9,
+    TEST_ASSERT_MSG(fabs((double)p - 0.5) < UNIT_EPS(1e-9) ||
+                    fabs((double)p - 1.0) < UNIT_EPS(1e-9),
         "Toffoli total_prob neither 0.5 (known bug) nor 1.0 (fixed)");
-    if (fabs((double)p - 1.0) < 1e-9) {
+    if (fabs((double)p - 1.0) < UNIT_EPS(1e-9)) {
         fprintf(stdout, "    NOTE: Toffoli norm looks fixed - set EXPECT_TOFFOLI_OK=1\n");
     } else {
         fprintf(stdout, "    KNOWN BUG: Toffoli total_prob=%g (expected 1.0)\n", (double)p);
@@ -276,30 +298,30 @@ static void test_gates_norm_and_idempotence(void) {
     qBDD circ;
     circuit_init_interface(&circ, 2);
 
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, 1e-9);
+    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, UNIT_EPS(1e-9));
 
     gate_x(&circ, 0);
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, 1e-9);
+    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, UNIT_EPS(1e-9));
     gate_x(&circ, 0);
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, 1e-9);
+    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, UNIT_EPS(1e-9));
 
     gate_z(&circ, 0);
     gate_z(&circ, 0);
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, 1e-9);
+    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, UNIT_EPS(1e-9));
 
     gate_y(&circ, 1);
     gate_y(&circ, 1);
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, 1e-9);
+    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, UNIT_EPS(1e-9));
 
     gate_h(&circ, 0);
     gate_h(&circ, 0);
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, 1e-9);
+    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, UNIT_EPS(1e-9));
 
     gate_s(&circ, 0);
     gate_s(&circ, 0);
     gate_s(&circ, 0);
     gate_s(&circ, 0); /* S^4 = I */
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, 1e-9);
+    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, UNIT_EPS(1e-9));
 
     qBDD_unprotect(circ);
     freePackage();
@@ -323,14 +345,14 @@ static void test_x_flips_computational_basis(void) {
     qBDD circ;
     circuit_init_interface(&circ, 2);
 
-    TEST_ASSERT_NEAR(test_basis_prob(circ, "00"), 1.0, 1e-9);
+    TEST_ASSERT_NEAR(test_basis_prob(circ, "00"), 1.0, UNIT_EPS(1e-9));
     gate_x(&circ, 0);
-    TEST_ASSERT_NEAR(test_basis_prob(circ, "10"), 1.0, 1e-9);
-    TEST_ASSERT_NEAR(test_basis_prob(circ, "00"), 0.0, 1e-9);
+    TEST_ASSERT_NEAR(test_basis_prob(circ, "10"), 1.0, UNIT_EPS(1e-9));
+    TEST_ASSERT_NEAR(test_basis_prob(circ, "00"), 0.0, UNIT_EPS(1e-9));
     gate_x(&circ, 1);
-    TEST_ASSERT_NEAR(test_basis_prob(circ, "11"), 1.0, 1e-9);
+    TEST_ASSERT_NEAR(test_basis_prob(circ, "11"), 1.0, UNIT_EPS(1e-9));
     gate_x(&circ, 0);
-    TEST_ASSERT_NEAR(test_basis_prob(circ, "01"), 1.0, 1e-9);
+    TEST_ASSERT_NEAR(test_basis_prob(circ, "01"), 1.0, UNIT_EPS(1e-9));
 
     qBDD_unprotect(circ);
     freePackage();
@@ -356,7 +378,7 @@ static void test_grover_2q_marks_11(void) {
     gate_h(&circ, 0);
     gate_h(&circ, 1);
 
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, 1e-9);
+    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, UNIT_EPS(1e-9));
     TEST_ASSERT_MSG(test_basis_prob(circ, "11") > 0.9,
         "classic X/CZ Grover must amplify |11>");
 
@@ -375,7 +397,7 @@ static void test_bell_state(void) {
     gate_cnot(&circ, 1, 0);
     forceGC();
 
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, 1e-9);
+    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, UNIT_EPS(1e-9));
     TEST_ASSERT(qBDD_leafcount(circ) >= 1);
 
     qBDD_unprotect(circ);
@@ -401,7 +423,7 @@ static void test_terminal_compare_and_maketerminal(void) {
     TEST_ASSERT(qBDD_isTerminal(t1));
 
     LEAF_TYPE v = qBDD_getTerminalValue(t1);
-    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 0.5, 1e-12);
+    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 0.5, UNIT_EPS(1e-12));
 
     qBDD t3 = qBDD_maketerminal(qBDD_classicLType(), c);
     TEST_ASSERT(t3 != t1);
@@ -455,7 +477,7 @@ static void test_binary_apply_with_false(void) {
     if (qBDD_isTerminal(sum) && !qBDD_isFalse(sum)) {
         LEAF_TYPE v = qBDD_getTerminalValue(sum);
         TEST_ASSERT(v.pImpl != NULL);
-        TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 1.0, 1e-12);
+        TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 1.0, UNIT_EPS(1e-12));
     }
 
     qBDD_unprotect(sum);
@@ -511,7 +533,7 @@ static void test_freepimpl_registered_with_motobuddy(void) {
     forceGC();
     LEAF_TYPE v = qBDD_getTerminalValue(t);
     TEST_ASSERT(v.pImpl != NULL);
-    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 7.0, 1e-12);
+    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 7.0, UNIT_EPS(1e-12));
 
     qBDD_unprotect(t);
     freePackage();
@@ -552,7 +574,7 @@ static void test_motobuddy_freepimpl_frees_unused_pimpl(void) {
 
     LEAF_TYPE v = qBDD_getTerminalValue(t);
     TEST_ASSERT(v.pImpl != NULL);
-    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 1.0, 1e-12);
+    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 1.0, UNIT_EPS(1e-12));
 
     qBDD_unprotect(t);
     freePackage();
@@ -590,7 +612,7 @@ static void test_maketerminal_dedup_frees_via_freepimpl(void) {
         "live pImpl count must be unchanged after dedup flood");
 
     LEAF_TYPE v = qBDD_getTerminalValue(t);
-    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 0.25, 1e-12);
+    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 0.25, UNIT_EPS(1e-12));
 
     qBDD_unprotect(t);
     freePackage();
@@ -669,11 +691,11 @@ static void test_clone_independent_of_source(void) {
     TEST_ASSERT(c.pImpl != src.pImpl);
 
     set_d_generic(src.pImpl->re, 99.0);
-    TEST_ASSERT_NEAR(to_double_generic(c.pImpl->re), 2.0, 1e-12);
+    TEST_ASSERT_NEAR(to_double_generic(c.pImpl->re), 2.0, UNIT_EPS(1e-12));
 
     LEAF_TYPE *cw = wrap_owned(c);
     buddy_free_unused_result(cw);
-    TEST_ASSERT_NEAR(to_double_generic(src.pImpl->re), 99.0, 1e-12);
+    TEST_ASSERT_NEAR(to_double_generic(src.pImpl->re), 99.0, UNIT_EPS(1e-12));
 
     destroy_owned_leaf(&src);
 }
@@ -692,14 +714,14 @@ static void test_apply_equal_result_free_does_not_touch_live(void) {
     TEST_ASSERT(r.pImpl != live.pImpl);
 
     buddy_free_unused_result(wrap_owned(r));
-    TEST_ASSERT_NEAR(to_double_generic(live.pImpl->re), 1.25, 1e-12);
-    TEST_ASSERT_NEAR(to_double_generic(live.pImpl->im), -0.5, 1e-12);
+    TEST_ASSERT_NEAR(to_double_generic(live.pImpl->re), 1.25, UNIT_EPS(1e-12));
+    TEST_ASSERT_NEAR(to_double_generic(live.pImpl->im), -0.5, UNIT_EPS(1e-12));
 
     /* subLeaf(live, NULL) same contract */
     LEAF_TYPE r2 = subLeaf(live, z);
     TEST_ASSERT(r2.pImpl != live.pImpl);
     buddy_free_unused_result(wrap_owned(r2));
-    TEST_ASSERT_NEAR(to_double_generic(live.pImpl->re), 1.25, 1e-12);
+    TEST_ASSERT_NEAR(to_double_generic(live.pImpl->re), 1.25, UNIT_EPS(1e-12));
 
     /* unary invert: free unused result after compare-equal to another invert */
     LEAF_TYPE inv = invertLeaf(live);
@@ -709,7 +731,7 @@ static void test_apply_equal_result_free_does_not_touch_live(void) {
         &(LEAF_TYPE){ .pImpl = inv.pImpl },
         &(LEAF_TYPE){ .pImpl = inv2.pImpl }));
     buddy_free_unused_result(wrap_owned(inv2));
-    TEST_ASSERT_NEAR(to_double_generic(inv.pImpl->re), -1.25, 1e-12);
+    TEST_ASSERT_NEAR(to_double_generic(inv.pImpl->re), -1.25, UNIT_EPS(1e-12));
 
     buddy_free_unused_result(wrap_owned(inv));
     destroy_owned_leaf(&live);
@@ -756,8 +778,8 @@ static void test_maketerminal_dedup_preserves_stored_value(void) {
     forceGC();
     LEAF_TYPE v = qBDD_getTerminalValue(t);
     TEST_ASSERT(v.pImpl != NULL);
-    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 0.3, 1e-12);
-    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->im), 0.4, 1e-12);
+    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 0.3, UNIT_EPS(1e-12));
+    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->im), 0.4, UNIT_EPS(1e-12));
 
     /* Distinct value must allocate a new terminal */
     LEAF_TYPE *other = heap_leaf(-0.3, 0.4);
@@ -765,11 +787,11 @@ static void test_maketerminal_dedup_preserves_stored_value(void) {
     qBDD_protect(t3);
     TEST_ASSERT(t3 != t);
     LEAF_TYPE v3 = qBDD_getTerminalValue(t3);
-    TEST_ASSERT_NEAR(to_double_generic(v3.pImpl->re), -0.3, 1e-12);
+    TEST_ASSERT_NEAR(to_double_generic(v3.pImpl->re), -0.3, UNIT_EPS(1e-12));
 
     /* Original still intact after peer creation */
     v = qBDD_getTerminalValue(t);
-    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 0.3, 1e-12);
+    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 0.3, UNIT_EPS(1e-12));
 
     qBDD_unprotect(t3);
     qBDD_unprotect(t);
@@ -806,17 +828,17 @@ static void test_terminal_table_realloc_preserves_values(void) {
             if (first) {
                 LEAF_TYPE v = qBDD_getTerminalValue(first);
                 TEST_ASSERT(v.pImpl != NULL);
-                TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 0.125, 1e-12);
+                TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 0.125, UNIT_EPS(1e-12));
             }
             if (early) {
                 LEAF_TYPE v = qBDD_getTerminalValue(early);
-                TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 1.125, 1e-12);
-                TEST_ASSERT_NEAR(to_double_generic(v.pImpl->im), -0.03125, 1e-12);
+                TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 1.125, UNIT_EPS(1e-12));
+                TEST_ASSERT_NEAR(to_double_generic(v.pImpl->im), -0.03125, UNIT_EPS(1e-12));
             }
             if (at_boundary_prev) {
                 LEAF_TYPE v = qBDD_getTerminalValue(at_boundary_prev);
                 TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re),
-                                 (double)(boundary - 1) + 0.125, 1e-9);
+                                 (double)(boundary - 1) + 0.125, UNIT_EPS(1e-9));
             }
         }
 
@@ -846,8 +868,8 @@ static void test_terminal_table_realloc_preserves_values(void) {
         qBDD t2 = qBDD_maketerminal(qBDD_classicLType(), dup);
         TEST_ASSERT(t2 == early);
         LEAF_TYPE v = qBDD_getTerminalValue(early);
-        TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 1.125, 1e-12);
-        TEST_ASSERT_NEAR(to_double_generic(v.pImpl->im), -0.03125, 1e-12);
+        TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 1.125, UNIT_EPS(1e-12));
+        TEST_ASSERT_NEAR(to_double_generic(v.pImpl->im), -0.03125, UNIT_EPS(1e-12));
     }
 
     forceGC();
@@ -855,27 +877,27 @@ static void test_terminal_table_realloc_preserves_values(void) {
 
     {
         LEAF_TYPE v = qBDD_getTerminalValue(first);
-        TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 0.125, 1e-12);
+        TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 0.125, UNIT_EPS(1e-12));
     }
     {
         LEAF_TYPE v = qBDD_getTerminalValue(early);
-        TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 1.125, 1e-12);
-        TEST_ASSERT_NEAR(to_double_generic(v.pImpl->im), -0.03125, 1e-12);
+        TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 1.125, UNIT_EPS(1e-12));
+        TEST_ASSERT_NEAR(to_double_generic(v.pImpl->im), -0.03125, UNIT_EPS(1e-12));
     }
     {
         LEAF_TYPE v = qBDD_getTerminalValue(at_boundary_prev);
         TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re),
-                         (double)(boundary - 1) + 0.125, 1e-9);
+                         (double)(boundary - 1) + 0.125, UNIT_EPS(1e-9));
     }
     {
         LEAF_TYPE v = qBDD_getTerminalValue(at_boundary);
         TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re),
-                         (double)boundary + 0.125, 1e-9);
+                         (double)boundary + 0.125, UNIT_EPS(1e-9));
     }
     {
         LEAF_TYPE v = qBDD_getTerminalValue(last);
         TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re),
-                         (double)(N - 1) + 0.125, 1e-9);
+                         (double)(N - 1) + 0.125, UNIT_EPS(1e-9));
     }
 
     qBDD_unprotect(first);
@@ -907,7 +929,7 @@ static void test_apply_cancel_and_reuse_terminals(void) {
     /* Live leaf must still be readable after cancel produced unused temps */
     LEAF_TYPE v = qBDD_getTerminalValue(leaf);
     TEST_ASSERT(v.pImpl != NULL);
-    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 1.0, 1e-12);
+    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 1.0, UNIT_EPS(1e-12));
 
     /* add(leaf, false) returns same terminal (equal-result free path) */
     qBDD same = binary_apply(leaf, qBDD_false(), addLeaf);
@@ -915,7 +937,7 @@ static void test_apply_cancel_and_reuse_terminals(void) {
     forceGC();
     TEST_ASSERT(same == leaf);
     v = qBDD_getTerminalValue(leaf);
-    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 1.0, 1e-12);
+    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 1.0, UNIT_EPS(1e-12));
 
     qBDD_unprotect(same);
     qBDD_unprotect(neg);
@@ -943,11 +965,11 @@ static void test_unary_apply_identity_free_path(void) {
 
     TEST_ASSERT(qBDD_isTerminal(n2));
     LEAF_TYPE v = qBDD_getTerminalValue(n2);
-    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 1.0, 1e-12);
+    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 1.0, UNIT_EPS(1e-12));
 
     /* Original leaf still valid */
     v = qBDD_getTerminalValue(leaf);
-    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 1.0, 1e-12);
+    TEST_ASSERT_NEAR(to_double_generic(v.pImpl->re), 1.0, UNIT_EPS(1e-12));
 
     qBDD_unprotect(n2);
     qBDD_unprotect(n1);
@@ -970,7 +992,7 @@ static void test_many_terminals_survive_gc_when_protected(void) {
     gate_s(&circ, 0);
     gate_t(&circ, 1);
     forceGC();
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 3), 1.0, 1e-8);
+    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 3), 1.0, UNIT_EPS(1e-8));
 
     /* Walk all terminals reachable from root - none may have NULL pImpl */
     qBDD stack[64];
@@ -1011,7 +1033,7 @@ static void test_stress_gates_with_gc_terminals_intact(void) {
         if (round % 2 == 0)
             gate_cnot(&circ, (uint32_t)(round % 4), (uint32_t)((round + 1) % 4));
         forceGC();
-        TEST_ASSERT_NEAR(qBDD_total_prob(circ, 4), 1.0, 1e-7);
+        TEST_ASSERT_NEAR(qBDD_total_prob(circ, 4), 1.0, UNIT_EPS(1e-7));
 
         qBDD walk = circ;
         int steps = 0;
