@@ -513,6 +513,113 @@ static void test_symb_float_t_tdg(void) {
     }
 }
 
+/**
+ * Oracle for the symbolic gate implementations in gates_symb.c.
+ *
+ * Runs `symb_path` with --symbolic (so its loop body goes through the
+ * gate_symb_* path) and `classic_path`, the same circuit with the loop
+ * unrolled, through the ordinary gates. The classic gates are independently
+ * covered by the identity and round-trip sections above, so any disagreement
+ * localises to the symbolic variant rather than to the gate's semantics.
+ *
+ * Every basis amplitude is compared, not just the norm: a symbolic gate that
+ * dropped a phase would still produce a unit-norm state.
+ */
+static void assert_symb_matches_classic(const char *symb_path,
+                                        const char *classic_path,
+                                        double eps) {
+    setup_pkg();
+    qBDD classic;
+    int nc = 0;
+    TEST_ASSERT_MSG(sim_path(classic_path, &classic, &nc), classic_path);
+
+    int N = 1 << nc;
+    double *Cre = calloc((size_t)N, sizeof(double));
+    double *Cim = calloc((size_t)N, sizeof(double));
+    if (!Cre || !Cim) {
+        free(Cre);
+        free(Cim);
+        deleteCircuit(&classic);
+        freePackage();
+        TEST_ASSERT_MSG(0, "out of memory building the classic reference");
+        return;
+    }
+
+    char bits[34];
+    TEST_ASSERT_MSG(nc >= 0 && nc < (int)sizeof bits, classic_path);
+    bits[nc] = '\0';
+    for (int s = 0; s < N; s++) {
+        for (int i = 0; i < nc; i++)
+            bits[i] = ((s >> i) & 1) ? '1' : '0';
+        basis_amp(classic, bits, &Cre[s], &Cim[s]);
+    }
+    deleteCircuit(&classic);
+    freePackage();
+
+    setup_pkg();
+    qBDD symb;
+    int ns = 0;
+    TEST_ASSERT_MSG(sim_path_symb(symb_path, &symb, &ns), symb_path);
+    TEST_ASSERT_MSG(nc == ns, symb_path);
+    for (int s = 0; s < N; s++) {
+        for (int i = 0; i < nc; i++)
+            bits[i] = ((s >> i) & 1) ? '1' : '0';
+        double sr, si;
+        basis_amp(symb, bits, &sr, &si);
+        TEST_ASSERT_NEAR_MSG(Cre[s], sr, eps, symb_path);
+        TEST_ASSERT_NEAR_MSG(Cim[s], si, eps, symb_path);
+    }
+    free(Cre);
+    free(Cim);
+    deleteCircuit(&symb);
+    freePackage();
+}
+
+/**
+ * Symbolic loop bodies exercising the gate_symb_* implementations that the
+ * LP-Grover benchmark never reaches: its loop contains only x/ccx/h/cz/z, so
+ * CNOT, S, Y, Rx(pi/2), Ry(pi/2) and MCX had no symbolic coverage at all.
+ *
+ * The mixed_th pair is a pre-existing fixture pair that no test referenced;
+ * it covers a dense Clifford+T loop body across eight qubits.
+ */
+static void test_symb_gate_parity(void) {
+    TEST_SECTION("metamorphic: symbolic gates match classic (loop bodies)");
+
+    static const struct {
+        const char *symb;
+        const char *classic;
+    } pairs[] = {
+        { "tests/qasm/symbolic/cx_loop.qasm",  "tests/qasm/symbolic/cx_unrolled.qasm"  },
+        { "tests/qasm/symbolic/s_loop.qasm",   "tests/qasm/symbolic/s_unrolled.qasm"   },
+        { "tests/qasm/symbolic/y_loop.qasm",   "tests/qasm/symbolic/y_unrolled.qasm"   },
+        { "tests/qasm/symbolic/rx_loop.qasm",  "tests/qasm/symbolic/rx_unrolled.qasm"  },
+        { "tests/qasm/symbolic/ry_loop.qasm",  "tests/qasm/symbolic/ry_unrolled.qasm"  },
+        { "tests/qasm/symbolic/mcx_loop.qasm", "tests/qasm/symbolic/mcx_unrolled.qasm" },
+        { "tests/qasm/metamorphic/mixed_th_loop.qasm",
+          "tests/qasm/metamorphic/mixed_th_unrolled.qasm" },
+
+        /* The controlled gates pick an implementation from the relative BDD
+         * levels of target and controls - gate_symb_cnot branches on xt < xc,
+         * gate_symb_toffoli has three variants (t0 < c1, c1 < t0 < c2,
+         * c1 < c2 < t0) and gate_symb_mcx two (whether any control sits above
+         * the target). The fixtures above all place the controls below the
+         * target, so only one variant of each was ever exercised; these permute
+         * the ordering to reach the rest. ccx and mcx take the target last. */
+        { "tests/qasm/symbolic/cx_t_above_loop.qasm",
+          "tests/qasm/symbolic/cx_t_above_unrolled.qasm"  },
+        { "tests/qasm/symbolic/ccx_t_above_loop.qasm",
+          "tests/qasm/symbolic/ccx_t_above_unrolled.qasm" },
+        { "tests/qasm/symbolic/ccx_t_mid_loop.qasm",
+          "tests/qasm/symbolic/ccx_t_mid_unrolled.qasm"   },
+        { "tests/qasm/symbolic/mcx_t_above_loop.qasm",
+          "tests/qasm/symbolic/mcx_t_above_unrolled.qasm" },
+    };
+
+    for (size_t i = 0; i < sizeof pairs / sizeof pairs[0]; i++)
+        assert_symb_matches_classic(pairs[i].symb, pairs[i].classic, 1e-8);
+}
+
 static void test_bell_qasm(void) {
     TEST_SECTION("metamorphic: Bell prep+uncompute OpenQASM");
 
@@ -772,6 +879,7 @@ int main(void) {
     test_dagger_antihomomorphism_qasm();
     test_reverse_without_adj_qasm();
     test_symb_float_t_tdg();
+    test_symb_gate_parity();
     test_bell_qasm();
     test_heavy_gc_metamorphic();
     test_mega_distinct_terminals();
