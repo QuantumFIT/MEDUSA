@@ -89,6 +89,13 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   then `test-sylvan-leaf-types`
 - `make test-sylvan-leaf-types` - `test_benchmark_semantics` relinked against
   Sylvan, across every float leaf type (under a second each)
+- `make test-grover-sylvan` - the Grover matrix on Sylvan across float leaf
+  types. This is Sylvan's counterpart to `make test-grover`: before it, the
+  Sylvan binary was only ever exercised at f128 and GMP, so f32/f64/f80 had no
+  Grover coverage on that backend. The algebraic GMP case is **off by default**
+  (`SYLVAN_GROVER_GMP=1` to run it): symbolic simulation segfaults on
+  Sylvan+GMP, which adding this target is what uncovered - see issue #11.
+  Classic Sylvan+GMP is fine and stays covered by `test_sylvan.sh`
 - `make test-sylvan-metamorphic` - `test_metamorphic` relinked against Sylvan,
   across `SYLVAN_META_LEAF_TYPES`. ~170s per type, so it does not gate everyday
   PRs into devel: `.github/workflows/nightly.yml` runs it nightly, on demand,
@@ -117,10 +124,17 @@ Sylvan against 1673 on MoToBuddy.
 
 Leaf types swept (`SYLVAN_SEM_LEAF_TYPES`, `SYLVAN_META_LEAF_TYPES`):
 
-| suite | f32 | f64 | f80 | f128 | cost per type | runs |
-|---|---|---|---|---|---|---|
-| `test_benchmark_semantics` | yes | yes | yes | yes | <1s | every PR |
-| `test_metamorphic` | no | no | yes | yes | ~170s | nightly |
+| suite | f32 | f64 | f80 | f128 | GMP | cost per type | runs |
+|---|---|---|---|---|---|---|---|
+| `test_benchmark_semantics` | yes | yes | yes | yes | no | <1s | every PR |
+| `test_grover_matrix` | yes | yes | yes | yes | issue #11 | ~1s | every PR |
+| `test_metamorphic` | no | no | yes | yes | no | ~170s | nightly |
+
+The shell suites (`test_circuits.sh`, `test_rotation_cache.sh`,
+`test_benchmarks.sh`, `test_sylvan.sh`) still drive the Sylvan binary at f128
+only, plus `sylvan_gmp`. `test_sylvan.sh` in particular compares against
+`MEDUSA_buddy_doubles_f128`, so looping it over leaf types would mean building
+the matching MoToBuddy binary for each as well.
 
 f32 is out of the metamorphic sweep because it cannot hold the tolerances: the
 deep random circuits and the 12000-angle rx flood put the worst basis amplitude

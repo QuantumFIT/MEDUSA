@@ -10,6 +10,7 @@ MEDUSA_*
 /test_unit_api
 /test_metamorphic
 /test_metamorphic_sylvan_*
+/test_grover_sylvan_*
 /test_stress_f64
 /test_stress_f128
 /test_stress_gmp

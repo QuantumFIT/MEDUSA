@@ -208,6 +208,7 @@ BSCRIPT_PATH       := benchmark-utils/scripts
         coverage coverage-all coverage-cxx coverage-report                 \
         test-sylvan test-all test-sylvan-leaf-types                        \
         test-sylvan-metamorphic test-sylvan-all                            \
+        test-grover-sylvan run-sylvan-grover                                \
         run-sylvan-sem run-sylvan-meta                                     \
         test-stress test-stress-f64 test-stress-f128 test-stress-gmp       \
         test-leaks                                                         \
@@ -235,6 +236,7 @@ help:
 	@echo "  make test-sylvan      Sylvan circuit/benchmark replay + harder Grover/CCX"
 	@echo "  make test-sylvan-leaf-types  benchmark semantics on Sylvan, every leaf type"
 	@echo "  make test-sylvan-metamorphic Sylvan metamorphic sweep (slow; nightly)"
+	@echo "  make test-grover-sylvan  Grover matrix on Sylvan, every leaf type + GMP"
 	@echo "  make test-sylvan-all  test-sylvan + the slow metamorphic sweep"
 	@echo "  make test-all         test + test-sylvan"
 	@echo "  make test USE_CXX=1   the same suite against the C++ gate impls"
@@ -413,6 +415,7 @@ test-sylvan:
 	@chmod +x $(TEST_DIR)/test_sylvan.sh
 	bash $(TEST_DIR)/test_sylvan.sh
 	$(MAKE) test-sylvan-leaf-types
+	$(MAKE) test-grover-sylvan
 
 test-unit:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
@@ -564,6 +567,67 @@ $(TEST_GROVER_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_GROVER_SRC) $(TEST_STRESS_GMP_OBJS) \
 	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+
+# ------------------------------------------------------------------------------
+# The same Grover matrix on Sylvan.
+#
+# test_grover_matrix.c is backend-agnostic (test_harness.h, sim.h, interface.h,
+# symb_utils.h and nothing else), so it needs only a second link. This is what
+# gives Sylvan the representation breadth MoToBuddy already had from
+# test-grover: before this, the Sylvan binary was only ever exercised at f128
+# and GMP, so f32/f64/f80 had no Grover coverage on that backend at all.
+#
+# The float objects are shared with the Sylvan C suites above, so per leaf type
+# this costs a link and a run rather than a rebuild.
+# ------------------------------------------------------------------------------
+TEST_GROVER_SYLVAN_BIN     := $(BIN_DIR)/test_grover_sylvan_$(FLOAT_SUFFIX)
+TEST_GROVER_SYLVAN_GMP_BIN := $(BIN_DIR)/test_grover_sylvan_gmp
+
+TEST_SYLVAN_GMP_OBJS := $(filter-out $(SYLVAN_GMP_OBJ_DIR)/main.o, $(OBJS_SYLVAN_GMP)) \
+                        $(INTERFACE_OBJ_sylvan_gmp) \
+                        $(LEAF_OBJ_sylvan_mpz) $(LEAF_OBJ_sylvan_algebraic)
+
+$(TEST_GROVER_SYLVAN_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_OBJS)
+	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
+	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
+	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) \
+	    -o $@ $(TEST_GROVER_SRC) $(TEST_SYLVAN_OBJS) \
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+
+$(TEST_GROVER_SYLVAN_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_GMP_OBJS)
+	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
+	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
+	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_GMP_CFLAGS) \
+	    -o $@ $(TEST_GROVER_SRC) $(TEST_SYLVAN_GMP_OBJS) \
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+
+SYLVAN_GROVER_LEAF_TYPES ?= 0 1 2 3
+
+# The GMP case is off by default: symbolic simulation segfaults on Sylvan with
+# algebraic GMP leaves (issue #11). Adding this target is what found it -
+# nothing had ever run --symbolic on that combination, since test_sylvan.sh
+# runs GMP Grover classically and uses the f128 binary for its symbolic case.
+# Classic Sylvan+GMP is fine and stays covered by test_sylvan.sh.
+# Set SYLVAN_GROVER_GMP=1 to run it anyway, and flip the default once #11 is
+# fixed.
+SYLVAN_GROVER_GMP ?= 0
+
+test-grover-sylvan:
+	@for t in $(SYLVAN_GROVER_LEAF_TYPES); do \
+	    echo "=== test_grover_matrix on Sylvan, LEAF_FLOAT_TYPE=$$t ==="; \
+	    $(MAKE) --no-print-directory run-sylvan-grover LEAF_FLOAT_TYPE=$$t || exit 1; \
+	done
+ifeq ($(SYLVAN_GROVER_GMP), 1)
+	@echo "=== test_grover_matrix on Sylvan, algebraic GMP ==="
+	$(MAKE) --no-print-directory $(TEST_GROVER_SYLVAN_GMP_BIN)
+	$(TEST_GROVER_SYLVAN_GMP_BIN)
+else
+	@echo "=== skipping Sylvan algebraic GMP Grover: symbolic crashes there (issue #11) ==="
+	@echo "    run with SYLVAN_GROVER_GMP=1 to reproduce"
+endif
+
+run-sylvan-grover: $(TEST_GROVER_SYLVAN_BIN)
+	$(TEST_GROVER_SYLVAN_BIN)
 
 test-grover: test-grover-all
 
@@ -899,6 +963,7 @@ clean-artifacts:
 	       $(TEST_STRESS_GMP_BIN) \
 	       $(TEST_SEM_BIN) $(TEST_META_BIN) \
 	       $(BIN_DIR)/test_benchmark_semantics_sylvan_* \
+	       $(BIN_DIR)/test_grover_sylvan_* \
 	       $(BIN_DIR)/test_metamorphic_sylvan_* \
 	       $(BIN_DIR)/test_grover_f32 $(BIN_DIR)/test_grover_f64 \
 	       $(BIN_DIR)/test_grover_f80 $(BIN_DIR)/test_grover_f128 \
