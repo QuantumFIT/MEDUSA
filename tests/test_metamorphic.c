@@ -531,11 +531,26 @@ static void test_symb_float_t_tdg(void) {
 /**
  * Oracle for the symbolic gate implementations in gates_symb.c.
  *
- * Runs `symb_path` with --symbolic (so its loop body goes through the
- * gate_symb_* path) and `classic_path`, the same circuit with the loop
- * unrolled, through the ordinary gates. The classic gates are independently
- * covered by the identity and round-trip sections above, so any disagreement
- * localises to the symbolic variant rather than to the gate's semantics.
+ * Three legs, because the interesting comparison changes two things at once -
+ * the file and the simulation mode - and a bare two-way check cannot say which
+ * of them a mismatch came from:
+ *
+ *   1. `classic_path` (the hand-unrolled file) run classically: the oracle.
+ *   2. `symb_path` (the loop file) run *classically*: must agree with leg 1
+ *      exactly. Classic mode unrolls the loop at runtime, so this is the same
+ *      gate sequence in the same order and the amplitudes are bit-identical.
+ *      This is what establishes that the pair really is one circuit written
+ *      two ways. Without it a hand-edited unrolled file could drift from its
+ *      loop counterpart and the symbolic comparison would report a
+ *      gates_symb.c fault that is really a fixture bug - and the tempting fix,
+ *      editing the unrolled file until it passes, would mask a real one.
+ *   3. `symb_path` run with --symbolic, so its loop body goes through the
+ *      gate_symb_* path: compared against the oracle within `eps`.
+ *
+ * Legs 1 and 2 hold the mode fixed and vary the file; leg 3 holds the file
+ * fixed and varies the mode. A failure therefore localises: leg 2 means the
+ * fixtures disagree, leg 3 means the symbolic gates do. The classic gates are
+ * independently covered by the identity and round-trip sections above.
  *
  * Every basis amplitude is compared, not just the norm: a symbolic gate that
  * dropped a phase would still produce a unit-norm state.
@@ -571,6 +586,30 @@ static void assert_symb_matches_classic(const char *symb_path,
     deleteCircuit(&classic);
     freePackage();
 
+    /* Leg 2: the loop file, classically. Exact agreement expected - same gates,
+     * same order - so this is asserted with a zero tolerance rather than eps. */
+    char pair_ctx[320];
+    snprintf(pair_ctx, sizeof pair_ctx, "%s vs %s (both classic: fixtures drifted?)",
+             symb_path, classic_path);
+    setup_pkg();
+    qBDD loop_classic;
+    int nl = 0;
+    TEST_ASSERT_MSG(sim_path(symb_path, &loop_classic, &nl), pair_ctx);
+    TEST_ASSERT_MSG(nc == nl, pair_ctx);
+    if (nc == nl) {
+        for (int s = 0; s < N; s++) {
+            for (int i = 0; i < nc; i++)
+                bits[i] = ((s >> i) & 1) ? '1' : '0';
+            double lr, li;
+            basis_amp(loop_classic, bits, &lr, &li);
+            TEST_ASSERT_NEAR_MSG(Cre[s], lr, 0.0, pair_ctx);
+            TEST_ASSERT_NEAR_MSG(Cim[s], li, 0.0, pair_ctx);
+        }
+    }
+    deleteCircuit(&loop_classic);
+    freePackage();
+
+    /* Leg 3: the loop file, symbolically. */
     setup_pkg();
     qBDD symb;
     int ns = 0;
