@@ -85,17 +85,17 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   then harder Grover (05–07, NL_06, `--symbolic` 05), MCToffoli 12/16,
   MOGrover 04, Barenco tof 3/4, period-finding 07, Buddy vs Sylvan
   `--probability` spot-checks, `test_rotation_cache.sh` on Sylvan, cross-backend
-  amplitude checks for `rx`/`ry`/`rz` round-angle repros, Sylvan GMP Grover/05,
-  then `test-sylvan-leaf-types`
+  amplitude checks for `rx`/`ry`/`rz` round-angle repros, Sylvan GMP Grover/05
+  classic and `--symbolic`, Sylvan vs MoToBuddy algebraic GMP terminal-label
+  comparisons (see below), then `test-sylvan-leaf-types`
 - `make test-sylvan-leaf-types` - `test_benchmark_semantics` relinked against
   Sylvan, across every float leaf type (under a second each)
 - `make test-grover-sylvan` - the Grover matrix on Sylvan across float leaf
-  types. This is Sylvan's counterpart to `make test-grover`: before it, the
-  Sylvan binary was only ever exercised at f128 and GMP, so f32/f64/f80 had no
-  Grover coverage on that backend. The algebraic GMP case is **off by default**
-  (`SYLVAN_GROVER_GMP=1` to run it): symbolic simulation segfaults on
-  Sylvan+GMP, which adding this target is what uncovered - see issue #11.
-  Classic Sylvan+GMP is fine and stays covered by `test_sylvan.sh`
+  types and algebraic GMP. This is Sylvan's counterpart to `make test-grover`:
+  before it, the Sylvan binary was only ever exercised at f128 and GMP, so
+  f32/f64/f80 had no Grover coverage on that backend. Its GMP case is what
+  uncovered issue #11 - symbolic simulation on Sylvan + algebraic GMP
+  segfaulted, a combination nothing had ever run
 - `make test-sylvan-metamorphic` - `test_metamorphic` relinked against Sylvan,
   across `SYLVAN_META_LEAF_TYPES`. ~170s per type, so it does not gate everyday
   PRs into devel: `.github/workflows/nightly.yml` runs it nightly, on demand,
@@ -103,6 +103,25 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   `make test-sylvan-all` is `test-sylvan` plus this
 
 MoToBuddy is the preferred backend. `make test` never requires Sylvan.
+
+#### Symbolic simulation on Sylvan + algebraic GMP
+
+The C suites cannot reach the algebraic leaf: `test_metamorphic` and
+`test_benchmark_semantics` read `leaf.pImpl->re` / `->im` and call the double
+primitive's `to_double_generic`, so they are tied to the re/im leaf and would
+have to be ported, not relinked. `test_grover_matrix` goes through the
+backend-agnostic API and does run on GMP - but Grover is H/X/CCX/Z, whose
+amplitudes stay entirely in the `a` component of `a + b.w + c.w2 + d.w3`, so it
+cannot see a fault in the other three.
+
+So the cover for that combination is in `test_sylvan.sh`, which compares
+`res.dot` terminal labels between `MEDUSA_sylvan_gmp` and `MEDUSA_buddy_gmp`.
+Algebraic labels are exact and print every component, and
+`tests/qasm/metamorphic/mixed_th_loop.qasm` fills all four across its 256
+terminals, so a leaf payload that loses `c` or `d` shows up as a differing
+label rather than as a wrong number in the last digits. That is the regression
+guard for issue #11, whose silent half - dropped `w2`/`w3` components - no
+existing suite could have detected; only its crash was visible.
 
 #### Which C suites run on Sylvan, and at which leaf types
 
@@ -119,22 +138,22 @@ Sylvan's node table and GC model leave nothing equivalent to assert against.
 `test_metamorphic` runs all ten of its sections on Sylvan. Two assertions in
 "mega distinct terminals" - those reading `mtbddmaxTerminalSize` against
 `INITIAL_TERMINAL_SIZE` - are `#ifndef SYLVAN_BACKEND`, since `customPointers`
-and its realloc threshold are MoToBuddy-specific. Hence 1671 assertions on
-Sylvan against 1673 on MoToBuddy.
+and its realloc threshold are MoToBuddy-specific. Hence 2317 assertions on
+Sylvan against 2319 on MoToBuddy.
 
 Leaf types swept (`SYLVAN_SEM_LEAF_TYPES`, `SYLVAN_META_LEAF_TYPES`):
 
 | suite | f32 | f64 | f80 | f128 | GMP | cost per type | runs |
 |---|---|---|---|---|---|---|---|
 | `test_benchmark_semantics` | yes | yes | yes | yes | no | <1s | every PR |
-| `test_grover_matrix` | yes | yes | yes | yes | issue #11 | ~1s | every PR |
+| `test_grover_matrix` | yes | yes | yes | yes | yes | ~1s | every PR |
 | `test_metamorphic` | no | no | yes | yes | no | ~170s | nightly |
 
 The shell suites (`test_circuits.sh`, `test_rotation_cache.sh`,
 `test_benchmarks.sh`, `test_sylvan.sh`) still drive the Sylvan binary at f128
 only, plus `sylvan_gmp`. `test_sylvan.sh` in particular compares against
-`MEDUSA_buddy_doubles_f128`, so looping it over leaf types would mean building
-the matching MoToBuddy binary for each as well.
+`MEDUSA_buddy_doubles_f128` and `MEDUSA_buddy_gmp`, so looping it over leaf
+types would mean building the matching MoToBuddy binary for each as well.
 
 f32 is out of the metamorphic sweep because it cannot hold the tolerances: the
 deep random circuits and the 12000-angle rx flood put the worst basis amplitude

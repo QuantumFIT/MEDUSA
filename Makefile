@@ -402,6 +402,7 @@ test-all: test test-sylvan
 # Requires: make init-sylvan && make sylvan_doubles (and sylvan_gmp for GMP cases).
 test-sylvan:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
+	$(MAKE) buddy_gmp
 	$(MAKE) sylvan_doubles LEAF_FLOAT_TYPE=3
 	$(MAKE) sylvan_gmp
 	MEDUSA_BIN=$(CURDIR)/MEDUSA_sylvan_doubles_f128 \
@@ -603,28 +604,25 @@ $(TEST_GROVER_SYLVAN_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_SYLVA
 
 SYLVAN_GROVER_LEAF_TYPES ?= 0 1 2 3
 
-# The GMP case is off by default: symbolic simulation segfaults on Sylvan with
-# algebraic GMP leaves (issue #11). Adding this target is what found it -
-# nothing had ever run --symbolic on that combination, since test_sylvan.sh
-# runs GMP Grover classically and uses the f128 binary for its symbolic case.
-# Classic Sylvan+GMP is fine and stays covered by test_sylvan.sh.
-# Set SYLVAN_GROVER_GMP=1 to run it anyway, and flip the default once #11 is
-# fixed.
-SYLVAN_GROVER_GMP ?= 0
-
+# The algebraic GMP case runs too. It was skipped while issue #11 was open -
+# symbolic simulation segfaulted on Sylvan with algebraic GMP leaves, because
+# interface_sylvan.c sized symbolic leaf payloads with a struct declared
+# locally carrying the re/im shell's two fields while the algebraic shell has
+# four, so reads of the last two ran off the end of the block. Adding this
+# target is what found it: nothing had ever run --symbolic on that combination.
+#
+# This case catches the crash but not a merely truncated copy of the same
+# payload - Grover's amplitudes are all in the first component, so losing the
+# others is invisible here. test_sylvan.sh compares terminal labels against
+# MoToBuddy+GMP on a T/H circuit for that.
 test-grover-sylvan:
 	@for t in $(SYLVAN_GROVER_LEAF_TYPES); do \
 	    echo "=== test_grover_matrix on Sylvan, LEAF_FLOAT_TYPE=$$t ==="; \
 	    $(MAKE) --no-print-directory run-sylvan-grover LEAF_FLOAT_TYPE=$$t || exit 1; \
 	done
-ifeq ($(SYLVAN_GROVER_GMP), 1)
 	@echo "=== test_grover_matrix on Sylvan, algebraic GMP ==="
 	$(MAKE) --no-print-directory $(TEST_GROVER_SYLVAN_GMP_BIN)
 	$(TEST_GROVER_SYLVAN_GMP_BIN)
-else
-	@echo "=== skipping Sylvan algebraic GMP Grover: symbolic crashes there (issue #11) ==="
-	@echo "    run with SYLVAN_GROVER_GMP=1 to reproduce"
-endif
 
 run-sylvan-grover: $(TEST_GROVER_SYLVAN_BIN)
 	$(TEST_GROVER_SYLVAN_BIN)

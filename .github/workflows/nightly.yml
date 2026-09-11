@@ -40,7 +40,7 @@ concurrency:
 jobs:
   # The Sylvan metamorphic sweep: ~170s per leaf type, two leaf types.
   #
-  # This is the cross-backend half of the metamorphic suite. The same 1671
+  # This is the cross-backend half of the metamorphic suite. The same 2317
   # assertions run against MoToBuddy in tests.yml in about a second; on Sylvan
   # each trial pays a full initPackage, which does lace_start() plus
   # sylvan_set_limits(2 GB, ...) and sylvan_init_package(), and the suite calls

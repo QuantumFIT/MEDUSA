@@ -12,6 +12,7 @@ summary_init
 SYL_F128="${ROOT}/MEDUSA_sylvan_doubles_f128"
 SYL_GMP="${ROOT}/MEDUSA_sylvan_gmp"
 BUD_F128="${ROOT}/MEDUSA_buddy_doubles_f128"
+BUD_GMP="${ROOT}/MEDUSA_buddy_gmp"
 TIMEOUT_SEC="${SYLVAN_TEST_TIMEOUT:-90}"
 WORKDIR="${ROOT}/.test-work/sylvan_$$"
 mkdir -p "${WORKDIR}"
@@ -164,24 +165,38 @@ compare_prob "syl-vs-buddy-bell" "${ROOT}/tests/qasm/metamorphic/bell_roundtrip.
 compare_prob "syl-vs-buddy-cz"   "${ROOT}/tests/qasm/metamorphic/cz_c0_t1.qasm"
 
 # Cross-backend: complex amplitudes after the rotation-cache review repro.
+# Terminal labels are compared as strings, so this works for any leaf type
+# whose to_str is exact - the f128 pair below, and the algebraic GMP pair,
+# whose labels are "(1/sqrt2)^(k) * (a+b.w+c.w2+d.w3)" and therefore show every
+# component of the amplitude rather than a rounding of it.
 compare_amps() {
     local label="$1"
     local file="$2"
+    local extra="${3:-}"
+    local syl_bin="${4:-${SYL_F128}}"
+    local bud_bin="${5:-${BUD_F128}}"
     local syl_dot="${WORKDIR}/${label}.syl.dot"
     local bud_dot="${WORKDIR}/${label}.bud.dot"
     local log="${WORKDIR}/${label}.amps.log"
 
-    if [[ ! -x "${BUD_F128}" ]]; then
-        echo "SKIP ${label}: Buddy binary missing"
+    if [[ ! -x "${bud_bin}" ]]; then
+        echo "SKIP ${label}: ${bud_bin##*/} missing"
+        summary_record "${label}" 0
+        return
+    fi
+    if [[ ! -x "${syl_bin}" ]]; then
+        echo "SKIP ${label}: ${syl_bin##*/} missing"
         summary_record "${label}" 0
         return
     fi
 
     if ! (
         cd "${WORKDIR}"
-        run_timeout "${TIMEOUT_SEC}" "${SYL_F128}" --file "${file}" >"${log}" 2>&1
+        # shellcheck disable=SC2086
+        run_timeout "${TIMEOUT_SEC}" "${syl_bin}" --file "${file}" ${extra} >"${log}" 2>&1
         cp -f res.dot "${syl_dot}"
-        run_timeout "${TIMEOUT_SEC}" "${BUD_F128}" --file "${file}" >>"${log}" 2>&1
+        # shellcheck disable=SC2086
+        run_timeout "${TIMEOUT_SEC}" "${bud_bin}" --file "${file}" ${extra} >>"${log}" 2>&1
         cp -f res.dot "${bud_dot}"
     ); then
         echo "FAIL ${label}: compare run failed"
@@ -227,6 +242,31 @@ compare_amps "syl-vs-buddy-ry-round" "${ROOT}/tests/qasm/rotation_cache/h_ry0_ry
 if [[ -x "${SYL_GMP}" ]]; then
     run_one "syl-gmp-h2" "${SYL_GMP}" "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm"
     run_one "syl-gmp-Grover-05" "${SYL_GMP}" "${ROOT}/benchmarks/no-measure/LP-Grover/05.qasm"
+    run_one "syl-gmp-Grover-05-symb" "${SYL_GMP}" \
+        "${ROOT}/benchmarks/no-measure/LP-Grover/05.qasm" "--symbolic"
+
+    # Symbolic simulation on Sylvan + algebraic GMP, compared against
+    # MoToBuddy + algebraic GMP terminal for terminal. This combination had
+    # never been run before PR #4 and it segfaulted: interface_sylvan.c sized
+    # and copied symbolic leaf payloads through a locally declared two-field
+    # struct, which is the re/im shell, while the algebraic shell has four
+    # fields (a + b.w + c.w2 + d.w3). See issue #11.
+    #
+    # mixed_th_loop is the fixture to keep here: its terminals use all four
+    # components, so a clone that copies only the first two turns
+    # "(0+1w+1w2+0w3)" into "(0+1w+0w2+0w3)" and this comparison fails.
+    # Grover-05 alone would not notice - H/X/CCX/Z keep every amplitude in the
+    # "a" component, so the dropped fields are legitimately zero there. That is
+    # also why the crash was the only symptom anyone ever saw.
+    compare_amps "syl-vs-buddy-gmp-mixed-th-symb" \
+        "${ROOT}/tests/qasm/metamorphic/mixed_th_loop.qasm" \
+        "--symbolic" "${SYL_GMP}" "${BUD_GMP}"
+    compare_amps "syl-vs-buddy-gmp-cx-t-above-symb" \
+        "${ROOT}/tests/qasm/symbolic/cx_t_above_loop.qasm" \
+        "--symbolic" "${SYL_GMP}" "${BUD_GMP}"
+    compare_amps "syl-vs-buddy-gmp-mixed-th" \
+        "${ROOT}/tests/qasm/metamorphic/mixed_th_loop.qasm" \
+        "" "${SYL_GMP}" "${BUD_GMP}"
 else
     echo "SKIP syl-gmp (build with: make sylvan_gmp)"
 fi
