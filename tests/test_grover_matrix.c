@@ -108,12 +108,17 @@ static int run_one(const char *label, const char *path, int n_search, int symbol
 
     if (!ok) {
         printf("  FAIL %-28s  sim_file failed\n", label);
+        free_sim_info(&info);
         freePackage();
         TEST_ASSERT_MSG(0, label);
         return 1;
     }
 
     int n = info.n_qubits;
+    /* sim_file allocates the loop-timing arrays (and bits_to_measure for
+     * measured circuits); main.c frees them via free_sim_info and so must we.
+     * n is copied out above, so the info is done with here. */
+    free_sim_info(&info);
     double tot = to_p(qBDD_total_prob(circ, n));
     double pm = marked_search_p(circ, n, n_search);
     int pass = (fabs(tot - 1.0) < 0.05) && (pm >= GROVER_MIN_P);

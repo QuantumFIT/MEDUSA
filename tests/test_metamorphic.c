@@ -210,9 +210,12 @@ static bool sim_path(const char *path, qBDD *out, int *n_qubits) {
     init_sim_info(&info);
     bool ok = sim_file(f, out, &flags, &info);
     fclose(f);
-    if (!ok) return false;
-    *n_qubits = info.n_qubits;
-    return true;
+    if (ok) *n_qubits = info.n_qubits;
+    /* sim_file allocates the loop-timing arrays (and bits_to_measure for
+     * measured circuits); main.c frees them via free_sim_info and so must we,
+     * on the failure path too. */
+    free_sim_info(&info);
+    return ok;
 }
 
 static bool sim_path_symb(const char *path, qBDD *out, int *n_qubits) {
@@ -226,9 +229,12 @@ static bool sim_path_symb(const char *path, qBDD *out, int *n_qubits) {
     init_sim_info(&info);
     bool ok = sim_file(f, out, &flags, &info);
     fclose(f);
-    if (!ok) return false;
-    *n_qubits = info.n_qubits;
-    return true;
+    if (ok) *n_qubits = info.n_qubits;
+    /* sim_file allocates the loop-timing arrays (and bits_to_measure for
+     * measured circuits); main.c frees them via free_sim_info and so must we,
+     * on the failure path too. */
+    free_sim_info(&info);
+    return ok;
 }
 
 static prob_t basis_prob(qBDD t, const char *bits) {
