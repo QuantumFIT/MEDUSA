@@ -1,28 +1,41 @@
 name: nightly
 
-# The suites that are too slow to sit in front of a pull request.
+# The suites that are too slow to sit in front of every pull request.
 #
 # Everything here is a real regression guard, not a smoke test - it is separated
-# by cost, not by importance. `tests.yml` stays under two minutes so a PR gets an
-# answer quickly; anything that runs for several minutes lands here instead.
+# by cost, not by importance. `tests.yml` stays under two minutes so a PR into
+# devel gets an answer quickly; anything that runs for several minutes lands
+# here instead.
 #
-# A failure here is not attached to any one PR, so it needs someone to look at
-# the run. Check it when a nightly goes red rather than assuming the next PR
-# will surface the same thing - by construction, it will not.
+# It runs in three situations:
+#   - nightly on a schedule, to catch drift on devel;
+#   - on any pull request into main, so the slow suite gates the devel -> main
+#     merge even though it does not gate day-to-day PRs into devel;
+#   - on demand.
+#
+# A scheduled failure is not attached to any pull request, so it needs someone
+# to go and look at the run. Check it when a nightly goes red rather than
+# assuming the next PR will surface the same thing - by construction, it will
+# not.
 
 on:
   schedule:
     # 03:17 UTC. Off the hour because GitHub's scheduler queues heavily at :00,
     # and a scheduled run can be dropped entirely when the queue is long.
     - cron: '17 3 * * *'
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Keyed by ref so a pull request into main does not queue behind the scheduled
+# run. Superseding only applies to pull requests: a scheduled run that is
+# already going should finish rather than be discarded.
 concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # The Sylvan metamorphic sweep: ~170s per leaf type, two leaf types.

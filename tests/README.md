@@ -83,9 +83,10 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
 - `make test-sylvan-leaf-types` - `test_benchmark_semantics` relinked against
   Sylvan, across every float leaf type (under a second each)
 - `make test-sylvan-metamorphic` - `test_metamorphic` relinked against Sylvan,
-  across `SYLVAN_META_LEAF_TYPES`. ~170s per type, so it runs nightly rather
-  than per-PR (`.github/workflows/nightly.yml`); `make test-sylvan-all` is
-  `test-sylvan` plus this
+  across `SYLVAN_META_LEAF_TYPES`. ~170s per type, so it does not gate everyday
+  PRs into devel: `.github/workflows/nightly.yml` runs it nightly, on demand,
+  and on any PR into `main`, so it still gates the devel -> main merge.
+  `make test-sylvan-all` is `test-sylvan` plus this
 
 MoToBuddy is the preferred backend. `make test` never requires Sylvan.
 
