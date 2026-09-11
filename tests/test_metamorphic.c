@@ -18,8 +18,17 @@
 #include "test_harness.h"
 #include "sim.h"
 #include "interface.h"
+/*
+ * MoToBuddy internals, used only by the terminal-table growth assertions in
+ * test_mega_distinct_terminals. Sylvan has no equivalent of customPointers or
+ * its realloc threshold, so those two assertions - and only those - are
+ * compiled out for the Sylvan build. Everything else in this file is
+ * backend-agnostic and runs on both.
+ */
+#ifndef SYLVAN_BACKEND
 #include "mtbdd.h"   /* INITIAL_TERMINAL_SIZE */
-#include "kernel.h"  /* mtbddmaxTerminalSize, mtbddTerminalUsed */
+#include "kernel.h"  /* mtbddmaxTerminalSize */
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -831,15 +840,19 @@ static void test_mega_distinct_terminals(void) {
         TEST_ASSERT(write_wide_product_roundtrip(path, META_WIDE_QUBITS));
 
         setup_pkg();
+#ifndef SYLVAN_BACKEND
         int size0 = mtbddmaxTerminalSize;
+#endif
         qBDD circ;
         int nq = 0;
         TEST_ASSERT(sim_path(path, &circ, &nq));
         TEST_ASSERT(nq == META_WIDE_QUBITS);
+#ifndef SYLVAN_BACKEND
         TEST_ASSERT_MSG(mtbddmaxTerminalSize > INITIAL_TERMINAL_SIZE,
             "wide product must grow past INITIAL_TERMINAL_SIZE (10000)");
         TEST_ASSERT_MSG(mtbddmaxTerminalSize > size0,
             "wide product should trigger customPointers realloc");
+#endif
         assert_zero_survives_gc(circ, nq, 5e-5, "wide product round-trip after GC");
         deleteCircuit(&circ);
         hammer_gc();

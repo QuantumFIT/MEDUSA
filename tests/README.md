@@ -6,6 +6,7 @@ make init-sylvan      # optional (Sylvan v1.8.1 + Lace; C path only)
 make test             # MoToBuddy unit API + small circuit smokes + metamorphic (doubles f128)
 make test-sylvan      # same circuit/benchmark smokes on Sylvan + harder Grover/CCX + GMP
 make test-all         # test + test-sylvan
+make test-sylvan-all  # test-sylvan + the slow metamorphic sweep (nightly in CI)
 make test-stress      # extreme GC/terminal stress for doubles f128 AND gmp
 make test-leaks       # valgrind definite+reachable (unit, stress LEVEL=1, symbolic Grover/05)
 make test-grover      # LP-Grover n=5,6,7 × {loop, loop-symbolic, NL} × {f32,f64,f80,f128,gmp}
@@ -65,6 +66,11 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   `test_unit_api.c`: the literals at those sites run from 1e-6 to 1e-12, which
   single precision cannot resolve at all (`FLT_EPSILON` is 1.19e-7), so f32 is
   held to 1e-4 while wider types keep the original values (issue #7).
+  `test_benchmark_semantics.c` has the same floor under the name `SEM_EPS`. It
+  needed one for the same reason and had gone unnoticed only because nothing
+  ever built that suite at f32: five of its norm checks sit at 1e-6/1e-7 while
+  the measured error over a whole benchmark circuit reaches 4e-5. Both backends
+  produce identical values there, so it is precision, not divergence.
 - `make test-grover` - Grover amplification matrix (classic unroll, `--symbolic`, `NL_*`)
   on f32/f64/f80/f128 and GMP; also `make test-grover-f128` / `test-grover-gmp`
 - `make test-sylvan` - optional Sylvan backend (not the default product):
@@ -72,9 +78,53 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   then harder Grover (05–07, NL_06, `--symbolic` 05), MCToffoli 12/16,
   MOGrover 04, Barenco tof 3/4, period-finding 07, Buddy vs Sylvan
   `--probability` spot-checks, `test_rotation_cache.sh` on Sylvan, cross-backend
-  amplitude checks for `rx`/`ry`/`rz` round-angle repros, and Sylvan GMP Grover/05
+  amplitude checks for `rx`/`ry`/`rz` round-angle repros, Sylvan GMP Grover/05,
+  then `test-sylvan-leaf-types`
+- `make test-sylvan-leaf-types` - `test_benchmark_semantics` relinked against
+  Sylvan, across every float leaf type (under a second each)
+- `make test-sylvan-metamorphic` - `test_metamorphic` relinked against Sylvan,
+  across `SYLVAN_META_LEAF_TYPES`. ~170s per type, so it runs nightly rather
+  than per-PR (`.github/workflows/nightly.yml`); `make test-sylvan-all` is
+  `test-sylvan` plus this
 
 MoToBuddy is the preferred backend. `make test` never requires Sylvan.
+
+#### Which C suites run on Sylvan, and at which leaf types
+
+The shell suites reach Sylvan for free: they exec whatever `MEDUSA_BIN` names.
+The C suites cannot - they fix the backend at compile time through `-include`,
+so running them on Sylvan means linking the same sources a second time against
+`interface_sylvan.h`.
+
+`test_unit_api` is deliberately *not* ported. It includes `mtbdd.h`, `kernel.h`
+and `terminal.h` and asserts on the MoToBuddy node and terminal tables
+themselves - dedup, `bddnodes[].refcou` under protect, terminal-table realloc.
+Sylvan's node table and GC model leave nothing equivalent to assert against.
+
+`test_metamorphic` runs all ten of its sections on Sylvan. Two assertions in
+"mega distinct terminals" - those reading `mtbddmaxTerminalSize` against
+`INITIAL_TERMINAL_SIZE` - are `#ifndef SYLVAN_BACKEND`, since `customPointers`
+and its realloc threshold are MoToBuddy-specific. Hence 1671 assertions on
+Sylvan against 1673 on MoToBuddy.
+
+Leaf types swept (`SYLVAN_SEM_LEAF_TYPES`, `SYLVAN_META_LEAF_TYPES`):
+
+| suite | f32 | f64 | f80 | f128 | cost per type | runs |
+|---|---|---|---|---|---|---|
+| `test_benchmark_semantics` | yes | yes | yes | yes | <1s | every PR |
+| `test_metamorphic` | no | no | yes | yes | ~170s | nightly |
+
+f32 is out of the metamorphic sweep because it cannot hold the tolerances: the
+deep random circuits and the 12000-angle rx flood put the worst basis amplitude
+5e-3 from where it belongs (median 1e-6), and a floor that loose would stop the
+assertions meaning anything. f64 is left out as redundant with f128. f80 is kept
+because it is the representation that produced issue #6.
+
+Expect Sylvan to be slow: ~170s against ~1.4s for the same suite on MoToBuddy.
+That is package setup, not simulation. Sylvan's `initPackage` runs
+`lace_start()` plus `sylvan_set_limits(2 GB, ...)` and `sylvan_init_package()`,
+and the metamorphic suite calls `setup_pkg()` once per trial (40 and 24 trials
+in the two random-circuit sections), so each trial rebuilds a 2 GB table.
 
 ### C++ gate implementations (`USE_CXX=1`)
 

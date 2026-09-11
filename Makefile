@@ -206,7 +206,9 @@ BSCRIPT_PATH       := benchmark-utils/scripts
         test test-unit test-unit-leaf-types test-circuits                  \
         test-benchmarks test-metamorphic                                   \
         coverage coverage-all coverage-cxx coverage-report                 \
-        test-sylvan test-all                                               \
+        test-sylvan test-all test-sylvan-leaf-types                        \
+        test-sylvan-metamorphic test-sylvan-all                            \
+        run-sylvan-sem run-sylvan-meta                                     \
         test-stress test-stress-f64 test-stress-f128 test-stress-gmp       \
         test-leaks                                                         \
         test-grover test-grover-all test-grover-f32 test-grover-f64        \
@@ -231,6 +233,9 @@ help:
 	@echo "  make sylvan_doubles   float leaves on Sylvan (LEAF_FLOAT_TYPE, default f128)"
 	@echo "  make test             MoToBuddy unit + circuits + benchmarks + metamorphic"
 	@echo "  make test-sylvan      Sylvan circuit/benchmark replay + harder Grover/CCX"
+	@echo "  make test-sylvan-leaf-types  benchmark semantics on Sylvan, every leaf type"
+	@echo "  make test-sylvan-metamorphic Sylvan metamorphic sweep (slow; nightly)"
+	@echo "  make test-sylvan-all  test-sylvan + the slow metamorphic sweep"
 	@echo "  make test-all         test + test-sylvan"
 	@echo "  make test USE_CXX=1   the same suite against the C++ gate impls"
 	@echo "  make coverage         gcov/gcovr report (test + test-grover)"
@@ -355,6 +360,28 @@ TEST_SEM_SRC      := $(TEST_DIR)/test_benchmark_semantics.c
 TEST_META_BIN     := $(BIN_DIR)/test_metamorphic
 TEST_META_SRC     := $(TEST_DIR)/test_metamorphic.c
 
+# ------------------------------------------------------------------------------
+# Sylvan-linked variants of the two backend-agnostic C suites.
+#
+# test_circuits.sh / test_benchmarks.sh reach Sylvan for free because they exec
+# $MEDUSA_BIN. The C suites cannot: they bake the backend in at compile time via
+# -include, so running them on Sylvan needs a second link of the same sources.
+#
+# test_unit_api is deliberately absent. It includes mtbdd.h/kernel.h/terminal.h
+# and asserts on the MoToBuddy node and terminal tables themselves - dedup,
+# bddnodes[].refcou, table realloc. Sylvan's node table and GC model differ
+# enough that there is nothing to port it to.
+#
+# The binaries carry $(FLOAT_SUFFIX) so a leaf-type sweep cannot pick up a
+# stale build from the previous iteration.
+# ------------------------------------------------------------------------------
+TEST_SEM_SYLVAN_BIN  := $(BIN_DIR)/test_benchmark_semantics_sylvan_$(FLOAT_SUFFIX)
+TEST_META_SYLVAN_BIN := $(BIN_DIR)/test_metamorphic_sylvan_$(FLOAT_SUFFIX)
+
+TEST_SYLVAN_OBJS  := $(filter-out $(SYLVAN_DOUBLES_OBJ_DIR)/main.o, $(OBJS_SYLVAN_DOUBLES)) \
+                     $(INTERFACE_OBJ_sylvan_doubles) \
+                     $(LEAF_OBJ_sylvan_double) $(LEAF_OBJ_sylvan_reim)
+
 STRESS_LEVEL ?= 2
 TEST_STRESS_SRC      := $(TEST_DIR)/test_stress.c
 TEST_STRESS_DOUBLES_BIN := $(BIN_DIR)/test_stress_$(FLOAT_SUFFIX)
@@ -385,6 +412,7 @@ test-sylvan:
 	    bash $(TEST_DIR)/test_benchmarks.sh
 	@chmod +x $(TEST_DIR)/test_sylvan.sh
 	bash $(TEST_DIR)/test_sylvan.sh
+	$(MAKE) test-sylvan-leaf-types
 
 test-unit:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
@@ -429,6 +457,64 @@ $(TEST_SEM_BIN): $(TEST_SEM_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_SEM_SRC) $(TEST_UNIT_OBJS) \
 	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+
+# ------------------------------------------------------------------------------
+# Float leaf representations swept on Sylvan.
+#
+# test-sylvan built only f128 (plus GMP), so f32/f64/f80 had no Sylvan testing
+# at all. Issue #6 was an f80-specific fault in the leaf hash that no amount of
+# f128 testing could have found - that is the case for sweeping.
+#
+# test_benchmark_semantics costs under a second per type and its tolerances are
+# floored per representation (SEM_EPS), so it runs on all four.
+#
+# test_metamorphic costs ~170s per type, and f32 cannot sustain it: deep random
+# circuits plus a 12000-angle rx flood put the worst basis amplitude 5e-3 off,
+# and a floor that loose would stop the assertions meaning anything (the
+# measured median is 1e-6, so most of it would pass - but not the tail). f64 is
+# left out as redundant with f128; f80 is the representation that produced #6
+# and is the reason the sweep exists. Both lists are overridable.
+# ------------------------------------------------------------------------------
+SYLVAN_SEM_LEAF_TYPES  ?= 0 1 2 3
+SYLVAN_META_LEAF_TYPES ?= 2 3
+
+# Cheap enough for every PR: under a second per leaf type.
+test-sylvan-leaf-types:
+	@for t in $(SYLVAN_SEM_LEAF_TYPES); do \
+	    echo "=== test_benchmark_semantics on Sylvan, LEAF_FLOAT_TYPE=$$t ==="; \
+	    $(MAKE) --no-print-directory run-sylvan-sem LEAF_FLOAT_TYPE=$$t || exit 1; \
+	done
+
+# ~170s per leaf type, so this is the nightly half of the sweep rather than
+# something every PR should wait on. See .github/workflows/nightly.yml.
+test-sylvan-metamorphic:
+	@for t in $(SYLVAN_META_LEAF_TYPES); do \
+	    echo "=== test_metamorphic on Sylvan, LEAF_FLOAT_TYPE=$$t ==="; \
+	    $(MAKE) --no-print-directory run-sylvan-meta LEAF_FLOAT_TYPE=$$t || exit 1; \
+	done
+
+# Everything test-sylvan runs, plus the slow metamorphic sweep.
+test-sylvan-all: test-sylvan test-sylvan-metamorphic
+
+run-sylvan-sem: $(TEST_SEM_SYLVAN_BIN)
+	$(TEST_SEM_SYLVAN_BIN)
+
+run-sylvan-meta: $(TEST_META_SYLVAN_BIN)
+	$(TEST_META_SYLVAN_BIN)
+
+$(TEST_SEM_SYLVAN_BIN): $(TEST_SEM_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_OBJS)
+	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
+	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
+	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) \
+	    -o $@ $(TEST_SEM_SRC) $(TEST_SYLVAN_OBJS) \
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+
+$(TEST_META_SYLVAN_BIN): $(TEST_META_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_OBJS)
+	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
+	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
+	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) \
+	    -o $@ $(TEST_META_SRC) $(TEST_SYLVAN_OBJS) \
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
 
 test-circuits:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
@@ -812,6 +898,8 @@ clean-artifacts:
 	       $(TEST_UNIT_BIN) $(TEST_STRESS_F64_BIN) $(TEST_STRESS_F128_BIN) \
 	       $(TEST_STRESS_GMP_BIN) \
 	       $(TEST_SEM_BIN) $(TEST_META_BIN) \
+	       $(BIN_DIR)/test_benchmark_semantics_sylvan_* \
+	       $(BIN_DIR)/test_metamorphic_sylvan_* \
 	       $(BIN_DIR)/test_grover_f32 $(BIN_DIR)/test_grover_f64 \
 	       $(BIN_DIR)/test_grover_f80 $(BIN_DIR)/test_grover_f128 \
 	       $(TEST_GROVER_GMP_BIN)

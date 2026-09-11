@@ -1,0 +1,66 @@
+name: nightly
+
+# The suites that are too slow to sit in front of a pull request.
+#
+# Everything here is a real regression guard, not a smoke test - it is separated
+# by cost, not by importance. `tests.yml` stays under two minutes so a PR gets an
+# answer quickly; anything that runs for several minutes lands here instead.
+#
+# A failure here is not attached to any one PR, so it needs someone to look at
+# the run. Check it when a nightly goes red rather than assuming the next PR
+# will surface the same thing - by construction, it will not.
+
+on:
+  schedule:
+    # 03:17 UTC. Off the hour because GitHub's scheduler queues heavily at :00,
+    # and a scheduled run can be dropped entirely when the queue is long.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  # The Sylvan metamorphic sweep: ~170s per leaf type, two leaf types.
+  #
+  # This is the cross-backend half of the metamorphic suite. The same 1671
+  # assertions run against MoToBuddy in tests.yml in about a second; on Sylvan
+  # each trial pays a full initPackage, which does lace_start() plus
+  # sylvan_set_limits(2 GB, ...) and sylvan_init_package(), and the suite calls
+  # setup_pkg() once per trial. The cost is package setup, not simulation.
+  #
+  # f80 is the leaf type that matters most here: issue #6 was an f80-specific
+  # fault in the leaf hash that no amount of f128 testing could have found.
+  sylvan-metamorphic:
+    name: Sylvan metamorphic sweep (slow)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+              libgmp-dev cmake g++ python3
+
+      - name: Show toolchain
+        run: |
+          gcc --version | head -1
+          cmake --version | head -1
+
+      - name: Build MoToBuddy
+        run: make init
+
+      - name: Build Sylvan and Lace
+        run: make init-sylvan
+
+      # test_metamorphic relinked against interface_sylvan.h, across
+      # SYLVAN_META_LEAF_TYPES (f80 and f128 by default).
+      - name: Sylvan metamorphic sweep
+        run: make test-sylvan-metamorphic

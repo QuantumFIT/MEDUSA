@@ -12,8 +12,17 @@
 #include <string.h>
 #include <unistd.h>
 
-/* MoToBuddy: silence default "Garbage collection #N: ..." printf in tests. */
+/*
+ * MoToBuddy prints "Garbage collection #N: ..." from its own GC hook, which
+ * drowns the test output. Silencing it needs bdd_gbc_hook, a BuDDy API with no
+ * Sylvan counterpart - and <bdd.h> is not even on the include path for a Sylvan
+ * build. Sylvan is quiet by default, so there is nothing to silence there.
+ *
+ * SYLVAN_BACKEND is defined by SYLVAN_{GMP,DOUBLES}_CFLAGS in the Makefile.
+ */
+#ifndef SYLVAN_BACKEND
 #include "bdd.h"
+#endif
 
 #ifndef TEST_MAX_SECTIONS
 #define TEST_MAX_SECTIONS 128
@@ -25,7 +34,9 @@
 
 /** Call after initPackage() so bdd_init's default GBC handler is cleared. */
 static inline void test_silence_gbc(void) {
+#ifndef SYLVAN_BACKEND
     bdd_gbc_hook(NULL);
+#endif
 }
 
 static int g_tests_run = 0;
