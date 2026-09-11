@@ -8,7 +8,7 @@ make test-sylvan      # same circuit/benchmark smokes on Sylvan + harder Grover/
 make test-all         # test + test-sylvan
 make test-sylvan-all  # test-sylvan + the slow metamorphic sweep (nightly in CI)
 make test-stress      # extreme GC/terminal stress for doubles f128 AND gmp
-make test-leaks       # valgrind definite+reachable (unit, stress LEVEL=1, symbolic Grover/05)
+make test-leaks       # valgrind definite+reachable (unit, stress, Grover/05, semantics, metamorphic)
 make test-grover      # LP-Grover n=5,6,7 × {loop, loop-symbolic, NL} × {f32,f64,f80,f128,gmp}
 make test-unit-leaf-types # the unit suite against each leaf representation
 make test USE_CXX=1   # same suite against the C++ gate implementations
@@ -53,8 +53,15 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   - includes **terminal table realloc** past `INITIAL_TERMINAL_SIZE` (10000)
   - `make test-stress-f128` / `make test-stress-gmp` individually (`test-stress-f64` still exists)
   - `make test-stress STRESS_LEVEL=3` for maximum intensity (default 2)
-- `make test-leaks` - valgrind `--leak-check=full` on unit, short stress, and
-  symbolic `LP-Grover/05` (needs valgrind)
+- `make test-leaks` - valgrind `--leak-check=full` (reachable blocks count as
+  errors, not just definitely-lost) over five runs: unit, short stress, and
+  symbolic `LP-Grover/05`, benchmark semantics and metamorphic (needs
+  valgrind). The last two are what make it worth running: the first three
+  reach 54% of the lines in this build and miss most of the allocation-dense
+  code (`leaf_reim_double.c`, the file with the most malloc/free in the tree,
+  sat at 52%; `qparam.c` at 0%), while adding them takes it to 73% and was
+  what caught the missing `free_sim_info` in the test helpers. ~45s, of which
+  metamorphic under valgrind is ~38s.
 - `make test-mutation` - targeted mutants of known past bugs; each must be **killed** by tests
 - `make test-unit-leaf-types` - replays `test_unit_api` for every float leaf type
   (`LEAF_FLOAT_TYPE=0,1,2,3`). Representation-dependent bugs hide from a

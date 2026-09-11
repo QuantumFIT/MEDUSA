@@ -134,3 +134,43 @@ jobs:
       # symbolic fixture does - so this is what covers gate_symb_x/gate_symb_z.
       - name: Run Grover matrix against the C++ gate implementations
         run: make test-grover USE_CXX=1
+
+  # Memory hygiene. Neither of these ran anywhere before, and both are cheap:
+  # test-stress is ~5s, and the valgrind pass ~45s even though valgrind costs
+  # the usual ~66x, because the suites themselves are small.
+  #
+  # Kept in the per-PR workflow rather than the nightly precisely because it is
+  # cheap: a leak is much easier to place against the commit that introduced it
+  # than against a nightly that nobody is notified about.
+  memory:
+    name: Stress and leak checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # valgrind is the one dependency here that the runner image lacks.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+              libgmp-dev cmake g++ python3 valgrind
+
+      - name: Show toolchain
+        run: |
+          gcc --version | head -1
+          valgrind --version
+
+      - name: Build MoToBuddy
+        run: make init
+
+      # GC and terminal-table stress for the f128 and GMP leaf backends.
+      - name: Run stress suite
+        run: make test-stress
+
+      # valgrind --leak-check=full over the unit, stress, symbolic-Grover,
+      # benchmark-semantics and metamorphic runs. Reachable blocks are treated
+      # as errors, not just definitely-lost ones.
+      - name: Run valgrind leak checks
+        run: make test-leaks
