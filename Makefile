@@ -92,6 +92,20 @@ ifeq ($(PROFILE), 1)
 endif
 
 # ==============================================================================
+# Coverage instrumentation (gcov), used by CI to report to Codecov.
+# Usage: make test COVERAGE=1   then   make coverage-report
+# CFLAGS is used for both compiling and linking here, so --coverage in it
+# instruments the objects and pulls in libgcov at link time. -O0 keeps the
+# line attribution honest; optimised builds fold lines together.
+# ==============================================================================
+
+COVERAGE ?= 0
+
+ifeq ($(COVERAGE), 1)
+  CFLAGS := -O0 -g --coverage
+endif
+
+# ==============================================================================
 # Float type selection for buddy_doubles
 # 0 = float   1 = double   2 = long double   3 = __float128 (default)
 # ==============================================================================
@@ -169,6 +183,8 @@ N_JOBS             := $(shell nproc 2>/dev/null || echo 4)
 OF_TYPE            := pdf
 F_OUT_NAME         := res
 LONG_NUMS_OUT_FILE := res-vars.txt
+COVERAGE_XML       := coverage.xml
+COVERAGE_XML_CXX   := coverage-cxx.xml
 BSCRIPT_PATH       := benchmark-utils/scripts
 
 # ==============================================================================
@@ -189,7 +205,11 @@ BSCRIPT_PATH       := benchmark-utils/scripts
         buddy_doubles_f128 buddy_doubles_all                               \
         test test-unit test-unit-leaf-types test-circuits                  \
         test-benchmarks test-metamorphic                                   \
-        test-sylvan test-all                                               \
+        coverage coverage-all coverage-cxx coverage-report                 \
+        test-sylvan test-all test-sylvan-leaf-types                        \
+        test-sylvan-metamorphic test-sylvan-all                            \
+        test-grover-sylvan run-sylvan-grover                                \
+        run-sylvan-sem run-sylvan-meta                                     \
         test-stress test-stress-f64 test-stress-f128 test-stress-gmp       \
         test-leaks                                                         \
         test-grover test-grover-all test-grover-f32 test-grover-f64        \
@@ -214,7 +234,15 @@ help:
 	@echo "  make sylvan_doubles   float leaves on Sylvan (LEAF_FLOAT_TYPE, default f128)"
 	@echo "  make test             MoToBuddy unit + circuits + benchmarks + metamorphic"
 	@echo "  make test-sylvan      Sylvan circuit/benchmark replay + harder Grover/CCX"
+	@echo "  make test-sylvan-leaf-types  benchmark semantics on Sylvan, every leaf type"
+	@echo "  make test-sylvan-metamorphic Sylvan metamorphic sweep (slow; nightly)"
+	@echo "  make test-grover-sylvan  Grover matrix on Sylvan, every leaf type + GMP"
+	@echo "  make test-sylvan-all  test-sylvan + the slow metamorphic sweep"
 	@echo "  make test-all         test + test-sylvan"
+	@echo "  make test USE_CXX=1   the same suite against the C++ gate impls"
+	@echo "  make coverage         gcov/gcovr report (test + test-grover)"
+	@echo "  make coverage-all     as CI measures it (adds test-sylvan)"
+	@echo "  make coverage-cxx     report for the C++ gate impls (USE_CXX=1)"
 	@echo "buddy_mpfr is not implemented."
 
 # ==============================================================================
@@ -334,6 +362,28 @@ TEST_SEM_SRC      := $(TEST_DIR)/test_benchmark_semantics.c
 TEST_META_BIN     := $(BIN_DIR)/test_metamorphic
 TEST_META_SRC     := $(TEST_DIR)/test_metamorphic.c
 
+# ------------------------------------------------------------------------------
+# Sylvan-linked variants of the two backend-agnostic C suites.
+#
+# test_circuits.sh / test_benchmarks.sh reach Sylvan for free because they exec
+# $MEDUSA_BIN. The C suites cannot: they bake the backend in at compile time via
+# -include, so running them on Sylvan needs a second link of the same sources.
+#
+# test_unit_api is deliberately absent. It includes mtbdd.h/kernel.h/terminal.h
+# and asserts on the MoToBuddy node and terminal tables themselves - dedup,
+# bddnodes[].refcou, table realloc. Sylvan's node table and GC model differ
+# enough that there is nothing to port it to.
+#
+# The binaries carry $(FLOAT_SUFFIX) so a leaf-type sweep cannot pick up a
+# stale build from the previous iteration.
+# ------------------------------------------------------------------------------
+TEST_SEM_SYLVAN_BIN  := $(BIN_DIR)/test_benchmark_semantics_sylvan_$(FLOAT_SUFFIX)
+TEST_META_SYLVAN_BIN := $(BIN_DIR)/test_metamorphic_sylvan_$(FLOAT_SUFFIX)
+
+TEST_SYLVAN_OBJS  := $(filter-out $(SYLVAN_DOUBLES_OBJ_DIR)/main.o, $(OBJS_SYLVAN_DOUBLES)) \
+                     $(INTERFACE_OBJ_sylvan_doubles) \
+                     $(LEAF_OBJ_sylvan_double) $(LEAF_OBJ_sylvan_reim)
+
 STRESS_LEVEL ?= 2
 TEST_STRESS_SRC      := $(TEST_DIR)/test_stress.c
 TEST_STRESS_DOUBLES_BIN := $(BIN_DIR)/test_stress_$(FLOAT_SUFFIX)
@@ -352,6 +402,7 @@ test-all: test test-sylvan
 # Requires: make init-sylvan && make sylvan_doubles (and sylvan_gmp for GMP cases).
 test-sylvan:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
+	$(MAKE) buddy_gmp
 	$(MAKE) sylvan_doubles LEAF_FLOAT_TYPE=3
 	$(MAKE) sylvan_gmp
 	MEDUSA_BIN=$(CURDIR)/MEDUSA_sylvan_doubles_f128 \
@@ -364,6 +415,8 @@ test-sylvan:
 	    bash $(TEST_DIR)/test_benchmarks.sh
 	@chmod +x $(TEST_DIR)/test_sylvan.sh
 	bash $(TEST_DIR)/test_sylvan.sh
+	$(MAKE) test-sylvan-leaf-types
+	$(MAKE) test-grover-sylvan
 
 test-unit:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
@@ -408,6 +461,64 @@ $(TEST_SEM_BIN): $(TEST_SEM_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_SEM_SRC) $(TEST_UNIT_OBJS) \
 	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+
+# ------------------------------------------------------------------------------
+# Float leaf representations swept on Sylvan.
+#
+# test-sylvan built only f128 (plus GMP), so f32/f64/f80 had no Sylvan testing
+# at all. Issue #6 was an f80-specific fault in the leaf hash that no amount of
+# f128 testing could have found - that is the case for sweeping.
+#
+# test_benchmark_semantics costs under a second per type and its tolerances are
+# floored per representation (SEM_EPS), so it runs on all four.
+#
+# test_metamorphic costs ~170s per type, and f32 cannot sustain it: deep random
+# circuits plus a 12000-angle rx flood put the worst basis amplitude 5e-3 off,
+# and a floor that loose would stop the assertions meaning anything (the
+# measured median is 1e-6, so most of it would pass - but not the tail). f64 is
+# left out as redundant with f128; f80 is the representation that produced #6
+# and is the reason the sweep exists. Both lists are overridable.
+# ------------------------------------------------------------------------------
+SYLVAN_SEM_LEAF_TYPES  ?= 0 1 2 3
+SYLVAN_META_LEAF_TYPES ?= 2 3
+
+# Cheap enough for every PR: under a second per leaf type.
+test-sylvan-leaf-types:
+	@for t in $(SYLVAN_SEM_LEAF_TYPES); do \
+	    echo "=== test_benchmark_semantics on Sylvan, LEAF_FLOAT_TYPE=$$t ==="; \
+	    $(MAKE) --no-print-directory run-sylvan-sem LEAF_FLOAT_TYPE=$$t || exit 1; \
+	done
+
+# ~170s per leaf type, so this is the nightly half of the sweep rather than
+# something every PR should wait on. See .github/workflows/nightly.yml.
+test-sylvan-metamorphic:
+	@for t in $(SYLVAN_META_LEAF_TYPES); do \
+	    echo "=== test_metamorphic on Sylvan, LEAF_FLOAT_TYPE=$$t ==="; \
+	    $(MAKE) --no-print-directory run-sylvan-meta LEAF_FLOAT_TYPE=$$t || exit 1; \
+	done
+
+# Everything test-sylvan runs, plus the slow metamorphic sweep.
+test-sylvan-all: test-sylvan test-sylvan-metamorphic
+
+run-sylvan-sem: $(TEST_SEM_SYLVAN_BIN)
+	$(TEST_SEM_SYLVAN_BIN)
+
+run-sylvan-meta: $(TEST_META_SYLVAN_BIN)
+	$(TEST_META_SYLVAN_BIN)
+
+$(TEST_SEM_SYLVAN_BIN): $(TEST_SEM_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_OBJS)
+	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
+	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
+	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) \
+	    -o $@ $(TEST_SEM_SRC) $(TEST_SYLVAN_OBJS) \
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+
+$(TEST_META_SYLVAN_BIN): $(TEST_META_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_OBJS)
+	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
+	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
+	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) \
+	    -o $@ $(TEST_META_SRC) $(TEST_SYLVAN_OBJS) \
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
 
 test-circuits:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
@@ -457,6 +568,64 @@ $(TEST_GROVER_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_GROVER_SRC) $(TEST_STRESS_GMP_OBJS) \
 	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+
+# ------------------------------------------------------------------------------
+# The same Grover matrix on Sylvan.
+#
+# test_grover_matrix.c is backend-agnostic (test_harness.h, sim.h, interface.h,
+# symb_utils.h and nothing else), so it needs only a second link. This is what
+# gives Sylvan the representation breadth MoToBuddy already had from
+# test-grover: before this, the Sylvan binary was only ever exercised at f128
+# and GMP, so f32/f64/f80 had no Grover coverage on that backend at all.
+#
+# The float objects are shared with the Sylvan C suites above, so per leaf type
+# this costs a link and a run rather than a rebuild.
+# ------------------------------------------------------------------------------
+TEST_GROVER_SYLVAN_BIN     := $(BIN_DIR)/test_grover_sylvan_$(FLOAT_SUFFIX)
+TEST_GROVER_SYLVAN_GMP_BIN := $(BIN_DIR)/test_grover_sylvan_gmp
+
+TEST_SYLVAN_GMP_OBJS := $(filter-out $(SYLVAN_GMP_OBJ_DIR)/main.o, $(OBJS_SYLVAN_GMP)) \
+                        $(INTERFACE_OBJ_sylvan_gmp) \
+                        $(LEAF_OBJ_sylvan_mpz) $(LEAF_OBJ_sylvan_algebraic)
+
+$(TEST_GROVER_SYLVAN_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_OBJS)
+	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
+	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
+	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) \
+	    -o $@ $(TEST_GROVER_SRC) $(TEST_SYLVAN_OBJS) \
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+
+$(TEST_GROVER_SYLVAN_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_GMP_OBJS)
+	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
+	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
+	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_GMP_CFLAGS) \
+	    -o $@ $(TEST_GROVER_SRC) $(TEST_SYLVAN_GMP_OBJS) \
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+
+SYLVAN_GROVER_LEAF_TYPES ?= 0 1 2 3
+
+# The algebraic GMP case runs too. It was skipped while issue #11 was open -
+# symbolic simulation segfaulted on Sylvan with algebraic GMP leaves, because
+# interface_sylvan.c sized symbolic leaf payloads with a struct declared
+# locally carrying the re/im shell's two fields while the algebraic shell has
+# four, so reads of the last two ran off the end of the block. Adding this
+# target is what found it: nothing had ever run --symbolic on that combination.
+#
+# This case catches the crash but not a merely truncated copy of the same
+# payload - Grover's amplitudes are all in the first component, so losing the
+# others is invisible here. test_sylvan.sh compares terminal labels against
+# MoToBuddy+GMP on a T/H circuit for that.
+test-grover-sylvan:
+	@for t in $(SYLVAN_GROVER_LEAF_TYPES); do \
+	    echo "=== test_grover_matrix on Sylvan, LEAF_FLOAT_TYPE=$$t ==="; \
+	    $(MAKE) --no-print-directory run-sylvan-grover LEAF_FLOAT_TYPE=$$t || exit 1; \
+	done
+	@echo "=== test_grover_matrix on Sylvan, algebraic GMP ==="
+	$(MAKE) --no-print-directory $(TEST_GROVER_SYLVAN_GMP_BIN)
+	$(TEST_GROVER_SYLVAN_GMP_BIN)
+
+run-sylvan-grover: $(TEST_GROVER_SYLVAN_BIN)
+	$(TEST_GROVER_SYLVAN_BIN)
 
 test-grover: test-grover-all
 
@@ -515,6 +684,43 @@ test-mutation:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
 	@chmod +x $(TEST_DIR)/test_mutation.sh
 	bash $(TEST_DIR)/test_mutation.sh
+
+# Instrumented build + full suite + Cobertura XML for Codecov.
+# clean-artifacts first: reusing non-instrumented objects would report no data.
+# Default product (MoToBuddy, all leaf types). Needs no optional dependency.
+coverage:
+	$(MAKE) clean-artifacts
+	$(MAKE) test COVERAGE=1
+	$(MAKE) test-grover COVERAGE=1
+	$(MAKE) coverage-report
+
+# Coverage for the C++ gate implementations (the #else branches of the
+# __cplusplus splits in gates.c / gates_symb.c). USE_CXX=1 writes into the same
+# $(DOUBLES_OBJ_DIR) as the C build, so the two profiles would clobber one
+# another: this target starts from a clean tree, and CI keeps it in its own job.
+# The report goes to a separate file because the two builds instrument
+# different line sets of the same sources; Codecov unions them via flags.
+coverage-cxx:
+	$(MAKE) clean-artifacts
+	$(MAKE) test USE_CXX=1 COVERAGE=1
+	$(MAKE) test-grover USE_CXX=1 COVERAGE=1
+	$(MAKE) coverage-report COVERAGE_XML=$(COVERAGE_XML_CXX)
+
+# Exactly what CI measures: adds the optional Sylvan backend, so the number
+# matches the Codecov badge. Requires init-sylvan.
+coverage-all:
+	$(MAKE) clean-artifacts
+	$(MAKE) test COVERAGE=1
+	$(MAKE) test-grover COVERAGE=1
+	$(MAKE) init-sylvan
+	$(MAKE) test-sylvan COVERAGE=1
+	$(MAKE) coverage-report
+
+# Turn the .gcda/.gcno files under $(OBJ_DIR) into a report over $(SRC_DIR).
+# Needs gcovr (pip install gcovr).
+coverage-report:
+	gcovr --root . --filter '$(SRC_DIR)/' --exclude '$(TEST_DIR)/' \
+	      --xml-pretty --output $(COVERAGE_XML) --print-summary
 
 $(TEST_STRESS_DOUBLES_BIN): $(TEST_STRESS_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
                         $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
@@ -754,9 +960,13 @@ clean-artifacts:
 	       $(TEST_UNIT_BIN) $(TEST_STRESS_F64_BIN) $(TEST_STRESS_F128_BIN) \
 	       $(TEST_STRESS_GMP_BIN) \
 	       $(TEST_SEM_BIN) $(TEST_META_BIN) \
+	       $(BIN_DIR)/test_benchmark_semantics_sylvan_* \
+	       $(BIN_DIR)/test_grover_sylvan_* \
+	       $(BIN_DIR)/test_metamorphic_sylvan_* \
 	       $(BIN_DIR)/test_grover_f32 $(BIN_DIR)/test_grover_f64 \
 	       $(BIN_DIR)/test_grover_f80 $(BIN_DIR)/test_grover_f128 \
 	       $(TEST_GROVER_GMP_BIN)
+	@rm -f $(COVERAGE_XML) $(COVERAGE_XML_CXX) $(BIN_DIR)/*.gcda $(BIN_DIR)/*.gcno $(BIN_DIR)/*.gcov
 
 clean-deps:
 	rm -rf $(LIB_DIR)

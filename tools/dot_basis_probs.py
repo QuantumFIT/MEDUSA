@@ -4,6 +4,44 @@ import re
 import sys
 import math
 
+# Terminal labels from the floating-point backends have the form
+# "<re><sign><im>i", where the real part may itself be signed:
+#
+#   -0.0012...-0.0373...i        0.5+0.5i        -1e-20+2e-21i        0.5
+#
+# Splitting on '+' alone silently mis-parsed every amplitude with a negative
+# imaginary part: "0.0606...-0.0295..." was read as a single float, which threw
+# ValueError and aborted the whole run. The separating sign is the one directly
+# preceding the imaginary part, which is not necessarily the first sign in the
+# label and must not be confused with the sign inside an exponent.
+_FLOAT = r'(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?'
+_RE_COMPLEX = re.compile(rf'^\s*(?P<re>[-+]?{_FLOAT})\s*(?P<im>[-+]\s*{_FLOAT})\s*i\s*$')
+_RE_IMAG = re.compile(rf'^\s*(?P<im>[-+]?{_FLOAT})\s*i\s*$')
+_RE_REAL = re.compile(rf'^\s*(?P<re>[-+]?{_FLOAT})\s*$')
+
+
+def parse_amplitude(label):
+    """Parse a floating-point terminal label into a (re, im) pair.
+
+    Raises ValueError naming the label for anything else - in particular the
+    algebraic/GMP backend's "(1/sqrt2)^(k) * (a+b.w+c.w2+d.w3)" form, which
+    this tool does not implement. Failing loudly beats returning a wrong
+    amplitude.
+    """
+    m = _RE_COMPLEX.match(label)
+    if m:
+        return float(m.group('re')), float(m.group('im').replace(' ', ''))
+    m = _RE_IMAG.match(label)
+    if m:
+        return 0.0, float(m.group('im'))
+    m = _RE_REAL.match(label)
+    if m:
+        return float(m.group('re')), 0.0
+    raise ValueError(
+        f"unrecognised terminal label {label!r}; this tool reads the "
+        f"floating-point backends only (not algebraic/GMP labels)")
+
+
 def parse_dot(path):
     root = None
     var_of = {}
@@ -18,12 +56,7 @@ def parse_dot(path):
             if 'shape=box' not in line[m.start():m.end()+20]:
                 var_of[int(m.group(1))] = int(m.group(2))
         for m in re.finditer(r'(\d+) \[label="([^"]+)", style=filled,shape=box\]', line):
-            lab = m.group(2).replace('i', '').strip()
-            if '+' in lab:
-                re_s, im_s = lab.split('+', 1)
-            else:
-                re_s, im_s = lab, '0'
-            term_of[int(m.group(1))] = (float(re_s), float(im_s))
+            term_of[int(m.group(1))] = parse_amplitude(m.group(2))
         for m in re.finditer(r'(\d+) -> (\d+) \[style=(dashed|filled)\]', line):
             src, dst, sty = int(m.group(1)), int(m.group(2)), m.group(3)
             if sty == 'dashed':
