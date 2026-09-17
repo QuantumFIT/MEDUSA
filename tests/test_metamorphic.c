@@ -531,26 +531,38 @@ static void test_symb_float_t_tdg(void) {
 /**
  * Oracle for the symbolic gate implementations in gates_symb.c.
  *
- * Three legs, because the interesting comparison changes two things at once -
- * the file and the simulation mode - and a bare two-way check cannot say which
- * of them a mismatch came from:
+ * The reference is `symb_path` run *classically*, and there are two legs
+ * against it:
  *
- *   1. `classic_path` (the hand-unrolled file) run classically: the oracle.
- *   2. `symb_path` (the loop file) run *classically*: must agree with leg 1
- *      exactly. Classic mode unrolls the loop at runtime, so this is the same
- *      gate sequence in the same order and the amplitudes are bit-identical.
- *      This is what establishes that the pair really is one circuit written
- *      two ways. Without it a hand-edited unrolled file could drift from its
- *      loop counterpart and the symbolic comparison would report a
- *      gates_symb.c fault that is really a fixture bug - and the tempting fix,
- *      editing the unrolled file until it passes, would mask a real one.
- *   3. `symb_path` run with --symbolic, so its loop body goes through the
- *      gate_symb_* path: compared against the oracle within `eps`.
+ *   A. `symb_path` run with --symbolic, so its loop body goes through the
+ *      gate_symb_* path. Compared within `eps`. This is the property symbolic
+ *      mode actually claims - summarising a loop reaches the same state as
+ *      unrolling it - so it is the primary comparison, and a failure here
+ *      names one file and means one thing: the symbolic gates are wrong.
  *
- * Legs 1 and 2 hold the mode fixed and vary the file; leg 3 holds the file
- * fixed and varies the mode. A failure therefore localises: leg 2 means the
- * fixtures disagree, leg 3 means the symbolic gates do. The classic gates are
- * independently covered by the identity and round-trip sections above.
+ *   B. `classic_path`, the hand-unrolled partner, run classically. Compared
+ *      exactly: same gates, same order, so the amplitudes should be
+ *      bit-identical. This leg is not about the symbolic path at all - it is
+ *      the only check in the suite that the loop file *means* what the
+ *      unrolled file spells out.
+ *
+ * Leg B is worth its fixtures for one specific reason. The iteration count is
+ * parsed once, in get_iters (sim.c:299), and handed to both modes - classic
+ * unrolls with `iters--` and a stream rewind, symbolic passes the same value
+ * to symb_eval. So a misparse shifts both modes identically and leg A still
+ * passes. Mutation-checked both directions:
+ *
+ *   mutation                                   leg A      leg B
+ *   get_iters off by one (shared)              passes     fails
+ *   classic unroller off by one (classic only) fails      fails
+ *
+ * That is the whole case for keeping a second file: faults in the shared loop
+ * *parse*. Faults in the unrolling itself are caught by leg A on its own.
+ *
+ * Leg B also stops a subtler failure mode: without it, a hand-edited unrolled
+ * file could drift from its loop counterpart, and the tempting response to the
+ * resulting red test - editing the unrolled file until it passes - would mask
+ * a real gates_symb.c bug.
  *
  * Every basis amplitude is compared, not just the norm: a symbolic gate that
  * dropped a phase would still produce a unit-norm state.
@@ -558,74 +570,78 @@ static void test_symb_float_t_tdg(void) {
 static void assert_symb_matches_classic(const char *symb_path,
                                         const char *classic_path,
                                         double eps) {
+    /* Reference: the loop file, classically. */
     setup_pkg();
-    qBDD classic;
-    int nc = 0;
-    TEST_ASSERT_MSG(sim_path(classic_path, &classic, &nc), classic_path);
+    qBDD loop_classic;
+    int nref = 0;
+    TEST_ASSERT_MSG(sim_path(symb_path, &loop_classic, &nref), symb_path);
 
-    int N = 1 << nc;
-    double *Cre = calloc((size_t)N, sizeof(double));
-    double *Cim = calloc((size_t)N, sizeof(double));
-    if (!Cre || !Cim) {
-        free(Cre);
-        free(Cim);
-        deleteCircuit(&classic);
+    int N = 1 << nref;
+    double *Rre = calloc((size_t)N, sizeof(double));
+    double *Rim = calloc((size_t)N, sizeof(double));
+    if (!Rre || !Rim) {
+        free(Rre);
+        free(Rim);
+        deleteCircuit(&loop_classic);
         freePackage();
         TEST_ASSERT_MSG(0, "out of memory building the classic reference");
         return;
     }
 
     char bits[34];
-    TEST_ASSERT_MSG(nc >= 0 && nc < (int)sizeof bits, classic_path);
-    bits[nc] = '\0';
+    TEST_ASSERT_MSG(nref >= 0 && nref < (int)sizeof bits, symb_path);
+    bits[nref] = '\0';
     for (int s = 0; s < N; s++) {
-        for (int i = 0; i < nc; i++)
+        for (int i = 0; i < nref; i++)
             bits[i] = ((s >> i) & 1) ? '1' : '0';
-        basis_amp(classic, bits, &Cre[s], &Cim[s]);
-    }
-    deleteCircuit(&classic);
-    freePackage();
-
-    /* Leg 2: the loop file, classically. Exact agreement expected - same gates,
-     * same order - so this is asserted with a zero tolerance rather than eps. */
-    char pair_ctx[320];
-    snprintf(pair_ctx, sizeof pair_ctx, "%s vs %s (both classic: fixtures drifted?)",
-             symb_path, classic_path);
-    setup_pkg();
-    qBDD loop_classic;
-    int nl = 0;
-    TEST_ASSERT_MSG(sim_path(symb_path, &loop_classic, &nl), pair_ctx);
-    TEST_ASSERT_MSG(nc == nl, pair_ctx);
-    if (nc == nl) {
-        for (int s = 0; s < N; s++) {
-            for (int i = 0; i < nc; i++)
-                bits[i] = ((s >> i) & 1) ? '1' : '0';
-            double lr, li;
-            basis_amp(loop_classic, bits, &lr, &li);
-            TEST_ASSERT_NEAR_MSG(Cre[s], lr, 0.0, pair_ctx);
-            TEST_ASSERT_NEAR_MSG(Cim[s], li, 0.0, pair_ctx);
-        }
+        basis_amp(loop_classic, bits, &Rre[s], &Rim[s]);
     }
     deleteCircuit(&loop_classic);
     freePackage();
 
-    /* Leg 3: the loop file, symbolically. */
+    /* Leg A: the same file, symbolically. The primary comparison. */
     setup_pkg();
     qBDD symb;
     int ns = 0;
     TEST_ASSERT_MSG(sim_path_symb(symb_path, &symb, &ns), symb_path);
-    TEST_ASSERT_MSG(nc == ns, symb_path);
-    for (int s = 0; s < N; s++) {
-        for (int i = 0; i < nc; i++)
-            bits[i] = ((s >> i) & 1) ? '1' : '0';
-        double sr, si;
-        basis_amp(symb, bits, &sr, &si);
-        TEST_ASSERT_NEAR_MSG(Cre[s], sr, eps, symb_path);
-        TEST_ASSERT_NEAR_MSG(Cim[s], si, eps, symb_path);
+    TEST_ASSERT_MSG(nref == ns, symb_path);
+    if (nref == ns) {
+        for (int s = 0; s < N; s++) {
+            for (int i = 0; i < nref; i++)
+                bits[i] = ((s >> i) & 1) ? '1' : '0';
+            double sr, si;
+            basis_amp(symb, bits, &sr, &si);
+            TEST_ASSERT_NEAR_MSG(Rre[s], sr, eps, symb_path);
+            TEST_ASSERT_NEAR_MSG(Rim[s], si, eps, symb_path);
+        }
     }
-    free(Cre);
-    free(Cim);
     deleteCircuit(&symb);
+    freePackage();
+
+    /* Leg B: the hand-unrolled partner, classically. Exact, and its message
+     * names both files because a failure is about the pair, not about either
+     * file on its own. */
+    char pair_ctx[320];
+    snprintf(pair_ctx, sizeof pair_ctx, "%s vs %s (both classic: loop bounds or fixture drift?)",
+             symb_path, classic_path);
+    setup_pkg();
+    qBDD unrolled;
+    int nu = 0;
+    TEST_ASSERT_MSG(sim_path(classic_path, &unrolled, &nu), pair_ctx);
+    TEST_ASSERT_MSG(nref == nu, pair_ctx);
+    if (nref == nu) {
+        for (int s = 0; s < N; s++) {
+            for (int i = 0; i < nref; i++)
+                bits[i] = ((s >> i) & 1) ? '1' : '0';
+            double ur, ui;
+            basis_amp(unrolled, bits, &ur, &ui);
+            TEST_ASSERT_NEAR_MSG(Rre[s], ur, 0.0, pair_ctx);
+            TEST_ASSERT_NEAR_MSG(Rim[s], ui, 0.0, pair_ctx);
+        }
+    }
+    free(Rre);
+    free(Rim);
+    deleteCircuit(&unrolled);
     freePackage();
 }
 

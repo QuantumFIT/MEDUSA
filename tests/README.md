@@ -42,9 +42,15 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   - **symbolic gates vs classic**: fixtures in `tests/qasm/symbolic/` pair a loop
     body with its unrolled equivalent, one pair per gate (`cx`, `s`, `y`,
     `rx(π/2)`, `ry(π/2)`, `mcx`), plus the dense Clifford+T `mixed_th` pair.
-    Each asserts the `--symbolic` run matches the classic run on **every basis
-    amplitude** - a norm check would miss a dropped phase. This is what covers
-    `src/gates_symb.c`, which `LP-Grover/05` alone leaves at ~16%.
+    Two legs per pair, both over **every basis amplitude** - a norm check would
+    miss a dropped phase. This is what covers `src/gates_symb.c`, which
+    `LP-Grover/05` alone leaves at ~16%.
+    - **leg A**, the primary one: the loop file `--symbolic` against the *same
+      file* classic, within `eps`. That is the property symbolic mode claims,
+      and a failure names one file and means one thing.
+    - **leg B**: the hand-unrolled partner classic against the loop file
+      classic, asserted **exactly**. See below for why a second file is needed
+      at all.
   - **heavy GC**: after each success, repeated `forceGC` while the result root stays
     protected; plus deep `U U†`, ~12k distinct `rx(θ)/rx(-θ)`, orphan+retry
   - **mega terminals**: ~15k rx/ry flood (insertvalue churn) plus a 14-qubit product
@@ -103,6 +109,44 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   `make test-sylvan-all` is `test-sylvan` plus this
 
 MoToBuddy is the preferred backend. `make test` never requires Sylvan.
+
+#### Why the `_unrolled` fixtures exist
+
+A reasonable question is why the symbolic comparison needs a second file at
+all, rather than just running the one loop file both ways. The answer is
+narrow but real: the iteration count is parsed **once**, in `get_iters`
+(`sim.c:299`), and handed to both modes - classic unrolls it with `iters--`
+and a stream rewind, symbolic passes the same value to `symb_eval`. A misparse
+therefore shifts both modes *identically*, and any same-file comparison still
+agrees with itself.
+
+Mutation-checked in both directions, counting failing assertions inside
+`assert_symb_matches_classic`:
+
+| mutation | leg A (same file, both modes) | leg B (loop vs unrolled) |
+|---|---|---|
+| `get_iters` off by one - shared by both modes | **0** | 558 |
+| classic runtime unroller off by one - classic only | 570 | 570 |
+
+So leg B earns its fixtures on exactly one class of fault: the shared loop
+*parse*. Faults in the unrolling itself are caught by leg A alone, and so are
+faults in `gates_symb.c` (a symbolic `S` rotating like `T` fails leg A twice
+and leg B not at all).
+
+Leg B also stops a subtler failure: without it a hand-edited `_unrolled` file
+can drift from its loop partner, and the tempting response to the resulting
+red test - editing the unrolled file until it passes - would mask a real
+`gates_symb.c` bug.
+
+The same shape at benchmark scale is in `test_grover_matrix`, where
+`NL_NN.qasm` is the hand-written no-loop counterpart of `NN.qasm`. Its
+loop-vs-NL comparison is exact on every leaf type including f32; the
+symbolic-vs-classic one carries a per-leaf-type tolerance taken from
+measurement (worst observed: f32 4.4e-05, f64 6.2e-08, f80 1.2e-11, f128 and
+GMP exactly 0). That comparison is over basis *probabilities* rather than
+amplitudes, since `qBDD_calculateProb` is the only value accessor that works
+on the algebraic GMP leaf too - so a global phase change would pass there, and
+is caught by the metamorphic suite instead.
 
 #### Symbolic simulation on Sylvan + algebraic GMP
 
