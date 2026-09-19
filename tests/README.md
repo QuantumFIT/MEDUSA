@@ -109,6 +109,15 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   and marks it, rather than asserting what it arguably should do; see issue
   #13 for the out-of-range qubit index, which is a real out-of-bounds read,
   and the two lenience cases found alongside it
+- `make test-mosf` - MOSF, the JSON input path (`--tree-simulation`,
+  `sim_mosf_file`, `src/sim_mosf.cpp`). Compiled only under `USE_CXX=1` and,
+  before this suite, executed by nothing: **0 of 104 lines**, the largest
+  wholly-uncovered file in the tree, and invisible in the default coverage
+  report because the C build does not compile the translation unit at all.
+  The target does not force `USE_CXX=1` - that build shares
+  `obj/buddy_doubles_f128` with the C one - so `make test` skips it and
+  `make test USE_CXX=1` runs it. Fixtures and the format notes are in
+  `tests/mosf/`
 - `make test-grover` - Grover amplification matrix (classic unroll, `--symbolic`, `NL_*`)
   on f32/f64/f80/f128 and GMP; also `make test-grover-f128` / `test-grover-gmp`
 - `make test-sylvan` - optional Sylvan backend (not the default product):
@@ -263,8 +272,25 @@ CI uploads the two runs under the Codecov flags `c` and `cxx`, which unions
 them per line: a line covered by either build counts as covered, and a line
 absent from one report is unmeasured there rather than a miss.
 
-MOSF itself is not exercised: `sim_mosf_file` parses MOSF JSON rather than
-OpenQASM, and there is no such fixture in the repository.
+MOSF is exercised by `make test-mosf` (see above). The fixtures had to be
+written from the spec in `lib/MoToBuddy/doc/mosf.mosf`: the `.mosf` files
+shipped under `lib/MoToBuddy/examples/` are gate *definitions*, not circuits -
+they carry no `x_levels` and use `plus_s`/`minus_s`, which MEDUSA's extension
+registry does not define.
+
+Each `tests/mosf/NAME.mosf` is paired with a `NAME.qasm` for the same circuit,
+and the two must agree on every basis amplitude. Comparing the `res.dot` files
+byte for byte does **not** work: node ids are allocation order, and the two
+front ends number the terminals differently while building the same state.
+`tests/dot_amps_equal.py` does the comparison properly.
+
+Fixture choice matters more than it looks. H applied to |0> leaves the high
+child as the zero BDD, so `(low + high)` and `(low - high)` coincide and the
+comparison cannot tell `plus_mulsqrt2` from `minus_mulsqrt2` - a build with
+the two swapped passes `h1`, `hh` and `hxz`. The `xh` and `hxh` fixtures apply
+X first so that H acts on |1>, which is what makes the arithmetic observable.
+Mutation-checked: swapping either binary op fails exactly those two, and
+making `neg` a no-op fails `hxz`.
 
 ### freePimpl / leaks
 

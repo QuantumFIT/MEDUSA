@@ -1,0 +1,15 @@
+{
+  "mosf_version": "1.0",
+  "tree": "medusa",
+  "x_levels": 2,
+  "vars": { "q0": 0, "q1": 1 },
+  "ops": [
+    { "type": "traverse_to", "target": { "var": "q0" },
+      "action": { "type": "makenode",
+                  "low":  { "type": "plus_mulsqrt2" },
+                  "high": { "type": "minus_mulsqrt2" } } },
+    { "type": "traverse_to", "target": { "var": "q1" }, "action": { "type": "swap" } },
+    { "type": "traverse_to", "target": { "var": "q0" },
+      "action": { "type": "neg" }, "action_on": "R" }
+  ]
+}

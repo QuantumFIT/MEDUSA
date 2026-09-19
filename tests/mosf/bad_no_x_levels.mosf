@@ -1,0 +1,6 @@
+{
+  "mosf_version": "1.0",
+  "tree": "medusa",
+  "vars": { "q0": 0 },
+  "ops": [ { "type": "traverse_to", "target": { "var": "q0" }, "action": { "type": "swap" } } ]
+}
