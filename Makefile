@@ -203,7 +203,7 @@ BSCRIPT_PATH       := benchmark-utils/scripts
         buddy_doubles                                                      \
         buddy_doubles_f32 buddy_doubles_f64 buddy_doubles_f80              \
         buddy_doubles_f128 buddy_doubles_all                               \
-        test test-unit test-unit-leaf-types test-circuits                  \
+        test test-unit test-unit-gmp test-unit-leaf-types test-circuits    \
         test-benchmarks test-metamorphic                                   \
         coverage coverage-all coverage-cxx coverage-report                 \
         test-sylvan test-all test-sylvan-leaf-types                        \
@@ -236,6 +236,7 @@ help:
 	@echo "  make test-sylvan      Sylvan circuit/benchmark replay + harder Grover/CCX"
 	@echo "  make test-sylvan-leaf-types  benchmark semantics on Sylvan, every leaf type"
 	@echo "  make test-sylvan-metamorphic Sylvan metamorphic sweep (slow; nightly)"
+	@echo "  make test-unit-gmp    unit tests for the GMP leaf primitive"
 	@echo "  make test-grover-sylvan  Grover matrix on Sylvan, every leaf type + GMP"
 	@echo "  make test-sylvan-all  test-sylvan + the slow metamorphic sweep"
 	@echo "  make test-all         test + test-sylvan"
@@ -394,7 +395,7 @@ TEST_STRESS_GMP_BIN  := $(BIN_DIR)/test_stress_gmp
 TEST_STRESS_GMP_OBJS := $(filter-out $(OBJ_DIR)/buddy_gmp/main.o, $(OBJS_BUDDY_GMP)) \
                         $(INTERFACE_OBJ_motobuddy) $(LEAF_OBJ_mpz) $(LEAF_OBJ_algebraic)
 
-test: test-unit test-circuits test-benchmarks test-metamorphic
+test: test-unit test-unit-gmp test-circuits test-benchmarks test-metamorphic
 
 test-all: test test-sylvan
 
@@ -546,6 +547,29 @@ test-metamorphic:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
 	$(MAKE) $(TEST_META_BIN) LEAF_FLOAT_TYPE=3
 	$(TEST_META_BIN)
+
+# ------------------------------------------------------------------------------
+# Unit tests for the GMP leaf primitive.
+#
+# test_unit_api cannot cover this: it is hard-wired to LEAF_BACKEND_DOUBLES and
+# reads leaf.pImpl->re / ->im throughout, so leaf_primitive_mpz.c had no unit
+# coverage at all (48.9% line, seven functions never executed). That blind spot
+# is where the componentwise mulLeaf/divLeaf bug lived - see #12.
+# ------------------------------------------------------------------------------
+TEST_UNIT_GMP_SRC := $(TEST_DIR)/test_unit_leaf_gmp.c
+TEST_UNIT_GMP_BIN := $(BIN_DIR)/test_unit_leaf_gmp
+
+$(TEST_UNIT_GMP_BIN): $(TEST_UNIT_GMP_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_OBJS) \
+                      $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
+	$(CC) $(INC_DIRS_BUDDY_GMP) -I $(TEST_DIR) $(CFLAGS) \
+	    -DLEAF_BACKEND_GMP \
+	    -include $(LEAF_PRIM_DIR)/leaf_primitive_mpz.h \
+	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
+	    -o $@ $(TEST_UNIT_GMP_SRC) $(TEST_STRESS_GMP_OBJS) \
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+
+test-unit-gmp: buddy_gmp $(TEST_UNIT_GMP_BIN)
+	$(TEST_UNIT_GMP_BIN)
 
 TEST_GROVER_SRC := $(TEST_DIR)/test_grover_matrix.c
 TEST_GROVER_BIN := $(BIN_DIR)/test_grover_$(FLOAT_SUFFIX)
@@ -957,7 +981,7 @@ clean-artifacts:
 	       MEDUSA_sylvan_gmp MEDUSA_sylvan_doubles MEDUSA_sylvan_doubles_f32 \
 	       MEDUSA_sylvan_doubles_f64 MEDUSA_sylvan_doubles_f80 \
 	       MEDUSA_sylvan_doubles_f128 \
-	       $(TEST_UNIT_BIN) $(TEST_STRESS_F64_BIN) $(TEST_STRESS_F128_BIN) \
+	       $(TEST_UNIT_BIN) $(TEST_UNIT_GMP_BIN) $(TEST_STRESS_F64_BIN) $(TEST_STRESS_F128_BIN) \
 	       $(TEST_STRESS_GMP_BIN) \
 	       $(TEST_SEM_BIN) $(TEST_META_BIN) \
 	       $(BIN_DIR)/test_benchmark_semantics_sylvan_* \
