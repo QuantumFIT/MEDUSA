@@ -8,6 +8,7 @@
 MEDUSA
 MEDUSA_*
 /test_unit_api
+/test_unit_leaf_gmp
 /test_metamorphic
 /test_metamorphic_sylvan_*
 /test_grover_sylvan_*
