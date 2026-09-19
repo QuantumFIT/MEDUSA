@@ -179,41 +179,6 @@ bool symexp_cmp(symexp_list_t *a, symexp_list_t *b)
     return (a == b)? true : false;
 }
 
-char* symexp_to_str(symexp_list_t *l)
-{
-    char buf[MAX_ST_TO_STR_LEN] = {0};
-    int chars_written;
-    int buflen = 0;
-
-    if (l == NULL) {
-        return "";
-    }
-    else if (l == SYMEXP_NULL) {
-        return "0";
-    }
-    else {
-        symexp_list_first(l);
-        while (l->active != NULL) {
-            // Append string
-            chars_written = gmp_snprintf(buf + buflen, MAX_ST_TO_STR_LEN, "%+Zd[%ld]", l->active->data->coef, l->active->data->var);
-            // Was string truncated?
-            if (chars_written >= MAX_ST_TO_STR_LEN) {
-                error_exit("Allocated string length for leaf value output has not been sufficient.\n");
-            }
-            else if (chars_written < 0) {
-                error_exit("An encoding error has occured when producing leaf value output.\n");
-            }
-            buflen += chars_written;
-            symexp_list_next(l);
-        }
-    }
-
-    char *new_buf = (char*)my_malloc((buflen + 1) * sizeof(char));
-    memcpy(new_buf, buf, buflen * sizeof(char));
-    new_buf[buflen] = '\0';
-    return new_buf;
-}
-
 bool symexp_is_first_var_marked(symexp_list_t *l, bool *is_zero)
 {
     bool var_marked = false;

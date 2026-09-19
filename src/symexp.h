@@ -56,10 +56,6 @@ symexp_list_t* symexp_op(symexp_list_t *a, symexp_list_t *b, symexp_op_t op);
  */
 bool symexp_cmp(symexp_list_t *a, symexp_list_t *b);
 
-/**
- * Returns the string representation of the expression represented by tree
- */
-char* symexp_to_str(symexp_list_t *l);
 
 /**
  * Returns true if the first variable of the expression is true in the given array.

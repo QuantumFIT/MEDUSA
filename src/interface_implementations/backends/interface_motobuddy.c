@@ -86,10 +86,6 @@ size_t qBDD_classicLType() {
     return lt_classic;
 }
 
-size_t qBDD_getTerminalType(qBDD terminal) {
-    return mtbdd_get_terminal_type(terminal);
-}
-
 size_t qBDD_level(qBDD node) {
     return LEVEL(node);
 }
@@ -161,11 +157,6 @@ qBDD newqBDD(unsigned int target, qBDD lhs, qBDD rhs) {
 qBDD qBDD_maketerminal(size_t type, void* valuep) {
     return mtbdd_maketerminal(valuep, type);
 }
-
-qBDD cube(int value, int width, qBDD *variables, qBDD leaf1, qBDD leaf0) {
-    return mtbdd_cube2(value, width, variables, leaf1, leaf0);
-}
-
 
 /*
  * Node traversal
@@ -295,8 +286,6 @@ void *convertedApplyOperationPlusI (void *a, void *b) { return convertedApplyOpe
 void *convertedApplyOperationMinusI(void *a, void *b) { return convertedApplyOperation(a, b); }
 void *convertedApplyOperationAddS  (void *a, void *b) { return convertedApplyOperation(a, b); }
 void *convertedApplyOperationSubS  (void *a, void *b) { return convertedApplyOperation(a, b); }
-void *convertedApplyOperationMulS  (void *a, void *b) { return convertedApplyOperation(a, b); }
-void *convertedApplyOperationDivS  (void *a, void *b) { return convertedApplyOperation(a, b); }
 
 /* Unary -- as caching is used with pointers in MoToBuddy, each operations needs it's own pointer */
 void *convertedApplyOperationInv   (void *a) { return convertedApplyOperationUnary(a); }
@@ -312,7 +301,6 @@ void *convertedApplyOperationRot1S   (void *a) { return convertedApplyOperationU
 void *convertedApplyOperationRot1SInv(void *a) { return convertedApplyOperationUnary(a); }
 void *convertedApplyOperationRot2S   (void *a) { return convertedApplyOperationUnary(a); }
 void *convertedApplyOperationTimes2S (void *a) { return convertedApplyOperationUnary(a); }
-void *convertedApplyOperationSqrt2   (void *a) { return convertedApplyOperationUnary(a); }
 
 void *convertedApplyOperationParamRxLow (void *a, void *b, size_t param) { return convertedApplyOperationParam(a, b, param); }
 void *convertedApplyOperationParamRxHigh(void *a, void *b, size_t param) { return convertedApplyOperationParam(a, b, param); }
@@ -336,19 +324,12 @@ qBDD bdd_operation_param(qBDD operand, size_t *targets, size_t controlNum,
     return mtbdd_operation_param(operand, targets, controlNum, op, param);
 }
 
-qBDD bdd_operation_guarded(qBDD operand, size_t *targets, size_t controlNum,
-                            qBDD (*op)(size_t, qBDD)) {
-    return mtbdd_operation_guarded(operand, targets, controlNum, op);
-}
-
 qBDD binary_apply(qBDD l, qBDD r, LEAF_TYPE (*op)(LEAF_TYPE, LEAF_TYPE)) {
     applyOperationToConvert = op;
     if      (op == addLeaf)            return mtbdd_apply(l, r, convertedApplyOperationAdd);
     else if (op == subLeaf)            return mtbdd_apply(l, r, convertedApplyOperationSub);
     else if (op == addLeafS)           return mtbdd_apply(l, r, convertedApplyOperationAddS);
     else if (op == subLeafS)           return mtbdd_apply(l, r, convertedApplyOperationSubS);
-    else if (op == mulLeafS)           return mtbdd_apply(l, r, convertedApplyOperationMulS);
-    else if (op == divLeafS)           return mtbdd_apply(l, r, convertedApplyOperationDivS);
     else if (op == mtbdd_symb_minus_i) return mtbdd_apply(l, r, convertedApplyOperationMinusI);
     else if (op == mtbdd_symb_plus_i)  return mtbdd_apply(l, r, convertedApplyOperationPlusI);
     else                               return mtbdd_apply(l, r, convertedApplyOperation);
@@ -398,17 +379,6 @@ qBDD unary_apply_param(qBDD l, LEAF_TYPE(*op)(LEAF_TYPE, size_t), size_t arg) {
     else if (op == rz_low_leaf)   return mtbdd_apply_unary_param(l, convertedApplyOperationRzLow,   arg);
     else if (op == rz_high_leaf)  return mtbdd_apply_unary_param(l, convertedApplyOperationRzHigh,  arg);
     else                          return mtbdd_apply_unary_param(l, (void*(*)(void*, size_t))op, arg);
-}
-/*
- * Operation result flags
- */
-
-void validateOperationResult() {
-    FLAG_VALID_OPERATION();
-}
-
-void invalidateOperationResult() {
-    FLAG_INVALID_OPERATION();
 }
 
 void validateApplyResult() {

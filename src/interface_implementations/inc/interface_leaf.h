@@ -54,29 +54,6 @@ LEAF_TYPE addLeaf(LEAF_TYPE a, LEAF_TYPE b);
 LEAF_TYPE subLeaf(LEAF_TYPE a, LEAF_TYPE b);
 
 /**
- * @brief Multiplies two leaf values.
- * @param a The first operand
- * @param b The second operand
- * @return  A new leaf holding a times b
- */
-LEAF_TYPE mulLeaf(LEAF_TYPE a, LEAF_TYPE b);
-
-/**
- * @brief Divides one leaf value by another.
- * @param a The dividend
- * @param b The divisor
- * @return  A new leaf holding a divided by b
- */
-LEAF_TYPE divLeaf(LEAF_TYPE a, LEAF_TYPE b);
-
-/**
- * @brief Computes the square root of a leaf value.
- * @param a The input leaf
- * @return  A new leaf holding the square root of a
- */
-LEAF_TYPE sqrtLeaf(LEAF_TYPE a);
-
-/**
  * @brief Applies the first rotation to the leaf coefficient.
  * @param a The input leaf
  * @return  A new leaf with its coefficient rotated by the first rotation factor
@@ -127,22 +104,6 @@ LEAF_TYPE addLeafS(LEAF_TYPE a, LEAF_TYPE b);
  * @return  A new leaf holding (a minus b) times 1/sqrt(2)
  */
 LEAF_TYPE subLeafS(LEAF_TYPE a, LEAF_TYPE b);
-
-/**
- * @brief Multiplies two leaf values and scales the result by 1/sqrt(2).
- * @param a The first operand
- * @param b The second operand
- * @return  A new leaf holding (a times b) times 1/sqrt(2)
- */
-LEAF_TYPE mulLeafS(LEAF_TYPE a, LEAF_TYPE b);
-
-/**
- * @brief Divides one leaf value by another and scales the result by 1/sqrt(2).
- * @param a The dividend
- * @param b The divisor
- * @return  A new leaf holding (a divided by b) times 1/sqrt(2)
- */
-LEAF_TYPE divLeafS(LEAF_TYPE a, LEAF_TYPE b);
 
 /**
  * @brief Applies the first coefficient rotation and scales the result by 1/sqrt(2).

@@ -144,12 +144,6 @@ int qBDD_leafcount(qBDD);
  */
 size_t qBDD_level(qBDD node);
 
-/**
- * @brief Returns the leaf type identifier of a terminal qBDD node.
- * @param terminal A terminal qBDD node
- * @return         The type index of the leaf stored in the terminal
- */
-size_t qBDD_getTerminalType(qBDD terminal);
 
 #ifdef __cplusplus
 }
