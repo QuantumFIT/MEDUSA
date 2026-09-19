@@ -203,7 +203,8 @@ BSCRIPT_PATH       := benchmark-utils/scripts
         buddy_doubles                                                      \
         buddy_doubles_f32 buddy_doubles_f64 buddy_doubles_f80              \
         buddy_doubles_f128 buddy_doubles_all                               \
-        test test-unit test-unit-gmp test-unit-leaf-types test-circuits    \
+        test test-unit test-unit-gmp test-cli test-unit-leaf-types         \
+        test-circuits                                                      \
         test-benchmarks test-metamorphic                                   \
         coverage coverage-all coverage-cxx coverage-report                 \
         test-sylvan test-all test-sylvan-leaf-types                        \
@@ -237,6 +238,7 @@ help:
 	@echo "  make test-sylvan-leaf-types  benchmark semantics on Sylvan, every leaf type"
 	@echo "  make test-sylvan-metamorphic Sylvan metamorphic sweep (slow; nightly)"
 	@echo "  make test-unit-gmp    unit tests for the GMP leaf primitive"
+	@echo "  make test-cli         CLI, parser diagnostics, long-number output"
 	@echo "  make test-grover-sylvan  Grover matrix on Sylvan, every leaf type + GMP"
 	@echo "  make test-sylvan-all  test-sylvan + the slow metamorphic sweep"
 	@echo "  make test-all         test + test-sylvan"
@@ -395,7 +397,7 @@ TEST_STRESS_GMP_BIN  := $(BIN_DIR)/test_stress_gmp
 TEST_STRESS_GMP_OBJS := $(filter-out $(OBJ_DIR)/buddy_gmp/main.o, $(OBJS_BUDDY_GMP)) \
                         $(INTERFACE_OBJ_motobuddy) $(LEAF_OBJ_mpz) $(LEAF_OBJ_algebraic)
 
-test: test-unit test-unit-gmp test-circuits test-benchmarks test-metamorphic
+test: test-unit test-unit-gmp test-cli test-circuits test-benchmarks test-metamorphic
 
 test-all: test test-sylvan
 
@@ -418,6 +420,14 @@ test-sylvan:
 	bash $(TEST_DIR)/test_sylvan.sh
 	$(MAKE) test-sylvan-leaf-types
 	$(MAKE) test-grover-sylvan
+
+# CLI handling, parser diagnostics and the long-number output path. Needs the
+# GMP binary too: res-vars.txt is only produced by the algebraic backend.
+test-cli:
+	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
+	$(MAKE) buddy_gmp
+	@chmod +x $(TEST_DIR)/test_cli.sh
+	bash $(TEST_DIR)/test_cli.sh
 
 test-unit:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3

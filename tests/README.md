@@ -84,6 +84,31 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   ever built that suite at f32: five of its norm checks sit at 1e-6/1e-7 while
   the measured error over a whole benchmark circuit reaches 4e-5. Both backends
   produce identical values there, so it is precision, not divergence.
+- `make test-unit-gmp` - unit tests for the GMP leaf primitive
+  (`tests/test_unit_leaf_gmp.c`). `test_unit_api` is hard-wired to
+  `LEAF_BACKEND_DOUBLES` and reads `leaf.pImpl->re`/`->im` throughout, so
+  `leaf_primitive_mpz.c` had no unit coverage at all - 48.9% line, seven
+  functions never executed. That is the blind spot the componentwise
+  `mulLeaf`/`divLeaf` bug lived in (issue #12). Covers the mpz wrappers, the
+  hash/equality contract the terminal table depends on (issue #6's failure
+  mode, asserted directly), multi-limb arithmetic, and the fact that
+  `inv_sqrt2_pow_generic` stores the exponent rather than computing a power.
+  The rotation entry points are `abort()` stubs on this backend and are
+  deliberately not exercised
+- `make test-cli` - argument handling, parser diagnostics and the long-number
+  output file (`tests/test_cli.sh`). Before it, `main.c` sat at 55.7% branch
+  coverage and `sim.c` at 66.4%, because every other suite feeds the simulator
+  a well-formed circuit and correct arguments. Also the only cover for
+  `res-vars.txt`: algebraic coefficients longer than `MAX_NUM_LEN` (50 digits)
+  are written there as `large-number[N]` references, and the test asserts every
+  reference in `res.dot` resolves to a definition that really is longer than
+  the inline limit. `LP-QuantumCounting/08_04_05_0.qasm` on the GMP binary is
+  the circuit that triggers it - 358 such numbers.
+
+  Where the simulator is lenient the suite asserts the **current** behaviour
+  and marks it, rather than asserting what it arguably should do; see issue
+  #13 for the out-of-range qubit index, which is a real out-of-bounds read,
+  and the two lenience cases found alongside it
 - `make test-grover` - Grover amplification matrix (classic unroll, `--symbolic`, `NL_*`)
   on f32/f64/f80/f128 and GMP; also `make test-grover-f128` / `test-grover-gmp`
 - `make test-sylvan` - optional Sylvan backend (not the default product):
