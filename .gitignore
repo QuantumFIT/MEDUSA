@@ -9,6 +9,8 @@ MEDUSA
 MEDUSA_*
 /test_unit_api
 /test_metamorphic
+/test_metamorphic_sylvan_*
+/test_grover_sylvan_*
 /test_stress_f64
 /test_stress_f128
 /test_stress_gmp
@@ -30,6 +32,16 @@ res-vars.txt
 gmon.out
 /logs
 /test_benchmark_semantics
+/test_benchmark_semantics_sylvan_*
 /test_grover_*
 .cursor/
 norm_track.csv
+
+# Coverage output
+*.gcda
+*.gcno
+*.gcov
+coverage*.xml
+
+# Python bytecode from tools/
+__pycache__/

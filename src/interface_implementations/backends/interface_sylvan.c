@@ -76,7 +76,22 @@ int medusa_dbg_bdd_ref(int bdd)
 /* Custom leaves: payload is LEAF_TYPE* (wrapper + pImpl). create() must deep
  * copy like original MEDUSA / Sylvan GMP - the unique table owns the copy and
  * destroy() always frees it. Sharing pImpl with the caller UAF's on intern
- * (duplicate probe) and on GC. */
+ * (duplicate probe) and on GC.
+ *
+ * Each copy goes through the leaf implementation's own clone (clonePimpl,
+ * terminal_symb_map_clone, terminal_symb_val_clone) rather than a struct
+ * restated here. The symbolic shells are sl_map_t / sl_val_t, and those are
+ * two fields wide for the re/im leaves but four for the algebraic ones, so a
+ * local payload struct is right for one leaf implementation and wrong for the
+ * other. That was issue #11, and it was wrong twice over: the shell was
+ * malloc'd at the two-field size, so every later read of ->c / ->d went eight
+ * and sixteen bytes past the end of the block and picked up glibc chunk
+ * metadata (the 0x25 that mtbdd_symb_neg_i segfaulted on), and the copy itself
+ * stopped after two fields, which on its own silently drops the w2 and w3
+ * components of an amplitude with no crash at all.
+ *
+ * MoToBuddy has no create hook - it takes ownership of the caller's payload -
+ * and so never had a layout to guess. */
 /* -------------------------------------------------------------------------- */
 
 static void syl_leaf_create(uint64_t *p)
@@ -92,41 +107,23 @@ static void syl_leaf_create(uint64_t *p)
 
 static void syl_leaf_create_map(uint64_t *p)
 {
-    typedef struct { uint64_t vre, vim; } map_payload_t;
     LEAF_TYPE *orig = (LEAF_TYPE *)(uintptr_t)(*p);
     LEAF_TYPE *copy = (LEAF_TYPE *)malloc(sizeof(LEAF_TYPE));
     if (copy == NULL) {
         error_exit("Bad memory allocation.\n");
     }
-    copy->pImpl = NULL;
-    if (orig && orig->pImpl) {
-        map_payload_t *m = (map_payload_t *)malloc(sizeof(map_payload_t));
-        if (m == NULL) {
-            error_exit("Bad memory allocation.\n");
-        }
-        *m = *(map_payload_t *)orig->pImpl;
-        copy->pImpl = (void *)m;
-    }
+    *copy = terminal_symb_map_clone(orig ? *orig : (LEAF_TYPE){ .pImpl = NULL });
     *p = (uint64_t)(uintptr_t)copy;
 }
 
 static void syl_leaf_create_val(uint64_t *p)
 {
-    typedef struct { void *re, *im; } val_payload_t;
     LEAF_TYPE *orig = (LEAF_TYPE *)(uintptr_t)(*p);
     LEAF_TYPE *copy = (LEAF_TYPE *)malloc(sizeof(LEAF_TYPE));
     if (copy == NULL) {
         error_exit("Bad memory allocation.\n");
     }
-    copy->pImpl = NULL;
-    if (orig && orig->pImpl) {
-        val_payload_t *v = (val_payload_t *)malloc(sizeof(val_payload_t));
-        if (v == NULL) {
-            error_exit("Bad memory allocation.\n");
-        }
-        *v = *(val_payload_t *)orig->pImpl;
-        copy->pImpl = (void *)v;
-    }
+    *copy = terminal_symb_val_clone(orig ? *orig : (LEAF_TYPE){ .pImpl = NULL });
     *p = (uint64_t)(uintptr_t)copy;
 }
 

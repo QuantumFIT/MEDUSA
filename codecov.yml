@@ -1,0 +1,64 @@
+# Codecov configuration for MEDUSA.
+# Reference: https://docs.codecov.com/docs/codecov-yaml
+
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  precision: 1
+  round: nearest
+  # Red at 60%, green at 90%. The suite currently sits around 74%.
+  range: "60...90"
+
+  status:
+    # Both statuses are informational: they report coverage movement on the PR
+    # but never block a merge. `tests` is the gate; this is the trend line.
+    # Honest refactoring routinely moves coverage down a point or two, and
+    # blocking on that trains people to write tests for the metric.
+    project:
+      default:
+        target: auto
+        threshold: 2%
+        informational: true
+    patch:
+      default:
+        target: auto
+        threshold: 2%
+        informational: true
+
+# gates.c and gates_symb.c are compiled twice, once as C and once as C++
+# (USE_CXX=1), and the __cplusplus splits mean each build instruments a
+# different set of lines in the same file. Uploading the two runs under
+# separate flags lets Codecov union them: a line covered by either build counts
+# as covered, and a line absent from one report is simply not measured there
+# rather than counted as a miss.
+flag_management:
+  default_rules:
+    carryforward: true
+    statuses:
+      - type: project
+        target: auto
+        threshold: 2%
+        informational: true
+  individual_flags:
+    - name: c
+      paths:
+        - src/
+    - name: cxx
+      paths:
+        - src/
+
+# Measure the simulator, not the harness around it. gcovr already filters to
+# src/, so this mainly guards against the filter being loosened later.
+ignore:
+  - "tests/**"
+  - "lib/**"
+  - "benchmarks/**"
+  - "benchmark-utils/**"
+  - "tools/**"
+
+comment:
+  layout: "condensed_header, diff, files"
+  behavior: default
+  # Stay quiet on PRs that do not move coverage at all.
+  require_changes: true

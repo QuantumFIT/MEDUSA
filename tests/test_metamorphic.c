@@ -18,8 +18,17 @@
 #include "test_harness.h"
 #include "sim.h"
 #include "interface.h"
+/*
+ * MoToBuddy internals, used only by the terminal-table growth assertions in
+ * test_mega_distinct_terminals. Sylvan has no equivalent of customPointers or
+ * its realloc threshold, so those two assertions - and only those - are
+ * compiled out for the Sylvan build. Everything else in this file is
+ * backend-agnostic and runs on both.
+ */
+#ifndef SYLVAN_BACKEND
 #include "mtbdd.h"   /* INITIAL_TERMINAL_SIZE */
-#include "kernel.h"  /* mtbddmaxTerminalSize, mtbddTerminalUsed */
+#include "kernel.h"  /* mtbddmaxTerminalSize */
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -201,9 +210,12 @@ static bool sim_path(const char *path, qBDD *out, int *n_qubits) {
     init_sim_info(&info);
     bool ok = sim_file(f, out, &flags, &info);
     fclose(f);
-    if (!ok) return false;
-    *n_qubits = info.n_qubits;
-    return true;
+    if (ok) *n_qubits = info.n_qubits;
+    /* sim_file allocates the loop-timing arrays (and bits_to_measure for
+     * measured circuits); main.c frees them via free_sim_info and so must we,
+     * on the failure path too. */
+    free_sim_info(&info);
+    return ok;
 }
 
 static bool sim_path_symb(const char *path, qBDD *out, int *n_qubits) {
@@ -217,9 +229,12 @@ static bool sim_path_symb(const char *path, qBDD *out, int *n_qubits) {
     init_sim_info(&info);
     bool ok = sim_file(f, out, &flags, &info);
     fclose(f);
-    if (!ok) return false;
-    *n_qubits = info.n_qubits;
-    return true;
+    if (ok) *n_qubits = info.n_qubits;
+    /* sim_file allocates the loop-timing arrays (and bits_to_measure for
+     * measured circuits); main.c frees them via free_sim_info and so must we,
+     * on the failure path too. */
+    free_sim_info(&info);
+    return ok;
 }
 
 static prob_t basis_prob(qBDD t, const char *bits) {
@@ -513,6 +528,168 @@ static void test_symb_float_t_tdg(void) {
     }
 }
 
+/**
+ * Oracle for the symbolic gate implementations in gates_symb.c.
+ *
+ * The reference is `symb_path` run *classically*, and there are two legs
+ * against it:
+ *
+ *   A. `symb_path` run with --symbolic, so its loop body goes through the
+ *      gate_symb_* path. Compared within `eps`. This is the property symbolic
+ *      mode actually claims - summarising a loop reaches the same state as
+ *      unrolling it - so it is the primary comparison, and a failure here
+ *      names one file and means one thing: the symbolic gates are wrong.
+ *
+ *   B. `classic_path`, the hand-unrolled partner, run classically. Compared
+ *      exactly: same gates, same order, so the amplitudes should be
+ *      bit-identical. This leg is not about the symbolic path at all - it is
+ *      the only check in the suite that the loop file *means* what the
+ *      unrolled file spells out.
+ *
+ * Leg B is worth its fixtures for one specific reason. The iteration count is
+ * parsed once, in get_iters (sim.c:299), and handed to both modes - classic
+ * unrolls with `iters--` and a stream rewind, symbolic passes the same value
+ * to symb_eval. So a misparse shifts both modes identically and leg A still
+ * passes. Mutation-checked both directions:
+ *
+ *   mutation                                   leg A      leg B
+ *   get_iters off by one (shared)              passes     fails
+ *   classic unroller off by one (classic only) fails      fails
+ *
+ * That is the whole case for keeping a second file: faults in the shared loop
+ * *parse*. Faults in the unrolling itself are caught by leg A on its own.
+ *
+ * Leg B also stops a subtler failure mode: without it, a hand-edited unrolled
+ * file could drift from its loop counterpart, and the tempting response to the
+ * resulting red test - editing the unrolled file until it passes - would mask
+ * a real gates_symb.c bug.
+ *
+ * Every basis amplitude is compared, not just the norm: a symbolic gate that
+ * dropped a phase would still produce a unit-norm state.
+ */
+static void assert_symb_matches_classic(const char *symb_path,
+                                        const char *classic_path,
+                                        double eps) {
+    /* Reference: the loop file, classically. */
+    setup_pkg();
+    qBDD loop_classic;
+    int nref = 0;
+    TEST_ASSERT_MSG(sim_path(symb_path, &loop_classic, &nref), symb_path);
+
+    int N = 1 << nref;
+    double *Rre = calloc((size_t)N, sizeof(double));
+    double *Rim = calloc((size_t)N, sizeof(double));
+    if (!Rre || !Rim) {
+        free(Rre);
+        free(Rim);
+        deleteCircuit(&loop_classic);
+        freePackage();
+        TEST_ASSERT_MSG(0, "out of memory building the classic reference");
+        return;
+    }
+
+    char bits[34];
+    TEST_ASSERT_MSG(nref >= 0 && nref < (int)sizeof bits, symb_path);
+    bits[nref] = '\0';
+    for (int s = 0; s < N; s++) {
+        for (int i = 0; i < nref; i++)
+            bits[i] = ((s >> i) & 1) ? '1' : '0';
+        basis_amp(loop_classic, bits, &Rre[s], &Rim[s]);
+    }
+    deleteCircuit(&loop_classic);
+    freePackage();
+
+    /* Leg A: the same file, symbolically. The primary comparison. */
+    setup_pkg();
+    qBDD symb;
+    int ns = 0;
+    TEST_ASSERT_MSG(sim_path_symb(symb_path, &symb, &ns), symb_path);
+    TEST_ASSERT_MSG(nref == ns, symb_path);
+    if (nref == ns) {
+        for (int s = 0; s < N; s++) {
+            for (int i = 0; i < nref; i++)
+                bits[i] = ((s >> i) & 1) ? '1' : '0';
+            double sr, si;
+            basis_amp(symb, bits, &sr, &si);
+            TEST_ASSERT_NEAR_MSG(Rre[s], sr, eps, symb_path);
+            TEST_ASSERT_NEAR_MSG(Rim[s], si, eps, symb_path);
+        }
+    }
+    deleteCircuit(&symb);
+    freePackage();
+
+    /* Leg B: the hand-unrolled partner, classically. Exact, and its message
+     * names both files because a failure is about the pair, not about either
+     * file on its own. */
+    char pair_ctx[320];
+    snprintf(pair_ctx, sizeof pair_ctx, "%s vs %s (both classic: loop bounds or fixture drift?)",
+             symb_path, classic_path);
+    setup_pkg();
+    qBDD unrolled;
+    int nu = 0;
+    TEST_ASSERT_MSG(sim_path(classic_path, &unrolled, &nu), pair_ctx);
+    TEST_ASSERT_MSG(nref == nu, pair_ctx);
+    if (nref == nu) {
+        for (int s = 0; s < N; s++) {
+            for (int i = 0; i < nref; i++)
+                bits[i] = ((s >> i) & 1) ? '1' : '0';
+            double ur, ui;
+            basis_amp(unrolled, bits, &ur, &ui);
+            TEST_ASSERT_NEAR_MSG(Rre[s], ur, 0.0, pair_ctx);
+            TEST_ASSERT_NEAR_MSG(Rim[s], ui, 0.0, pair_ctx);
+        }
+    }
+    free(Rre);
+    free(Rim);
+    deleteCircuit(&unrolled);
+    freePackage();
+}
+
+/**
+ * Symbolic loop bodies exercising the gate_symb_* implementations that the
+ * LP-Grover benchmark never reaches: its loop contains only x/ccx/h/cz/z, so
+ * CNOT, S, Y, Rx(pi/2), Ry(pi/2) and MCX had no symbolic coverage at all.
+ *
+ * The mixed_th pair is a pre-existing fixture pair that no test referenced;
+ * it covers a dense Clifford+T loop body across eight qubits.
+ */
+static void test_symb_gate_parity(void) {
+    TEST_SECTION("metamorphic: symbolic gates match classic (loop bodies)");
+
+    static const struct {
+        const char *symb;
+        const char *classic;
+    } pairs[] = {
+        { "tests/qasm/symbolic/cx_loop.qasm",  "tests/qasm/symbolic/cx_unrolled.qasm"  },
+        { "tests/qasm/symbolic/s_loop.qasm",   "tests/qasm/symbolic/s_unrolled.qasm"   },
+        { "tests/qasm/symbolic/y_loop.qasm",   "tests/qasm/symbolic/y_unrolled.qasm"   },
+        { "tests/qasm/symbolic/rx_loop.qasm",  "tests/qasm/symbolic/rx_unrolled.qasm"  },
+        { "tests/qasm/symbolic/ry_loop.qasm",  "tests/qasm/symbolic/ry_unrolled.qasm"  },
+        { "tests/qasm/symbolic/mcx_loop.qasm", "tests/qasm/symbolic/mcx_unrolled.qasm" },
+        { "tests/qasm/metamorphic/mixed_th_loop.qasm",
+          "tests/qasm/metamorphic/mixed_th_unrolled.qasm" },
+
+        /* The controlled gates pick an implementation from the relative BDD
+         * levels of target and controls - gate_symb_cnot branches on xt < xc,
+         * gate_symb_toffoli has three variants (t0 < c1, c1 < t0 < c2,
+         * c1 < c2 < t0) and gate_symb_mcx two (whether any control sits above
+         * the target). The fixtures above all place the controls below the
+         * target, so only one variant of each was ever exercised; these permute
+         * the ordering to reach the rest. ccx and mcx take the target last. */
+        { "tests/qasm/symbolic/cx_t_above_loop.qasm",
+          "tests/qasm/symbolic/cx_t_above_unrolled.qasm"  },
+        { "tests/qasm/symbolic/ccx_t_above_loop.qasm",
+          "tests/qasm/symbolic/ccx_t_above_unrolled.qasm" },
+        { "tests/qasm/symbolic/ccx_t_mid_loop.qasm",
+          "tests/qasm/symbolic/ccx_t_mid_unrolled.qasm"   },
+        { "tests/qasm/symbolic/mcx_t_above_loop.qasm",
+          "tests/qasm/symbolic/mcx_t_above_unrolled.qasm" },
+    };
+
+    for (size_t i = 0; i < sizeof pairs / sizeof pairs[0]; i++)
+        assert_symb_matches_classic(pairs[i].symb, pairs[i].classic, 1e-8);
+}
+
 static void test_bell_qasm(void) {
     TEST_SECTION("metamorphic: Bell prep+uncompute OpenQASM");
 
@@ -724,15 +901,19 @@ static void test_mega_distinct_terminals(void) {
         TEST_ASSERT(write_wide_product_roundtrip(path, META_WIDE_QUBITS));
 
         setup_pkg();
+#ifndef SYLVAN_BACKEND
         int size0 = mtbddmaxTerminalSize;
+#endif
         qBDD circ;
         int nq = 0;
         TEST_ASSERT(sim_path(path, &circ, &nq));
         TEST_ASSERT(nq == META_WIDE_QUBITS);
+#ifndef SYLVAN_BACKEND
         TEST_ASSERT_MSG(mtbddmaxTerminalSize > INITIAL_TERMINAL_SIZE,
             "wide product must grow past INITIAL_TERMINAL_SIZE (10000)");
         TEST_ASSERT_MSG(mtbddmaxTerminalSize > size0,
             "wide product should trigger customPointers realloc");
+#endif
         assert_zero_survives_gc(circ, nq, 5e-5, "wide product round-trip after GC");
         deleteCircuit(&circ);
         hammer_gc();
@@ -772,6 +953,7 @@ int main(void) {
     test_dagger_antihomomorphism_qasm();
     test_reverse_without_adj_qasm();
     test_symb_float_t_tdg();
+    test_symb_gate_parity();
     test_bell_qasm();
     test_heavy_gc_metamorphic();
     test_mega_distinct_terminals();

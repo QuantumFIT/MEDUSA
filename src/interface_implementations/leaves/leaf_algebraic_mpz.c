@@ -459,10 +459,21 @@ LEAF_TYPE times2LeafS(LEAF_TYPE l) {
  * Algebraic operations symbolic (sl_val_t / symexp)
  */
 
-static LEAF_TYPE cloneSymbVal(LEAF_TYPE a) {
+/** Shallow-clone symb-val shell (a/b/c/d are interned in the symexp htab). */
+LEAF_TYPE terminal_symb_val_clone(LEAF_TYPE a) {
     if (!a.pImpl) return (LEAF_TYPE){ .pImpl = NULL };
     sl_val_t *src = (sl_val_t *)a.pImpl;
     sl_val_t *dst = (sl_val_t *)malloc(sizeof(sl_val_t));
+    if (!dst) exit(EXIT_FAILURE);
+    *dst = *src;
+    return (LEAF_TYPE){ .pImpl = (LEAF_TYPE_IMPL *)dst };
+}
+
+/** Clone a symb-map shell; the payload is plain vars_t fields. */
+LEAF_TYPE terminal_symb_map_clone(LEAF_TYPE a) {
+    if (!a.pImpl) return (LEAF_TYPE){ .pImpl = NULL };
+    sl_map_t *src = (sl_map_t *)a.pImpl;
+    sl_map_t *dst = (sl_map_t *)malloc(sizeof(sl_map_t));
     if (!dst) exit(EXIT_FAILURE);
     *dst = *src;
     return (LEAF_TYPE){ .pImpl = (LEAF_TYPE_IMPL *)dst };
@@ -506,8 +517,8 @@ LEAF_TYPE mtbdd_symb_coef_rot2_i(LEAF_TYPE t) {
 }
 
 LEAF_TYPE mtbdd_symb_plus_i(LEAF_TYPE a, LEAF_TYPE b) {
-    if (a.pImpl == NULL) return cloneSymbVal(b);
-    if (b.pImpl == NULL) return cloneSymbVal(a);
+    if (a.pImpl == NULL) return terminal_symb_val_clone(b);
+    if (b.pImpl == NULL) return terminal_symb_val_clone(a);
     sl_val_t *a_data = (sl_val_t*) a.pImpl;
     sl_val_t *b_data = (sl_val_t*) b.pImpl;
     sl_val_t *res_data = (sl_val_t*)malloc(sizeof(sl_val_t));
@@ -525,7 +536,7 @@ LEAF_TYPE mtbdd_symb_plus_i(LEAF_TYPE a, LEAF_TYPE b) {
 
 LEAF_TYPE mtbdd_symb_minus_i(LEAF_TYPE a, LEAF_TYPE b) {
     if (a.pImpl == NULL) return mtbdd_symb_neg_i(b);
-    if (b.pImpl == NULL) return cloneSymbVal(a);
+    if (b.pImpl == NULL) return terminal_symb_val_clone(a);
     sl_val_t *a_data = (sl_val_t*) a.pImpl;
     sl_val_t *b_data = (sl_val_t*) b.pImpl;
     sl_val_t *res_data = (sl_val_t*)malloc(sizeof(sl_val_t));

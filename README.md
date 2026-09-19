@@ -2,6 +2,7 @@
 
 [![tests](https://github.com/QuantumFIT/MEDUSA/actions/workflows/tests.yml/badge.svg)](https://github.com/QuantumFIT/MEDUSA/actions/workflows/tests.yml)
 [![tag](https://img.shields.io/github/v/tag/QuantumFIT/MEDUSA?sort=semver)](https://github.com/QuantumFIT/MEDUSA/tags)
+[![codecov](https://img.shields.io/codecov/c/github/QuantumFIT/MEDUSA/devel?logo=codecov)](https://codecov.io/gh/QuantumFIT/MEDUSA)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![DOI](https://img.shields.io/badge/DOI-10.1145%2F3676536.3676711-blue.svg)](https://doi.org/10.1145/3676536.3676711)
 
@@ -63,6 +64,21 @@ make test-sylvan   # same circuit/benchmark smokes on Sylvan, plus harder Grover
 make test-all      # test + test-sylvan
 ```
 See `tests/README.md`.
+
+### Coverage
+
+`COVERAGE=1` switches the build to `-O0 -g --coverage`, so the suites record
+gcov data. Reports are produced with [gcovr](https://gcovr.com/)
+(`apt install gcovr`) as a Cobertura `coverage.xml`:
+```
+make coverage       # default product: make test + make test-grover
+make coverage-all   # adds the optional Sylvan backend (needs init-sylvan)
+```
+`make coverage-all` is what CI measures, so its number is the one behind the
+Codecov badge; `make coverage` skips Sylvan and therefore reports slightly
+lower. `make coverage-cxx` measures the C++ gate implementations instead
+(`USE_CXX=1`); CI uploads it separately under the Codecov flag `cxx`, because
+the two builds instrument different line sets of the same sources.
 
 ## Usage
 

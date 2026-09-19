@@ -204,6 +204,18 @@ void terminal_symb_map_free(void *leafraw);
 void terminal_symb_val_free(void *leafraw);
 
 /**
+ * @brief Clone a symb-map / symb-val pImpl shell (interned symexps stay shared).
+ *
+ * The counterpart to terminal_symb_*_free, and the only correct way for a
+ * backend to copy one of these payloads: the shell is sl_map_t / sl_val_t,
+ * whose width differs per leaf implementation (two fields for re/im leaves,
+ * four for algebraic ones), so a backend cannot restate the layout itself.
+ * Returns a pImpl==NULL leaf for a pImpl==NULL input - the zero terminal.
+ */
+LEAF_TYPE terminal_symb_map_clone(LEAF_TYPE src);
+LEAF_TYPE terminal_symb_val_clone(LEAF_TYPE src);
+
+/**
  * @brief Compares two raw symbolic value terminals for equality in the node table.
  * @param l_a Pointer to the first symbolic value terminal
  * @param l_b Pointer to the second symbolic value terminal
