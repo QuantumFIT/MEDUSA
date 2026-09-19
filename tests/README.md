@@ -105,10 +105,22 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   the inline limit. `LP-QuantumCounting/08_04_05_0.qasm` on the GMP binary is
   the circuit that triggers it - 358 such numbers.
 
-  Where the simulator is lenient the suite asserts the **current** behaviour
-  and marks it, rather than asserting what it arguably should do; see issue
-  #13 for the out-of-range qubit index, which is a real out-of-bounds read,
-  and the two lenience cases found alongside it
+  This suite is also what produced issue #13. It originally pinned three
+  lenient behaviours as known gaps rather than asserting what they ought to
+  do; all three are now refusals and the assertions are inverted:
+
+  | input | before | now |
+  |---|---|---|
+  | `h q[9]` on `qubit[2]` | exit 0, two invalid reads under valgrind | refused, naming the index |
+  | `for` with no `}` | exit 0, loop silently dropped | refused, naming the construct |
+  | a directory as `--file` | exit 0, treated as empty input | refused |
+
+  Three boundary cases guard the index check specifically: the last valid
+  index must still be accepted, the first invalid one must be refused, and a
+  far-out-of-range one must be refused. The middle case is the one that
+  matters - `q[9]` alone would still be caught by an off-by-one check, so
+  without `q[3]` on `qubit[3]` a `>` for `>=` regression would pass
+  (mutation-checked)
 - `make test-mosf` - MOSF, the JSON input path (`--tree-simulation`,
   `sim_mosf_file`, `src/sim_mosf.cpp`). Compiled only under `USE_CXX=1` and,
   before this suite, executed by nothing: **0 of 104 lines**, the largest
