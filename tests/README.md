@@ -84,6 +84,23 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   ever built that suite at f32: five of its norm checks sit at 1e-6/1e-7 while
   the measured error over a whole benchmark circuit reaches 4e-5. Both backends
   produce identical values there, so it is precision, not divergence.
+- `make test-unit-htab` - unit tests for the hash table
+  (`tests/test_unit_htab.c`). `htab_resize` is static and fires from both
+  `lookup_add` paths once the load factor passes `AVG_LEN_MAX` (2), but no
+  suite ever put enough entries in a table to reach it - 70.4% line, 59.4%
+  branch, with resize, `htab_m_clear` and `htab_s_lookup_remove` never
+  executed. The invariant that makes a rehash bug visible: re-inserting a key
+  that is already present must not change `t->size`, so after N distinct
+  inserts a second pass over the same N must leave the size at N. A dropped or
+  mislinked entry shows up as growth. Mutation-checked against a resize that
+  never runs, one that rehashes with the old bucket count, and one that drops
+  colliding entries.
+
+  Two behaviours are pinned rather than asserted as correct: `htab_m_print_all`
+  emits each key **reversed** (keys are stored LSB-first), and
+  `htab_s_lookup_remove` frees the entry without decrementing `t->size`, so
+  the field over-counts after a removal. Nothing calls that function today, so
+  the second is latent
 - `make test-unit-gmp` - unit tests for the GMP leaf primitive
   (`tests/test_unit_leaf_gmp.c`). `test_unit_api` is hard-wired to
   `LEAF_BACKEND_DOUBLES` and reads `leaf.pImpl->re`/`->im` throughout, so

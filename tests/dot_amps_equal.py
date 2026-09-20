@@ -63,6 +63,20 @@ def main():
         print(__doc__, file=sys.stderr)
         return 2
     a_path, b_path, n = sys.argv[1], sys.argv[2], int(sys.argv[3])
+
+    # An empty or rootless dot means the run that should have produced it
+    # failed. Comparing it silently would report a difference at every basis
+    # state, or - if both sides failed - a spurious match. Say so instead.
+    for path in (a_path, b_path):
+        try:
+            text = open(path, encoding="utf-8", errors="replace").read()
+        except OSError as e:
+            print(f"  cannot read {path}: {e}", file=sys.stderr)
+            return 2
+        if "invisible ->" not in text:
+            print(f"  {path} has no diagram - did that run fail?", file=sys.stderr)
+            return 2
+
     a, b = amplitudes(a_path, n), amplitudes(b_path, n)
 
     bad = [(i, x, y) for i, (x, y) in enumerate(zip(a, b)) if x != y]
