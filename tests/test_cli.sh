@@ -193,6 +193,138 @@ check "parse-first-invalid-index" nonzero "outside the declared register" \
 check "parse-empty" nonzero "" "${BIN}" --file "${WORKDIR}/bad/empty.qasm"
 
 # ---------------------------------------------------------------------------
+# Parser error paths.
+#
+# sim.c carries ~38 distinct error_exit sites and almost none were reached:
+# 81.1% line, 67.2% branch, and 65 partials in the Codecov report, because
+# every other suite feeds it a well-formed circuit. Each case below asserts
+# the *specific* diagnostic, not merely a non-zero exit - a parser that
+# refuses everything with one generic message is not much better than one
+# that accepts everything.
+# ---------------------------------------------------------------------------
+write_bad() {  # name, content on stdin
+    cat >"${WORKDIR}/bad/$1.qasm"
+}
+
+write_bad num_nondigit <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[x] q;
+QASM
+
+write_bad num_toolong <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[123456789012345678901234567890] q;
+QASM
+
+write_bad two_qregs <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+qubit[3] r;
+QASM
+
+write_bad two_bregs <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+bit[2] c;
+bit[2] d;
+QASM
+
+write_bad reg_mismatch <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+bit[3] c;
+QASM
+
+write_bad nested_loop <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+for int i in [1:2] {
+for int j in [1:2] {
+h q[0];
+}
+}
+QASM
+
+write_bad loop_step_zero <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+for int i in [1:0:4] {
+h q[0];
+}
+QASM
+
+write_bad loop_not_integer <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+for int i in [1:2:5] {
+h q[0];
+}
+QASM
+
+write_bad loop_backwards <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+for int i in [4:1] {
+h q[0];
+}
+QASM
+
+write_bad measure_no_breg <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+h q[0];
+measure q[0] -> c[0];
+QASM
+
+write_bad mcx_syntax <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[4] q;
+mcx q[0] q[1], q[2];
+QASM
+
+write_bad rx_angle <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+rx(notanangle) q[0];
+QASM
+
+# name:expected-diagnostic
+while IFS='|' read -r fixture want; do
+    [ -z "${fixture}" ] && continue
+    check "parse-${fixture}" nonzero "${want}" "${BIN}" --file "${WORKDIR}/bad/${fixture}.qasm"
+done <<'CASES'
+num_nondigit|non-digit character
+num_toolong|too many digits
+two_qregs|Multiple qubit register
+two_bregs|Multiple bit register
+reg_mismatch|different than the size
+nested_loop|Nested loops
+loop_step_zero|step must be non-zero
+loop_not_integer|not an integer
+loop_backwards|Invalid number of loop iterations
+measure_no_breg|uninitialized bit register
+mcx_syntax|mcx
+rx_angle|Invalid rx angle
+CASES
+
+# A gate before any register declaration is caught earlier, by the `if (init)`
+# guard around gate parsing - which is why get_q_idx carries no such check.
+check "parse-gate-before-register" nonzero "Circuit not initialized" \
+      "${BIN}" --file "${WORKDIR}/bad/missing_qubits.qasm"
+
+# ---------------------------------------------------------------------------
 # Long-number output: algebraic coefficients past MAX_NUM_LEN (50 digits) are
 # written to res-vars.txt as large-number[N] references instead of inline.
 # Nothing exercised lnum_map_add / lnum_map_print before this.

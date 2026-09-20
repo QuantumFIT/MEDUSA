@@ -134,6 +134,15 @@ compare_to_qasm hxz    # H, X, Z - distinct +/-0.707 terminals
 compare_to_qasm xh     # X then H on one qubit -> (|0> - |1>)/sqrt2
 compare_to_qasm hxh    # the same on both levels of a two-qubit register
 
+# The remaining registry entries. X first for the same reason as above: these
+# multiply the high child, which is the zero BDD until something populates it.
+#
+# The OpenQASM side spells Sdg as S^3 deliberately - this parser has t/tdg but
+# only s, no sdg, so `sdg` is rejected as an unknown command. An earlier draft
+# used it and compared against an empty res.dot.
+compare_to_qasm xs     # i_mul      == S
+compare_to_qasm xsdg   # neg_i_mul  == S^3 == Sdg
+
 # ---------------------------------------------------------------------------
 # Failure handling: every one of these must be reported, and none may crash.
 # ---------------------------------------------------------------------------
