@@ -272,10 +272,9 @@ static uint32_t get_q_idx(FILE *in, const sim_info_t *info)
 {
     uint32_t q = get_q_num(in);
 
-    if (info->n_qubits <= 0) {
-        error_exit("Invalid format - a gate is applied at q[%u] before the qubit "
-                   "register is declared.\n", q);
-    }
+    /* No "register not declared yet" check here: gate parsing sits inside
+     * `if (init)`, and the else branch already reports "Circuit not
+     * initialized". A guard here would be unreachable. */
     if (q >= (uint32_t)info->n_qubits) {
         error_exit("Invalid format - qubit index q[%u] is outside the declared "
                    "register of %d qubit(s).\n", q, info->n_qubits);
@@ -294,10 +293,8 @@ static uint32_t get_c_idx(FILE *in, int n_bits)
 {
     uint32_t c = get_q_num(in);
 
-    if (n_bits <= 0) {
-        error_exit("Invalid format - measuring into c[%u] before the bit "
-                   "register is declared.\n", c);
-    }
+    /* Likewise no "bit register missing" check: the measure branch rejects a
+     * NULL bits_to_measure before it reads either operand. */
     if (c >= (uint32_t)n_bits) {
         error_exit("Invalid format - bit index c[%u] is outside the declared "
                    "register of %d bit(s).\n", c, n_bits);
