@@ -203,7 +203,7 @@ BSCRIPT_PATH       := benchmark-utils/scripts
         buddy_doubles                                                      \
         buddy_doubles_f32 buddy_doubles_f64 buddy_doubles_f80              \
         buddy_doubles_f128 buddy_doubles_all                               \
-        test test-unit test-unit-gmp test-cli test-mosf                    \
+        test test-unit test-unit-htab test-unit-gmp test-cli test-mosf     \
         test-unit-leaf-types                                               \
         test-circuits                                                      \
         test-benchmarks test-metamorphic                                   \
@@ -238,6 +238,7 @@ help:
 	@echo "  make test-sylvan      Sylvan circuit/benchmark replay + harder Grover/CCX"
 	@echo "  make test-sylvan-leaf-types  benchmark semantics on Sylvan, every leaf type"
 	@echo "  make test-sylvan-metamorphic Sylvan metamorphic sweep (slow; nightly)"
+	@echo "  make test-unit-htab   unit tests for the hash table"
 	@echo "  make test-unit-gmp    unit tests for the GMP leaf primitive"
 	@echo "  make test-cli         CLI, parser diagnostics, long-number output"
 	@echo "  make test-mosf        MOSF JSON input (needs USE_CXX=1, else skips)"
@@ -399,8 +400,8 @@ TEST_STRESS_GMP_BIN  := $(BIN_DIR)/test_stress_gmp
 TEST_STRESS_GMP_OBJS := $(filter-out $(OBJ_DIR)/buddy_gmp/main.o, $(OBJS_BUDDY_GMP)) \
                         $(INTERFACE_OBJ_motobuddy) $(LEAF_OBJ_mpz) $(LEAF_OBJ_algebraic)
 
-test: test-unit test-unit-gmp test-cli test-mosf test-circuits test-benchmarks \
-      test-metamorphic
+test: test-unit test-unit-htab test-unit-gmp test-cli test-mosf test-circuits \
+      test-benchmarks test-metamorphic
 
 test-all: test test-sylvan
 
@@ -579,6 +580,32 @@ test-metamorphic:
 # coverage at all (48.9% line, seven functions never executed). That blind spot
 # is where the componentwise mulLeaf/divLeaf bug lived - see #12.
 # ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# Hash table unit tests.
+#
+# htab_resize is static and fires from both lookup_add paths once the load
+# factor passes AVG_LEN_MAX, but no suite ever put enough entries in a table to
+# reach it - htab.c sat at 70.4% line, 59.4% branch, with resize, m_clear and
+# s_lookup_remove never executed. The table needs no BDD package, so this links
+# against the ordinary doubles objects and runs in milliseconds.
+# ------------------------------------------------------------------------------
+TEST_HTAB_SRC := $(TEST_DIR)/test_unit_htab.c
+TEST_HTAB_BIN := $(BIN_DIR)/test_unit_htab
+
+$(TEST_HTAB_BIN): $(TEST_HTAB_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
+                  $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
+	$(CC) $(INC_DIRS_BUDDY_DOUBLES) -I $(TEST_DIR) $(CFLAGS) \
+	    -DLEAF_BACKEND_DOUBLES -DLEAF_FLOAT_TYPE=$(LEAF_FLOAT_TYPE) \
+	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
+	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
+	    -o $@ $(TEST_HTAB_SRC) $(TEST_UNIT_OBJS) \
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+
+test-unit-htab:
+	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
+	$(MAKE) $(TEST_HTAB_BIN) LEAF_FLOAT_TYPE=3
+	$(TEST_HTAB_BIN)
+
 TEST_UNIT_GMP_SRC := $(TEST_DIR)/test_unit_leaf_gmp.c
 TEST_UNIT_GMP_BIN := $(BIN_DIR)/test_unit_leaf_gmp
 
@@ -1004,7 +1031,8 @@ clean-artifacts:
 	       MEDUSA_sylvan_gmp MEDUSA_sylvan_doubles MEDUSA_sylvan_doubles_f32 \
 	       MEDUSA_sylvan_doubles_f64 MEDUSA_sylvan_doubles_f80 \
 	       MEDUSA_sylvan_doubles_f128 \
-	       $(TEST_UNIT_BIN) $(TEST_UNIT_GMP_BIN) $(TEST_STRESS_F64_BIN) $(TEST_STRESS_F128_BIN) \
+	       $(TEST_UNIT_BIN) $(TEST_UNIT_GMP_BIN) $(TEST_HTAB_BIN) \
+	       $(TEST_STRESS_F64_BIN) $(TEST_STRESS_F128_BIN) \
 	       $(TEST_STRESS_GMP_BIN) \
 	       $(TEST_SEM_BIN) $(TEST_META_BIN) \
 	       $(BIN_DIR)/test_benchmark_semantics_sylvan_* \

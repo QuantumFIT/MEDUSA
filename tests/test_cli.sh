@@ -10,12 +10,11 @@
 # behaviour is pinned: a refusal is a non-zero exit and a message naming the
 # problem, never a crash or a hang.
 #
-# Where the simulator is lenient today, these tests assert the lenient
-# behaviour and say so, rather than asserting what it arguably ought to do.
-# A suite that encodes one contributor's opinion as a requirement fails for
-# the wrong reason; one that pins current behaviour makes any change in
-# either direction visible, which is what a regression suite is for. The
-# known gaps are marked and point at issue #13.
+# This suite originally pinned three lenient behaviours as known gaps rather
+# than asserting what they ought to do, and issue #13 was filed from them.
+# With #13 fixed the assertions are inverted: all three are now refusals, and
+# the two parser cases check the diagnostic text as well, since being told
+# which qubit is out of range is the point.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -94,12 +93,10 @@ check "cli-bad-nsamples"    nonzero   "number of samples" \
       "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" --nsamples 12x
 check "cli-file-needs-arg"  nonzero   ""        "${BIN}" --file
 
-# Known gap, issue #13: fopen succeeds on a directory in read mode and the
-# first read simply fails, so a directory is accepted and treated as empty
-# input. Asserted as it behaves today, not as it arguably should, so this
-# suite reports the product rather than an opinion about it. Flip to
-# `nonzero` when #13 is addressed.
-check "cli-file-is-a-dir"   0         ""        "${BIN}" --file "${ROOT}/tests"
+# fopen succeeds on a directory in read mode and the first read simply fails,
+# so nothing is simulated. That used to exit 0 (issue #13); main now reports
+# the failure.
+check "cli-file-is-a-dir"   nonzero   ""        "${BIN}" --file "${ROOT}/tests"
 
 # ---------------------------------------------------------------------------
 # Parser diagnostics: malformed OpenQASM must be refused, not mis-simulated
@@ -144,32 +141,188 @@ QASM
 
 cat >"${WORKDIR}/bad/empty.qasm" </dev/null
 
-# Refused today, and they should stay refused.
 for bad in unknown_gate missing_qubits stray_brace; do
     check "parse-${bad}" nonzero "" "${BIN}" --file "${WORKDIR}/bad/${bad}.qasm"
 done
 
-# Known gaps, issue #13. Both are accepted and exit 0:
+# Both were accepted and exited 0 until issue #13 was fixed:
 #
-#   out_of_range       h q[9] on a 2-qubit register. The index is never checked
-#                      against the declared width, so the gate is applied at a
-#                      BDD variable level that was never allocated. Under
-#                      valgrind this is two invalid reads - in the probability
-#                      walk and in the dot output - while res.dot still looks
-#                      well-formed and the exit status is 0. This is the one
-#                      that is a real bug.
-#   unterminated_loop  a `for` with no closing brace; the loop is dropped.
-#                      Lenient, but valgrind-clean.
+#   out_of_range       h q[9] on a 2-qubit register. The index was never
+#                      checked against the declared width, so the gate was
+#                      applied at a BDD variable level that was never
+#                      allocated - two invalid reads under valgrind, in the
+#                      probability walk and in the dot output, while res.dot
+#                      still looked well-formed. get_q_idx now rejects it.
+#   unterminated_loop  a `for` with no closing brace. The loop was silently
+#                      dropped, so a truncated file simulated as a different
+#                      circuit and said nothing.
 #
-# Pinned as they behave today so a change in either direction is visible.
-# Invert these to `nonzero` when #13 is fixed.
-for bad in out_of_range unterminated_loop; do
-    check "parse-${bad}-known-gap-13" 0 "" "${BIN}" --file "${WORKDIR}/bad/${bad}.qasm"
-done
+# The message is asserted too, not just the exit status: for these two the
+# whole point is that the user is told which qubit or which construct is
+# wrong, rather than getting a bare failure.
+check "parse-out_of_range"      nonzero "outside the declared register" \
+      "${BIN}" --file "${WORKDIR}/bad/out_of_range.qasm"
+check "parse-unterminated_loop" nonzero "inside a loop" \
+      "${BIN}" --file "${WORKDIR}/bad/unterminated_loop.qasm"
 
-# An empty file is not malformed, just empty. It is accepted and produces a
-# trivial result; what matters is that it neither crashes nor hangs.
-check "parse-empty" 0 "" "${BIN}" --file "${WORKDIR}/bad/empty.qasm"
+# The highest valid index must still be accepted - the check is >=, and an
+# off-by-one here would reject legitimate circuits.
+cat >"${WORKDIR}/bad/edge_last_qubit.qasm" <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[3] q;
+h q[2];
+QASM
+check "parse-highest-valid-index" 0 "" "${BIN}" --file "${WORKDIR}/bad/edge_last_qubit.qasm"
+
+# ...and the first invalid one must be refused. q[9] above is far out of
+# range, so it would still be caught by an off-by-one check; this is the case
+# that pins >= rather than >.
+cat >"${WORKDIR}/bad/edge_first_invalid.qasm" <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[3] q;
+h q[3];
+QASM
+check "parse-first-invalid-index" nonzero "outside the declared register" \
+      "${BIN}" --file "${WORKDIR}/bad/edge_first_invalid.qasm"
+
+# An empty file declares no qubit register, so nothing is simulated and there
+# is no result to report. That is a failure rather than a trivial success, and
+# since #13 the exit status says so.
+check "parse-empty" nonzero "" "${BIN}" --file "${WORKDIR}/bad/empty.qasm"
+
+# ---------------------------------------------------------------------------
+# Parser error paths.
+#
+# sim.c carries ~38 distinct error_exit sites and almost none were reached:
+# 81.1% line, 67.2% branch, and 65 partials in the Codecov report, because
+# every other suite feeds it a well-formed circuit. Each case below asserts
+# the *specific* diagnostic, not merely a non-zero exit - a parser that
+# refuses everything with one generic message is not much better than one
+# that accepts everything.
+# ---------------------------------------------------------------------------
+write_bad() {  # name, content on stdin
+    cat >"${WORKDIR}/bad/$1.qasm"
+}
+
+write_bad num_nondigit <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[x] q;
+QASM
+
+write_bad num_toolong <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[123456789012345678901234567890] q;
+QASM
+
+write_bad two_qregs <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+qubit[3] r;
+QASM
+
+write_bad two_bregs <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+bit[2] c;
+bit[2] d;
+QASM
+
+write_bad reg_mismatch <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+bit[3] c;
+QASM
+
+write_bad nested_loop <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+for int i in [1:2] {
+for int j in [1:2] {
+h q[0];
+}
+}
+QASM
+
+write_bad loop_step_zero <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+for int i in [1:0:4] {
+h q[0];
+}
+QASM
+
+write_bad loop_not_integer <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+for int i in [1:2:5] {
+h q[0];
+}
+QASM
+
+write_bad loop_backwards <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+for int i in [4:1] {
+h q[0];
+}
+QASM
+
+write_bad measure_no_breg <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+h q[0];
+measure q[0] -> c[0];
+QASM
+
+write_bad mcx_syntax <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[4] q;
+mcx q[0] q[1], q[2];
+QASM
+
+write_bad rx_angle <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+rx(notanangle) q[0];
+QASM
+
+# name:expected-diagnostic
+while IFS='|' read -r fixture want; do
+    [ -z "${fixture}" ] && continue
+    check "parse-${fixture}" nonzero "${want}" "${BIN}" --file "${WORKDIR}/bad/${fixture}.qasm"
+done <<'CASES'
+num_nondigit|non-digit character
+num_toolong|too many digits
+two_qregs|Multiple qubit register
+two_bregs|Multiple bit register
+reg_mismatch|different than the size
+nested_loop|Nested loops
+loop_step_zero|step must be non-zero
+loop_not_integer|not an integer
+loop_backwards|Invalid number of loop iterations
+measure_no_breg|uninitialized bit register
+mcx_syntax|mcx
+rx_angle|Invalid rx angle
+CASES
+
+# A gate before any register declaration is caught earlier, by the `if (init)`
+# guard around gate parsing - which is why get_q_idx carries no such check.
+check "parse-gate-before-register" nonzero "Circuit not initialized" \
+      "${BIN}" --file "${WORKDIR}/bad/missing_qubits.qasm"
 
 # ---------------------------------------------------------------------------
 # Long-number output: algebraic coefficients past MAX_NUM_LEN (50 digits) are

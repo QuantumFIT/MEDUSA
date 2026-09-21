@@ -84,6 +84,23 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   ever built that suite at f32: five of its norm checks sit at 1e-6/1e-7 while
   the measured error over a whole benchmark circuit reaches 4e-5. Both backends
   produce identical values there, so it is precision, not divergence.
+- `make test-unit-htab` - unit tests for the hash table
+  (`tests/test_unit_htab.c`). `htab_resize` is static and fires from both
+  `lookup_add` paths once the load factor passes `AVG_LEN_MAX` (2), but no
+  suite ever put enough entries in a table to reach it - 70.4% line, 59.4%
+  branch, with resize, `htab_m_clear` and `htab_s_lookup_remove` never
+  executed. The invariant that makes a rehash bug visible: re-inserting a key
+  that is already present must not change `t->size`, so after N distinct
+  inserts a second pass over the same N must leave the size at N. A dropped or
+  mislinked entry shows up as growth. Mutation-checked against a resize that
+  never runs, one that rehashes with the old bucket count, and one that drops
+  colliding entries.
+
+  Two behaviours are pinned rather than asserted as correct: `htab_m_print_all`
+  emits each key **reversed** (keys are stored LSB-first), and
+  `htab_s_lookup_remove` frees the entry without decrementing `t->size`, so
+  the field over-counts after a removal. Nothing calls that function today, so
+  the second is latent
 - `make test-unit-gmp` - unit tests for the GMP leaf primitive
   (`tests/test_unit_leaf_gmp.c`). `test_unit_api` is hard-wired to
   `LEAF_BACKEND_DOUBLES` and reads `leaf.pImpl->re`/`->im` throughout, so
@@ -105,10 +122,22 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   the inline limit. `LP-QuantumCounting/08_04_05_0.qasm` on the GMP binary is
   the circuit that triggers it - 358 such numbers.
 
-  Where the simulator is lenient the suite asserts the **current** behaviour
-  and marks it, rather than asserting what it arguably should do; see issue
-  #13 for the out-of-range qubit index, which is a real out-of-bounds read,
-  and the two lenience cases found alongside it
+  This suite is also what produced issue #13. It originally pinned three
+  lenient behaviours as known gaps rather than asserting what they ought to
+  do; all three are now refusals and the assertions are inverted:
+
+  | input | before | now |
+  |---|---|---|
+  | `h q[9]` on `qubit[2]` | exit 0, two invalid reads under valgrind | refused, naming the index |
+  | `for` with no `}` | exit 0, loop silently dropped | refused, naming the construct |
+  | a directory as `--file` | exit 0, treated as empty input | refused |
+
+  Three boundary cases guard the index check specifically: the last valid
+  index must still be accepted, the first invalid one must be refused, and a
+  far-out-of-range one must be refused. The middle case is the one that
+  matters - `q[9]` alone would still be caught by an off-by-one check, so
+  without `q[3]` on `qubit[3]` a `>` for `>=` regression would pass
+  (mutation-checked)
 - `make test-mosf` - MOSF, the JSON input path (`--tree-simulation`,
   `sim_mosf_file`, `src/sim_mosf.cpp`). Compiled only under `USE_CXX=1` and,
   before this suite, executed by nothing: **0 of 104 lines**, the largest

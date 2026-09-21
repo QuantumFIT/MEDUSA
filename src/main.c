@@ -249,5 +249,12 @@ int main(int argc, char *argv[])
         fclose(measure_output);
     }
 
-    return 0;
+    /* A simulation that did not run is not a success. sim_file returns false
+     * when no circuit was initialised (an empty or unreadable input, e.g. a
+     * directory, which fopen happily opens in read mode), and sim_mosf_file
+     * returns false for every MOSF parse or evaluation error - including the
+     * ones it has already reported on stderr. Returning 0 in those cases made
+     * a failed run indistinguishable from a successful one for anything
+     * scripting MEDUSA. See issue #13. */
+    return sim_successful ? 0 : 1;
 }

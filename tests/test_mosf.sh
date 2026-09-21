@@ -67,9 +67,9 @@ compare_to_qasm() {
         summary_record "${label}" 1
         return
     fi
-    # sim_mosf_file returns false on error but main() still exits 0, so the
-    # exit status alone does not prove the circuit was simulated. Check that
-    # nothing reported an error and that a result was actually produced.
+    # Since issue #13 a failed run exits non-zero, so the check above already
+    # catches most failures. This stays as a second line of defence: an error
+    # reported on stderr must never coexist with a success exit.
     if grep -qi "^Error simulating MOSF" "${WORKDIR}/${name}.mosf.log"; then
         echo "FAIL ${label}: MOSF run reported an error"
         tail -3 "${WORKDIR}/${name}.mosf.log" || true
@@ -133,6 +133,15 @@ compare_to_qasm hxz    # H, X, Z - distinct +/-0.707 terminals
 # entry fails both.
 compare_to_qasm xh     # X then H on one qubit -> (|0> - |1>)/sqrt2
 compare_to_qasm hxh    # the same on both levels of a two-qubit register
+
+# The remaining registry entries. X first for the same reason as above: these
+# multiply the high child, which is the zero BDD until something populates it.
+#
+# The OpenQASM side spells Sdg as S^3 deliberately - this parser has t/tdg but
+# only s, no sdg, so `sdg` is rejected as an unknown command. An earlier draft
+# used it and compared against an empty res.dot.
+compare_to_qasm xs     # i_mul      == S
+compare_to_qasm xsdg   # neg_i_mul  == S^3 == Sdg
 
 # ---------------------------------------------------------------------------
 # Failure handling: every one of these must be reported, and none may crash.
@@ -198,22 +207,20 @@ if [[ -f "${GATE_DEF}" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Known gap, related to issue #13: sim_mosf_file returns false on every error
-# above, but main() ignores the return value and still exits 0. A caller
-# scripting MEDUSA cannot tell a failed MOSF run from a successful one by exit
-# status alone - only by the message on stderr, which is what the checks above
-# rely on. Pinned as it behaves today; flip to a non-zero expectation if this
-# is changed.
+# sim_mosf_file returns false on every error above. main() used to ignore that
+# and still exit 0, so a failed MOSF run could not be told from a successful
+# one by exit status - only by the message on stderr. Fixed with issue #13;
+# this pins the exit status so it cannot regress to silence.
 # ---------------------------------------------------------------------------
-label="mosf-failure-still-exits-zero-known-gap"
+label="mosf-failure-exits-nonzero"
 rc=0
 ( cd "${WORKDIR}" && timeout 120 "${BIN}" --tree-simulation --file "${FIX}/bad_unknown_op.mosf" \
     >/dev/null 2>&1 ) || rc=$?
-if [[ "${rc}" -eq 0 ]]; then
+if [[ "${rc}" -ne 0 && "${rc}" -ne 124 && "${rc}" -ne 139 && "${rc}" -ne 134 ]]; then
     echo "OK   ${label}"
     summary_record "${label}" 0
 else
-    echo "FAIL ${label}: exit status is now ${rc}; update this expectation"
+    echo "FAIL ${label}: expected a clean non-zero exit, got ${rc}"
     summary_record "${label}" 1
 fi
 

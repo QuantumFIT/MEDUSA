@@ -256,6 +256,54 @@ static uint32_t get_q_num(FILE *in)
 }
 
 /**
+ * Qubit index for a gate operand, checked against the declared register.
+ *
+ * get_q_num alone only rejects indices that do not fit in a uint32_t, which
+ * says nothing about whether the qubit exists. An index past the end of the
+ * register used to be applied at a BDD variable level that was never
+ * allocated: the walk in prob_sum_recurse and the dot output both read off
+ * the end of a heap block, res.dot still looked well-formed, and the exit
+ * status was 0. See issue #13.
+ *
+ * Declaration sites (creg/bit, qreg/qubit) read a register *size* rather than
+ * an index and so keep calling get_q_num directly.
+ */
+static uint32_t get_q_idx(FILE *in, const sim_info_t *info)
+{
+    uint32_t q = get_q_num(in);
+
+    /* No "register not declared yet" check here: gate parsing sits inside
+     * `if (init)`, and the else branch already reports "Circuit not
+     * initialized". A guard here would be unreachable. */
+    if (q >= (uint32_t)info->n_qubits) {
+        error_exit("Invalid format - qubit index q[%u] is outside the declared "
+                   "register of %d qubit(s).\n", q, info->n_qubits);
+    }
+
+    return q;
+}
+
+/**
+ * Classical bit index for a measurement target, checked against the declared
+ * bit register. Separate from get_q_idx so the diagnostic names the right
+ * register: the two are required to be the same size, but a user who wrote
+ * c[9] should not be told about qubits.
+ */
+static uint32_t get_c_idx(FILE *in, int n_bits)
+{
+    uint32_t c = get_q_num(in);
+
+    /* Likewise no "bit register missing" check: the measure branch rejects a
+     * NULL bits_to_measure before it reads either operand. */
+    if (c >= (uint32_t)n_bits) {
+        error_exit("Invalid format - bit index c[%u] is outside the declared "
+                   "register of %d bit(s).\n", c, n_bits);
+    }
+
+    return c;
+}
+
+/**
  * Returns the number of iterations, should be called when a for loop is encountered
  */
 static uint64_t get_iters(FILE *in)
@@ -541,53 +589,59 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                 if (info->bits_to_measure == NULL) {
                     error_exit("Measuring into an uninitialized bit register.\n");
                 }
+                /* qt indexes bits_to_measure, so it is a qubit index and gets
+                 * the qubit bound. ct is a *classical bit* index and gets the
+                 * bit-register bound - the two registers are required to be
+                 * the same size just above, so today these coincide, but
+                 * checking ct against n_qubits would report "qubit index" for
+                 * what the user wrote as a bit index. */
                 uint32_t qt, ct;
                 if ((strcmp(cmd, "measure") == 0)) {
-                    qt = get_q_num(in);
-                    ct = get_q_num(in);
+                    qt = get_q_idx(in, info);
+                    ct = get_c_idx(in, n_bits);
                 }
                 else {
-                    ct = get_q_num(in);
-                    qt = get_q_num(in);
+                    ct = get_c_idx(in, n_bits);
+                    qt = get_q_idx(in, info);
                 }
                 
                 info->is_measure = true;
                 (info->bits_to_measure)[qt] = ct;
             }
             else if (strcasecmp(cmd, "x") == 0) {
-                uint32_t qt = get_q_num(in);
+                uint32_t qt = get_q_idx(in, info);
                 (flags->opt_symb && is_loop)? gate_symb_x(&symbc.val, qt) : gate_x(circ, qt);
             }
             else if (strcasecmp(cmd, "y") == 0) {
-                uint32_t qt = get_q_num(in);
+                uint32_t qt = get_q_idx(in, info);
                 (flags->opt_symb && is_loop)? gate_symb_y(&symbc.val, qt) : gate_y(circ, qt);
             }
             else if (strcasecmp(cmd, "z") == 0) {
-                uint32_t qt = get_q_num(in);
+                uint32_t qt = get_q_idx(in, info);
                 (flags->opt_symb && is_loop)? gate_symb_z(&symbc.val, qt) : gate_z(circ, qt);
             }
             else if (strcasecmp(cmd, "h") == 0) {
-                uint32_t qt = get_q_num(in);
+                uint32_t qt = get_q_idx(in, info);
                 (flags->opt_symb && is_loop)? gate_symb_h(&symbc.val, qt) : gate_h(circ, qt);
             }
             else if (strcasecmp(cmd, "s") == 0) {
-                uint32_t qt = get_q_num(in);
+                uint32_t qt = get_q_idx(in, info);
                 (flags->opt_symb && is_loop)? gate_symb_s(&symbc.val, qt) : gate_s(circ, qt);
             }
             else if (strcasecmp(cmd, "t") == 0) {
-                uint32_t qt = get_q_num(in);
+                uint32_t qt = get_q_idx(in, info);
                 (flags->opt_symb && is_loop)? gate_symb_t(&symbc.val, qt) : gate_t(circ, qt);
             }
             else if (strcasecmp(cmd, "tdg") == 0) {
-                uint32_t qt = get_q_num(in);
+                uint32_t qt = get_q_idx(in, info);
                 (flags->opt_symb && is_loop)? gate_symb_tdg(&symbc.val, qt) : gate_tdg(circ, qt);
             }
             else if (strcasecmp(cmd, "rx(pi/2)") == 0) {
-                uint32_t qt = get_q_num(in);
+                uint32_t qt = get_q_idx(in, info);
                 (flags->opt_symb && is_loop)? gate_symb_rx_pihalf(&symbc.val, qt) : gate_rx_pihalf(circ, qt);
             }
             else if (strcasecmp(cmd, "ry(pi/2)") == 0) {
-                uint32_t qt = get_q_num(in);
+                uint32_t qt = get_q_idx(in, info);
                 (flags->opt_symb && is_loop)? gate_symb_ry_pihalf(&symbc.val, qt) : gate_ry_pihalf(circ, qt);
             }
             else if (strncasecmp(cmd, "rx(", 3) == 0 && strcasecmp(cmd, "rx(pi/2)") != 0) {
@@ -599,7 +653,7 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                 if (!parse_rotation_cmd_angle(cmd, &angle)) {
                     error_exit("Invalid rx angle in command '%s'.\n", cmd);
                 }
-                uint32_t qt = get_q_num(in);
+                uint32_t qt = get_q_idx(in, info);
                 gate_rx(circ, qt, angle);
             }
             else if (strncasecmp(cmd, "ry(", 3) == 0 && strcasecmp(cmd, "ry(pi/2)") != 0) {
@@ -611,7 +665,7 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                 if (!parse_rotation_cmd_angle(cmd, &angle)) {
                     error_exit("Invalid ry angle in command '%s'.\n", cmd);
                 }
-                uint32_t qt = get_q_num(in);
+                uint32_t qt = get_q_idx(in, info);
                 gate_ry(circ, qt, angle);
             }
             else if (strncasecmp(cmd, "rz(", 3) == 0) {
@@ -623,17 +677,17 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                 if (!parse_rotation_cmd_angle(cmd, &angle)) {
                     error_exit("Invalid rz angle in command '%s'.\n", cmd);
                 }
-                uint32_t qt = get_q_num(in);
+                uint32_t qt = get_q_idx(in, info);
                 gate_rz(circ, qt, angle);
             }
             else if (strcasecmp(cmd, "cx") == 0) {
-                uint32_t qc = get_q_num(in);
-                uint32_t qt = get_q_num(in);
+                uint32_t qc = get_q_idx(in, info);
+                uint32_t qt = get_q_idx(in, info);
                 (flags->opt_symb && is_loop)? gate_symb_cnot(&symbc.val, qt, qc) : gate_cnot(circ, qt, qc);
             }
             else if (strcasecmp(cmd, "cz") == 0) {
-                uint32_t qc = get_q_num(in);
-                uint32_t qt = get_q_num(in);
+                uint32_t qc = get_q_idx(in, info);
+                uint32_t qt = get_q_idx(in, info);
                 if (qc > qt) { // can swap as it is only a controlled rotation
                     uint32_t temp = qt;
                     qt = qc;
@@ -643,9 +697,9 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                 (flags->opt_symb && is_loop)? gate_symb_cz(&symbc.val, qt, qc) : gate_cz(circ, qt, qc);
             }
             else if (strcasecmp(cmd, "ccx") == 0) {
-                uint32_t qc1 = get_q_num(in);
-                uint32_t qc2 = get_q_num(in);
-                uint32_t qt = get_q_num(in);
+                uint32_t qc1 = get_q_idx(in, info);
+                uint32_t qc2 = get_q_idx(in, info);
+                uint32_t qt = get_q_idx(in, info);
                 (flags->opt_symb && is_loop)? gate_symb_toffoli(&symbc.val, qt, qc1, qc2) : gate_toffoli(circ, qt, qc1, qc2);
             }
             else if (strcasecmp(cmd, "mcx") == 0) { // supports 2 and 3 control qubits
@@ -653,7 +707,7 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                 
                 // Read all control qubits and the target qubit and save it in qparams
                 while(true) {
-                    qparam_list_insert_first(qparams, get_q_num(in));
+                    qparam_list_insert_first(qparams, get_q_idx(in, info));
                     c = fgetc(in);
                     while (isspace(c)) {
                         c = fgetc(in);
@@ -690,6 +744,16 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
             }
         }
     } // while
+
+    /* Falling out of the parse loop with a loop still open means the file
+     * ended inside a `for` body. Before issue #13 this was silently accepted
+     * and the loop dropped, so a truncated circuit simulated as though the
+     * missing gates were never meant to be there - a wrong answer with no
+     * indication. */
+    if (is_loop) {
+        error_exit("Invalid format - reached the end of the file inside a loop "
+                   "(missing '}').\n");
+    }
 
     if (flags->opt_symb && info->n_loops > 0) {
         symexp_htab_clear();
