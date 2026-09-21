@@ -81,8 +81,10 @@ jobs:
   # The loop-program benchmarks under --symbolic: ~220 circuits, each capped at
   # 10 s of wall clock and 2 GB of address space, so a blow-up in the symbolic
   # path (src/symb_utils.c, src/gates_symb.c) fails one circuit instead of
-  # hanging the job. tests/lp_symbolic_expected.txt is the regression guard:
-  # those circuits must keep finishing. Worst case is ~100 timeouts x 10 s.
+  # hanging the job. Every circuit that finishes is also run concretely and the
+  # two state vectors must agree (tests/lp_dot_equiv.py); the ~110 circuits in
+  # tests/lp_symbolic_expected.txt must keep finishing. Worst case is roughly
+  # 140 timeouts x 10 s across the two modes.
   lp-symbolic-sweep:
     name: Symbolic LP benchmark sweep (slow)
     runs-on: ubuntu-latest
@@ -95,7 +97,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-              libgmp-dev cmake g++
+              libgmp-dev cmake g++ python3
 
       - name: Build MoToBuddy
         run: make init
