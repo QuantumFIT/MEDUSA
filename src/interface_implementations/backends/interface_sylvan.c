@@ -32,7 +32,6 @@ static uint64_t g_opid_op, g_opid_op_param, g_opid_op_g;
 /* Nested Lace RUN() deadlocks; apply/operation from a gate callback must CALL. */
 static _Thread_local int g_in_task;
 static _Thread_local int g_apply_valid = 1;
-static _Thread_local int g_op_valid = 1;
 
 static _Thread_local LEAF_TYPE (*g_leaf_bin)(LEAF_TYPE, LEAF_TYPE);
 static _Thread_local LEAF_TYPE (*g_leaf_binp)(LEAF_TYPE, LEAF_TYPE, size_t);
@@ -383,14 +382,6 @@ size_t qBDD_symbolicMapLType(void) { return lt_symb_map; }
 size_t qBDD_symbolicValLType(void) { return lt_symb_val; }
 size_t qBDD_classicLType(void) { return lt_classic; }
 
-size_t qBDD_getTerminalType(qBDD terminal)
-{
-    if (!mtbdd_isleaf(terminal) || is_bool_leaf(terminal)) {
-        return 0;
-    }
-    return mtbdd_gettype(terminal);
-}
-
 size_t qBDD_level(qBDD node)
 {
     if (mtbdd_isleaf(node)) {
@@ -436,11 +427,6 @@ qBDD qBDD_maketerminal(size_t type, void *valuep)
     /* create() interned a deep copy; Buddy-shaped callers never free valuep. */
     drop_caller_leaf((uint32_t)type, valuep);
     return r;
-}
-
-qBDD cube(int value, int width, qBDD *variables, qBDD leaf1, qBDD leaf0)
-{
-    return mtbdd_cube2(value, width, variables, leaf1, leaf0);
 }
 
 qBDD qBDD_getHigh(qBDD a) { return mtbdd_gethigh(a); }
@@ -860,84 +846,6 @@ TASK_IMPL_5(MTBDD, syl_op, MTBDD, dd, uint64_t, opfn, uint64_t, targets_raw,
     return result;
 }
 
-TASK_DECL_5(MTBDD, syl_op_g, MTBDD, uint64_t, uint64_t, size_t, size_t);
-TASK_IMPL_5(MTBDD, syl_op_g, MTBDD, dd, uint64_t, opfn, uint64_t, targets_raw,
-            size_t, ctrl_flags, size_t, unused)
-{
-    (void)unused;
-    g_in_task = 1;
-    size_t *targets = (size_t *)(uintptr_t)targets_raw;
-    size_t controlNum = ctrl_flags & 0xffffu;
-    size_t cidx = (ctrl_flags >> 16) & 0xffffu;
-    uint64_t tkey = targets_key(targets, controlNum, cidx);
-    MTBDD result;
-    gate_op_g_t op = (gate_op_g_t)(uintptr_t)opfn;
-
-    sylvan_gc_test();
-    if (cache_get3(g_opid_op_g, dd, opfn, tkey, &result)) {
-        return result;
-    }
-
-    if (dd == mtbdd_false) {
-        return mtbdd_false;
-    }
-
-    uint32_t want = (cidx < controlNum)
-                        ? (uint32_t)targets[cidx]
-                        : (uint32_t)targets[controlNum];
-
-    int skipped = mtbdd_isleaf(dd) || want < mtbdd_getvar(dd);
-    MTBDD target_dd = dd;
-    size_t next_flags;
-
-    if (skipped) {
-        g_op_valid = 1;
-        result = op((size_t)want, dd);
-        if (g_op_valid) {
-            cache_put3(g_opid_op_g, dd, opfn, tkey, result);
-            return result;
-        }
-        if (cidx < controlNum) {
-            next_flags = controlNum | ((cidx + 1) << 16);
-            MTBDD high = mtbdd_refs_push(CALL(syl_op_g, dd, opfn, targets_raw,
-                                              next_flags, 0));
-            result = makenode_keep(want, dd, high);
-            mtbdd_refs_pop(1);
-            cache_put3(g_opid_op_g, dd, opfn, tkey, result);
-            return result;
-        }
-        cache_put3(g_opid_op_g, dd, opfn, tkey, dd);
-        return dd;
-    }
-
-    uint32_t var = mtbdd_getvar(dd);
-    if (cidx < controlNum && var == (uint32_t)targets[cidx]) {
-        next_flags = controlNum | ((cidx + 1) << 16);
-        MTBDD high = mtbdd_refs_push(CALL(syl_op_g, mtbdd_gethigh(dd), opfn, targets_raw,
-                                          next_flags, 0));
-        result = makenode_keep(var, mtbdd_getlow(dd), high);
-        mtbdd_refs_pop(1);
-        cache_put3(g_opid_op_g, dd, opfn, tkey, result);
-        return result;
-    }
-
-    g_op_valid = 1;
-    result = op((size_t)want, target_dd);
-    if (g_op_valid) {
-        cache_put3(g_opid_op_g, dd, opfn, tkey, result);
-        return result;
-    }
-
-    next_flags = ctrl_flags;
-    MTBDD low = mtbdd_refs_push(CALL(syl_op_g, mtbdd_getlow(dd), opfn, targets_raw,
-                                     next_flags, 0));
-    MTBDD high = mtbdd_refs_push(CALL(syl_op_g, mtbdd_gethigh(dd), opfn, targets_raw,
-                                      next_flags, 0));
-    result = makenode_keep(var, low, high);
-    mtbdd_refs_pop(2);
-    cache_put3(g_opid_op_g, dd, opfn, tkey, result);
-    return result;
-}
 
 static MTBDD syl_run_op(MTBDD dd, uint64_t opfn, uint64_t tr, size_t flags, size_t param)
 {
@@ -946,15 +854,6 @@ static MTBDD syl_run_op(MTBDD dd, uint64_t opfn, uint64_t tr, size_t flags, size
         return CALL(syl_op, dd, opfn, tr, flags, param);
     }
     return RUN(syl_op, dd, opfn, tr, flags, param);
-}
-
-static MTBDD syl_run_op_g(MTBDD dd, uint64_t opfn, uint64_t tr, size_t flags)
-{
-    if (g_in_task) {
-        LACE_VARS;
-        return CALL(syl_op_g, dd, opfn, tr, flags, 0);
-    }
-    return RUN(syl_op_g, dd, opfn, tr, flags, 0);
 }
 
 qBDD bdd_operation(qBDD operand, size_t *targets, size_t controlNum,
@@ -972,15 +871,6 @@ qBDD bdd_operation_param(qBDD operand, size_t *targets, size_t controlNum,
                       flags, param);
 }
 
-qBDD bdd_operation_guarded(qBDD operand, size_t *targets, size_t controlNum,
-                           qBDD (*op)(size_t, qBDD))
-{
-    return syl_run_op_g(operand, (uint64_t)(uintptr_t)op, (uint64_t)(uintptr_t)targets,
-                        controlNum);
-}
-
-void validateOperationResult(void) { g_op_valid = 1; }
-void invalidateOperationResult(void) { g_op_valid = 0; }
 void validateApplyResult(void) { g_apply_valid = 1; }
 void invalidateApplyResult(void) { g_apply_valid = 0; }
 

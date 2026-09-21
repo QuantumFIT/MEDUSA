@@ -360,41 +360,6 @@ LEAF_TYPE subLeafS(LEAF_TYPE a, LEAF_TYPE b) {
     return subLeaf(a, b);
 }
 
-LEAF_TYPE mulLeaf(LEAF_TYPE a, LEAF_TYPE b) {
-    LEAF_TYPE result;
-    allocPimpl(&result);
-    mpz_mul(result.pImpl->a, *leafA(&a), *leafA(&b));
-    mpz_mul(result.pImpl->b, *leafB(&a), *leafB(&b));
-    mpz_mul(result.pImpl->c, *leafC(&a), *leafC(&b));
-    mpz_mul(result.pImpl->d, *leafD(&a), *leafD(&b));
-    return result;
-}
-
-LEAF_TYPE mulLeafS(LEAF_TYPE a, LEAF_TYPE b) {
-    // multiplication by 1/sqrt(2) done externally
-    return mulLeaf(a, b);
-}
-
-LEAF_TYPE divLeaf(LEAF_TYPE a, LEAF_TYPE b) {
-    LEAF_TYPE result;
-    allocPimpl(&result);
-    mpz_div(result.pImpl->a, *leafA(&a), *leafA(&b));
-    mpz_div(result.pImpl->b, *leafB(&a), *leafB(&b));
-    mpz_div(result.pImpl->c, *leafC(&a), *leafC(&b));
-    mpz_div(result.pImpl->d, *leafD(&a), *leafD(&b));
-    return result;
-}
-
-LEAF_TYPE divLeafS(LEAF_TYPE a, LEAF_TYPE b) {
-    // multiplication by 1/sqrt(2) done externally
-    return divLeaf(a, b);
-}
-
-LEAF_TYPE sqrtLeaf(LEAF_TYPE a) {
-    /* Unsupported; still return an owned clone so apply free paths are safe. */
-    return clonePimpl(a);
-}
-
 LEAF_TYPE rotateCoef1(LEAF_TYPE l) {
     if (l.pImpl == NULL) return l;
     LEAF_TYPE result;

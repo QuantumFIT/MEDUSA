@@ -744,10 +744,6 @@ static void test_leaf_ops_null_and_cancel(void) {
     LEAF_TYPE r = addLeaf(z, z);
     TEST_ASSERT(r.pImpl == NULL);
 
-    LEAF_TYPE one = make_leaf(1.0, 0.0);
-    r = mulLeaf(z, one);
-    TEST_ASSERT(r.pImpl == NULL);
-
     LEAF_TYPE a = make_leaf(0.5, 0.25);
     LEAF_TYPE neg = invertLeaf(a);
     LEAF_TYPE sum = addLeaf(a, neg);
@@ -755,7 +751,6 @@ static void test_leaf_ops_null_and_cancel(void) {
 
     buddy_free_unused_result(wrap_owned(neg));
     destroy_owned_leaf(&a);
-    destroy_owned_leaf(&one);
 }
 
 static void test_maketerminal_dedup_preserves_stored_value(void) {

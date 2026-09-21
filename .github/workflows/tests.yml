@@ -101,10 +101,11 @@ jobs:
   # that configuration, so those branches were never compiled, never run, and
   # never even appeared in the coverage denominator.
   #
-  # USE_CXX=1 also defines -DUSE_MOSF and builds sim_mosf.cpp, so this job
-  # keeps the MOSF translation unit compiling too. Note it does not exercise
-  # MOSF at runtime: sim_mosf_file reads MOSF JSON rather than OpenQASM, and
-  # the repository has no such fixture.
+  # USE_CXX=1 also defines -DUSE_MOSF and builds sim_mosf.cpp, so this is the
+  # only job that exercises MOSF, the JSON input path. `make test USE_CXX=1`
+  # includes test-mosf, which compares each tests/mosf/NAME.mosf against the
+  # OpenQASM circuit of the same name. In the C jobs that suite skips itself,
+  # since the translation unit is not compiled there at all.
   test-cxx:
     name: C++ gate implementations (USE_CXX=1)
     runs-on: ubuntu-latest

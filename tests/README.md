@@ -84,6 +84,40 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   ever built that suite at f32: five of its norm checks sit at 1e-6/1e-7 while
   the measured error over a whole benchmark circuit reaches 4e-5. Both backends
   produce identical values there, so it is precision, not divergence.
+- `make test-unit-gmp` - unit tests for the GMP leaf primitive
+  (`tests/test_unit_leaf_gmp.c`). `test_unit_api` is hard-wired to
+  `LEAF_BACKEND_DOUBLES` and reads `leaf.pImpl->re`/`->im` throughout, so
+  `leaf_primitive_mpz.c` had no unit coverage at all - 48.9% line, seven
+  functions never executed. That is the blind spot the componentwise
+  `mulLeaf`/`divLeaf` bug lived in (issue #12). Covers the mpz wrappers, the
+  hash/equality contract the terminal table depends on (issue #6's failure
+  mode, asserted directly), multi-limb arithmetic, and the fact that
+  `inv_sqrt2_pow_generic` stores the exponent rather than computing a power.
+  The rotation entry points are `abort()` stubs on this backend and are
+  deliberately not exercised
+- `make test-cli` - argument handling, parser diagnostics and the long-number
+  output file (`tests/test_cli.sh`). Before it, `main.c` sat at 55.7% branch
+  coverage and `sim.c` at 66.4%, because every other suite feeds the simulator
+  a well-formed circuit and correct arguments. Also the only cover for
+  `res-vars.txt`: algebraic coefficients longer than `MAX_NUM_LEN` (50 digits)
+  are written there as `large-number[N]` references, and the test asserts every
+  reference in `res.dot` resolves to a definition that really is longer than
+  the inline limit. `LP-QuantumCounting/08_04_05_0.qasm` on the GMP binary is
+  the circuit that triggers it - 358 such numbers.
+
+  Where the simulator is lenient the suite asserts the **current** behaviour
+  and marks it, rather than asserting what it arguably should do; see issue
+  #13 for the out-of-range qubit index, which is a real out-of-bounds read,
+  and the two lenience cases found alongside it
+- `make test-mosf` - MOSF, the JSON input path (`--tree-simulation`,
+  `sim_mosf_file`, `src/sim_mosf.cpp`). Compiled only under `USE_CXX=1` and,
+  before this suite, executed by nothing: **0 of 104 lines**, the largest
+  wholly-uncovered file in the tree, and invisible in the default coverage
+  report because the C build does not compile the translation unit at all.
+  The target does not force `USE_CXX=1` - that build shares
+  `obj/buddy_doubles_f128` with the C one - so `make test` skips it and
+  `make test USE_CXX=1` runs it. Fixtures and the format notes are in
+  `tests/mosf/`
 - `make test-grover` - Grover amplification matrix (classic unroll, `--symbolic`, `NL_*`)
   on f32/f64/f80/f128 and GMP; also `make test-grover-f128` / `test-grover-gmp`
 - `make test-sylvan` - optional Sylvan backend (not the default product):
@@ -238,8 +272,25 @@ CI uploads the two runs under the Codecov flags `c` and `cxx`, which unions
 them per line: a line covered by either build counts as covered, and a line
 absent from one report is unmeasured there rather than a miss.
 
-MOSF itself is not exercised: `sim_mosf_file` parses MOSF JSON rather than
-OpenQASM, and there is no such fixture in the repository.
+MOSF is exercised by `make test-mosf` (see above). The fixtures had to be
+written from the spec in `lib/MoToBuddy/doc/mosf.mosf`: the `.mosf` files
+shipped under `lib/MoToBuddy/examples/` are gate *definitions*, not circuits -
+they carry no `x_levels` and use `plus_s`/`minus_s`, which MEDUSA's extension
+registry does not define.
+
+Each `tests/mosf/NAME.mosf` is paired with a `NAME.qasm` for the same circuit,
+and the two must agree on every basis amplitude. Comparing the `res.dot` files
+byte for byte does **not** work: node ids are allocation order, and the two
+front ends number the terminals differently while building the same state.
+`tests/dot_amps_equal.py` does the comparison properly.
+
+Fixture choice matters more than it looks. H applied to |0> leaves the high
+child as the zero BDD, so `(low + high)` and `(low - high)` coincide and the
+comparison cannot tell `plus_mulsqrt2` from `minus_mulsqrt2` - a build with
+the two swapped passes `h1`, `hh` and `hxz`. The `xh` and `hxh` fixtures apply
+X first so that H acts on |1>, which is what makes the arithmetic observable.
+Mutation-checked: swapping either binary op fails exactly those two, and
+making `neg` a no-op fails `hxz`.
 
 ### freePimpl / leaks
 

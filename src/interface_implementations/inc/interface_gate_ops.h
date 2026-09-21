@@ -38,16 +38,6 @@ qBDD bdd_operation(qBDD operand, size_t* targets, size_t controlNum,
 qBDD bdd_operation_param(qBDD operand, size_t *targets, size_t controlNum,
                          qBDD (*op)(size_t, qBDD, qBDD, size_t), size_t param);
 
-/**
- * @brief Applies a guarded gate operation to a target variable in a qBDD.
- * @param operand    The qBDD representing the current quantum state
- * @param targets    Array of target variable indices
- * @param controlNum Number of control variables in the operation
- * @param op         Gate operation function taking a target and a single qBDD
- * @return           A new qBDD representing the state after the operation
- */
-qBDD bdd_operation_guarded(qBDD operand, size_t* targets, size_t controlNum,
-                           qBDD(*op)(size_t tgt, qBDD));
 
 /**
  * @brief Applies a binary leaf operation pointwise over two qBDDs.
@@ -120,15 +110,6 @@ qBDD unary_apply_param(qBDD l, LEAF_TYPE(*op)(LEAF_TYPE, size_t), size_t arg);
  * Operation result validation
  * ************************************************************************* */
 
-/**
- * @brief Marks the most recent operation result as valid.
- */
-void validateOperationResult();
-
-/**
- * @brief Invalidates the cached operation result, forcing further traversal.
- */
-void invalidateOperationResult();
 
 /**
  * @brief Marks the most recent apply result as valid.
@@ -140,16 +121,6 @@ void validateApplyResult();
  */
 void invalidateApplyResult();
 
-/**
- * @brief Constructs a cube qBDD over a set of variables with given leaf values.
- * @param value     Integer encoding of the variable assignment
- * @param width     Number of variables in the cube
- * @param variables Array of qBDD variable nodes
- * @param leaf1     Leaf value assigned to the true path
- * @param leaf0     Leaf value assigned to the false path
- * @return          A qBDD representing the cube over the given variables
- */
-qBDD cube(int value, int width, qBDD *variables, qBDD leaf1, qBDD leaf0);
 
 #ifdef __cplusplus
 }
