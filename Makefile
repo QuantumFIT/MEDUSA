@@ -211,7 +211,7 @@ BSCRIPT_PATH       := benchmark-utils/scripts
         test-grover-sylvan run-sylvan-grover                                \
         run-sylvan-sem run-sylvan-meta                                     \
         test-stress test-stress-f64 test-stress-f128 test-stress-gmp       \
-        test-leaks                                                         \
+        test-leaks test-lp-symbolic                                                         \
         test-grover test-grover-all test-grover-f32 test-grover-f64        \
         test-grover-f80 test-grover-f128 test-grover-gmp                   \
         test-mutation
@@ -679,6 +679,14 @@ test-leaks:
 	$(MAKE) $(TEST_UNIT_BIN) LEAF_FLOAT_TYPE=3
 	@chmod +x $(TEST_DIR)/test_leaks.sh
 	bash $(TEST_DIR)/test_leaks.sh
+
+# Symbolic sweep over the loop-program benchmarks (LP-*), each circuit under a
+# wall-clock and an address-space cap. Slow (~15 min worst case), so nightly.
+# MEDUSA_TEST_TIMEOUT / MEDUSA_TEST_MEM_KB override the caps.
+test-lp-symbolic:
+	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
+	@chmod +x $(TEST_DIR)/test_lp_symbolic.sh
+	bash $(TEST_DIR)/test_lp_symbolic.sh
 
 test-mutation:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3

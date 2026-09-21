@@ -86,6 +86,12 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   produce identical values there, so it is precision, not divergence.
 - `make test-grover` - Grover amplification matrix (classic unroll, `--symbolic`, `NL_*`)
   on f32/f64/f80/f128 and GMP; also `make test-grover-f128` / `test-grover-gmp`
+- `make test-lp-symbolic` - `--symbolic` sweep over every `LP-Grover`, `LP-PeriodFinding`
+  and `LP-QuantumCounting` circuit (`test_lp_symbolic.sh`), each under a wall-clock
+  cap (`MEDUSA_TEST_TIMEOUT`, 10 s) and an address-space cap (`MEDUSA_TEST_MEM_KB`,
+  2 GB). `tests/lp_symbolic_expected.txt` lists the circuits that must finish;
+  a crash, an empty digraph, or a timeout on one of those fails the suite, a
+  circuit that newly finishes is reported as `NEW` so it can be added. Nightly.
 - `make test-sylvan` - optional Sylvan backend (not the default product):
   replays `test_circuits` + `test_benchmarks` on `MEDUSA_sylvan_doubles_f128`,
   then harder Grover (05–07, NL_06, `--symbolic` 05), MCToffoli 12/16,
@@ -104,8 +110,9 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   segfaulted, a combination nothing had ever run
 - `make test-sylvan-metamorphic` - `test_metamorphic` relinked against Sylvan,
   across `SYLVAN_META_LEAF_TYPES`. ~170s per type, so it does not gate everyday
-  PRs into devel: `.github/workflows/nightly.yml` runs it nightly, on demand,
-  and on any PR into `main`, so it still gates the devel -> main merge.
+  PRs into devel: `.github/workflows/nightly.yml` runs it (and `test-lp-symbolic`)
+  nightly, on demand, and on any PR into `main`, so it still gates the
+  devel -> main merge.
   `make test-sylvan-all` is `test-sylvan` plus this
 
 MoToBuddy is the preferred backend. `make test` never requires Sylvan.
