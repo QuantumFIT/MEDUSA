@@ -150,10 +150,16 @@ run_mutant "classic_freefun_unregistered" \
     '/* mutant: mtbdd_register_free_function(lt_classic, freePimpl); */' \
     "unit"
 
+# The C++ path's epilogue moved outside its #else/#endif, so the C path runs it
+# too: after its own `*p_t = res2` it re-protects the intermediate `res`
+# (Bxc_c * T), drops the reference on res2 and returns `res` - a wrong result
+# and a refcount underflow. The search string is the epilogue as it stands in
+# gates.c today (protect first, then unprotect); if the epilogue changes, this
+# mutant fails to apply and test-mutation fails loudly (issue #26).
 run_mutant "toffoli_endif_epilogue" \
     "src/gates.c" \
-    '    qBDD_unprotect(*p_t);
-    qBDD_protect(res);
+    '    qBDD_protect(res);
+    qBDD_unprotect(*p_t);
     *p_t = res;
 #endif
 
@@ -162,8 +168,8 @@ run_mutant "toffoli_endif_epilogue" \
         snprintf(label, sizeof(label), "Toffoli(%u,%u,%u)", xt, xc1, xc2);' \
     '#endif
 
-    qBDD_unprotect(*p_t);
     qBDD_protect(res);
+    qBDD_unprotect(*p_t);
     *p_t = res;
 
     if (g_norm_track_enabled) {

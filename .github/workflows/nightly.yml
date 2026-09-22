@@ -104,3 +104,29 @@ jobs:
 
       - name: Symbolic LP sweep
         run: make test-lp-symbolic
+
+
+  # Targeted mutation testing: five known past bugs re-injected into the
+  # sources, each of which the unit suite must catch. Each mutant is a rebuild,
+  # so this is a few minutes rather than seconds, and it lives here rather than
+  # in tests.yml. A mutant that no longer applies because the code it targets
+  # was rewritten fails the job too - that is how #26 should have been noticed.
+  mutation:
+    name: Mutation tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+              libgmp-dev cmake g++ python3
+
+      - name: Build MoToBuddy
+        run: make init
+
+      - name: Mutation tests
+        run: make test-mutation
