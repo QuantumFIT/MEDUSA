@@ -54,10 +54,10 @@ PY
 }
 
 rebuild_unit() {
-    rm -f obj/buddy_doubles_f128/gates.o \
-          obj/buddy_doubles_f128/mtbdd.o \
-          obj/buddy_doubles_f128/interface_motobuddy.o \
-          obj/leaf_reim_double_f128.o \
+    rm -f obj/release/buddy_doubles_f128/gates.o \
+          obj/release/buddy_doubles_f128/mtbdd.o \
+          obj/release/buddy_doubles_f128/interface_motobuddy.o \
+          obj/release/leaf_reim_double_f128.o \
           test_unit_api \
           test_grover_f128
     make buddy_doubles_f128 test_unit_api LEAF_FLOAT_TYPE=3 -j"${NPROC}" >/dev/null 2>&1
