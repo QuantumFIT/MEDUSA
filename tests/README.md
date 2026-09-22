@@ -69,6 +69,7 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   what caught the missing `free_sim_info` in the test helpers. ~45s, of which
   metamorphic under valgrind is ~38s.
 - `make test-mutation` - targeted mutants of known past bugs; each must be **killed** by tests
+  (nightly in CI; a mutant whose search string no longer matches the sources fails the suite)
 - `make test-unit-leaf-types` - replays `test_unit_api` for every float leaf type
   (`LEAF_FLOAT_TYPE=0,1,2,3`). Representation-dependent bugs hide from a
   single-type run: the x87 80-bit `long double` carries its value in 10 of its 16
