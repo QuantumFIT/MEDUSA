@@ -175,3 +175,30 @@ jobs:
       # as errors, not just definitely-lost ones.
       - name: Run valgrind leak checks
         run: make test-leaks
+
+  # The debug build type (-O0 -g, separate object tree). Nothing else in CI
+  # compiles at -O0 except the coverage job, and that one only runs the C
+  # suites; this keeps `make BUILD=debug` - what gdb and valgrind sessions
+  # use - building and passing the unit and circuit suites.
+  test-debug-build:
+    name: Debug build (BUILD=debug)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+              libgmp-dev cmake g++ python3
+
+      - name: Build MoToBuddy
+        run: make init
+
+      - name: Unit and circuit suites on the debug build
+        run: |
+          make test-unit BUILD=debug
+          make test-circuits BUILD=debug
+          make test-unit-gmp BUILD=debug
