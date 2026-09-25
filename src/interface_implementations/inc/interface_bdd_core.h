@@ -38,6 +38,14 @@ typedef struct LEAF_TYPE {
  * BDD node construction and traversal
  * ************************************************************************* */
 
+/*
+ * Hot wrappers. These run once per node visited by every apply, so a backend
+ * may define them as static inline in its own header (included before this one)
+ * and define QBDD_HOT_OPS_INLINED to suppress the out-of-line prototypes here.
+ * MoToBuddy does; Sylvan keeps the out-of-line definitions in interface_sylvan.c.
+ */
+#ifndef QBDD_HOT_OPS_INLINED
+
 /**
  * @brief Creates a new internal qBDD node.
  * @param target Target variable number
@@ -109,6 +117,15 @@ qBDD qBDD_getLow(qBDD);
 qBDD qBDD_getHigh(qBDD);
 
 /**
+ * @brief Returns the level of a qBDD node in the decision diagram.
+ * @param  A qBDD node to query
+ * @return The level of the node, where 0 is the root level and higher numbers are deeper
+ */
+size_t qBDD_level(qBDD node);
+
+#endif /* QBDD_HOT_OPS_INLINED */
+
+/**
  * @brief Returns the variable index of an internal qBDD node.
  * @param  An internal qBDD node
  * @return The variable index this node branches on
@@ -136,14 +153,6 @@ qBDD qBDD_maketerminal(size_t, void*);
  * @return The number of terminal nodes reachable from the root
  */
 int qBDD_leafcount(qBDD);
-
-/**
- * @brief Returns the level of a qBDD node in the decision diagram.
- * @param  A qBDD node to query
- * @return The level of the node, where 0 is the root level and higher numbers are deeper
- */
-size_t qBDD_level(qBDD node);
-
 
 #ifdef __cplusplus
 }
