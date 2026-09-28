@@ -34,9 +34,10 @@ jobs:
       - name: Build MoToBuddy
         run: make init
 
-      # COVERAGE=1 switches CFLAGS to "-O0 -g --coverage". CFLAGS is used for
-      # both compiling and linking, so this instruments the objects and pulls
-      # in libgcov in one go.
+      # COVERAGE=1 selects the debug build type (-O0 -g) plus --coverage, into
+      # its own object tree (obj/coverage). CFLAGS is used for both compiling
+      # and linking, so this instruments the objects and pulls in libgcov in
+      # one go.
       - name: Run test suite with coverage instrumentation
         run: make test COVERAGE=1
 

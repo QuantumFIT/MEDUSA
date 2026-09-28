@@ -4,7 +4,7 @@
 # ==============================================================================
 
 SRC_DIR     := src
-OBJ_DIR     := obj
+OBJ_ROOT    := obj
 BIN_DIR     := .
 LIB_DIR     := lib
 BUDDY_DIR   := $(LIB_DIR)/MoToBuddy
@@ -18,7 +18,70 @@ MOTOBUDDY_COMMIT := 61b4195f8517a080185a824528d2e8fadcae8805
 # Source and object file lists
 # ==============================================================================
 
+# ==============================================================================
+# Build type
+#
+#   make                  release: -O2 -g, LTO on (fat objects, so LTO=0 relinks
+#                                  without a rebuild). What CI tests and what
+#                                  benchmarks measure.
+#   make BUILD=debug      debug:   -O0 -g, frame pointers. For gdb, valgrind and
+#                                  gcov: every local is visible, every line is
+#                                  its own line.
+#
+# COVERAGE=1 is the debug build plus --coverage; PROFILE=1 is an alias for
+# BUILD=debug kept for the README's callgrind recipe. USE_CXX=1 (C++ gates) and
+# MEDUSA_DEBUG=1 (the runtime event log, see below) stay independent knobs and
+# combine with either build type.
+#
+# Every distinct combination compiles into its own tree under obj/, so
+# switching between them never links stale objects and needs no clean:
+#   obj/release, obj/debug, obj/coverage, obj/release-cxx, obj/debug-dbglog, ...
+# ==============================================================================
+
+BUILD        ?= release
+COVERAGE     ?= 0
+PROFILE      ?= 0
 MEDUSA_DEBUG ?= 0
+USE_CXX      ?= 0
+LTO          ?= 1
+
+ifeq ($(PROFILE), 1)
+  BUILD := debug
+endif
+ifeq ($(COVERAGE), 1)
+  BUILD := debug
+endif
+
+ifeq ($(BUILD), release)
+  CFLAGS := -O2 -g
+  ifeq ($(LTO), 1)
+    CFLAGS += -flto=auto -ffat-lto-objects
+  endif
+else ifeq ($(BUILD), debug)
+  CFLAGS := -O0 -g -fno-omit-frame-pointer
+else
+  $(error Unknown BUILD=$(BUILD); use release or debug)
+endif
+OBJ_TAG := $(BUILD)
+
+ifeq ($(COVERAGE), 1)
+  # CFLAGS is used for both compiling and linking, so --coverage in it
+  # instruments the objects and pulls in libgcov at link time. -O0 keeps the
+  # line attribution honest; optimised builds fold lines together.
+  CFLAGS  += --coverage
+  OBJ_TAG := coverage
+endif
+
+ifeq ($(USE_CXX), 1)
+  OBJ_TAG := $(OBJ_TAG)-cxx
+endif
+
+ifeq ($(MEDUSA_DEBUG), 1)
+  CFLAGS  += -DMEDUSA_DEBUG
+  OBJ_TAG := $(OBJ_TAG)-dbglog
+endif
+
+OBJ_DIR := $(OBJ_ROOT)/$(OBJ_TAG)
 
 SRCS             := $(wildcard $(SRC_DIR)/*.c)
 # medusa_debug.c is only needed when MEDUSA_DEBUG=1 (header provides inlines otherwise).
@@ -52,22 +115,11 @@ LEAF_OBJ_algebraic           := $(OBJ_DIR)/leaf_algebraic_mpz.o
 
 CC     := gcc
 CXX    := g++
-CFLAGS := -O2 -g
-
-# LTO=1 adds link-time optimisation: ~6 % faster on the apply-heavy benchmarks
-# on top of the inlined wrappers (issue #19). Fat objects keep the .o files
-# linkable by a later LTO=0 build, so switching does not need a clean.
-LTO ?= 0
-ifeq ($(LTO), 1)
-  CFLAGS += -flto=auto -ffat-lto-objects
-endif
 CLIBS  := -lgmp -lpthread -lm
 
 # USE_CXX=1 compiles gates.c as C++ (enables mtbdd_traverse_to/mtbdd_swap path)
 # and also compiles sim_mosf.cpp (MOSF simulation support).
 # All other files are always compiled with gcc.
-USE_CXX ?= 0
-
 ifeq ($(USE_CXX), 1)
   GATES_CC      := $(CXX)
   GATES_FLAGS   := -x c++ -std=c++17 -fext-numeric-literals -g
@@ -82,36 +134,13 @@ endif
 
 # ==============================================================================
 # Medusa debug tracing (GC / protect / symb flakes)
-# Usage: make buddy_doubles_f128 MEDUSA_DEBUG=1
+# Usage: make buddy_doubles_f128 MEDUSA_DEBUG=1   (with either BUILD)
 # Runtime: MEDUSA_DEBUG=gc,symb,norm MEDUSA_DEBUG_FILE=/tmp/medusa.jsonl
 # See src/medusa_debug.h
+#
+# Coverage (gcov, reported to Codecov by CI): make test COVERAGE=1, then
+# make coverage-report. Both are wired into the build-type block above.
 # ==============================================================================
-
-ifeq ($(MEDUSA_DEBUG), 1)
-  CFLAGS += -DMEDUSA_DEBUG
-endif
-
-PROFILE ?= 0
-
-ifeq ($(PROFILE), 1)
-  # Disable optimisation so callgrind sees real call graph;
-  # keep -g so source annotations work.
-  CFLAGS := -O0 -g
-endif
-
-# ==============================================================================
-# Coverage instrumentation (gcov), used by CI to report to Codecov.
-# Usage: make test COVERAGE=1   then   make coverage-report
-# CFLAGS is used for both compiling and linking here, so --coverage in it
-# instruments the objects and pulls in libgcov at link time. -O0 keeps the
-# line attribution honest; optimised builds fold lines together.
-# ==============================================================================
-
-COVERAGE ?= 0
-
-ifeq ($(COVERAGE), 1)
-  CFLAGS := -O0 -g --coverage
-endif
 
 # ==============================================================================
 # Float type selection for buddy_doubles
@@ -238,7 +267,8 @@ help:
 	@echo "  make buddy_gmp        algebraic GMP leaves (MoToBuddy)"
 	@echo "  make buddy_doubles_f32|f64|f80|f128|all"
 	@echo "  make USE_CXX=1 ...    C++ tree gates + MOSF (MoToBuddy only, experimental)"
-	@echo "  make LTO=1 ...        link-time optimisation (~6 % faster apply-heavy runs)"
+	@echo "  make BUILD=debug ...  -O0 -g for gdb/valgrind/gcov (default: release, -O2 -g + LTO)"
+	@echo "  make LTO=0 ...        release without link-time optimisation"
 	@echo "  make init             clone/pin MoToBuddy @ $(MOTOBUDDY_COMMIT) and build"
 	@echo "  make init-sylvan      clone and build lib/sylvan (optional; Lace via CMake)"
 	@echo "  make sylvan_gmp       algebraic GMP leaves on Sylvan (C path, no MOSF)"
@@ -433,11 +463,11 @@ test-sylvan:
 	$(MAKE) test-sylvan-leaf-types
 	$(MAKE) test-grover-sylvan
 
-# MOSF, the JSON input path. Deliberately does not force USE_CXX=1: that build
-# shares $(DOUBLES_OBJ_DIR) with the C one, so forcing it here would rebuild
-# the world twice inside a plain `make test`. Instead it uses whatever binary
-# the current settings produce, and test_mosf.sh skips itself when MOSF is not
-# compiled in. So `make test` skips it and `make test USE_CXX=1` runs it.
+# MOSF, the JSON input path. Deliberately does not force USE_CXX=1: forcing it
+# here would build a second binary inside a plain `make test`. Instead it uses
+# whatever binary the current settings produce, and test_mosf.sh skips itself
+# when MOSF is not compiled in. So `make test` skips it and `make test USE_CXX=1`
+# runs it.
 test-mosf:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
 	@chmod +x $(TEST_DIR)/test_mosf.sh
@@ -750,7 +780,7 @@ test-mutation:
 	bash $(TEST_DIR)/test_mutation.sh
 
 # Instrumented build + full suite + Cobertura XML for Codecov.
-# clean-artifacts first: reusing non-instrumented objects would report no data.
+# clean-artifacts first so stale .gcda counts from an earlier run do not add in.
 # Default product (MoToBuddy, all leaf types). Needs no optional dependency.
 coverage:
 	$(MAKE) clean-artifacts
@@ -759,11 +789,12 @@ coverage:
 	$(MAKE) coverage-report
 
 # Coverage for the C++ gate implementations (the #else branches of the
-# __cplusplus splits in gates.c / gates_symb.c). USE_CXX=1 writes into the same
-# $(DOUBLES_OBJ_DIR) as the C build, so the two profiles would clobber one
-# another: this target starts from a clean tree, and CI keeps it in its own job.
-# The report goes to a separate file because the two builds instrument
-# different line sets of the same sources; Codecov unions them via flags.
+# __cplusplus splits in gates.c / gates_symb.c). The C and C++ builds have their
+# own object trees (obj/coverage vs obj/coverage-cxx), but gcovr reads every
+# .gcda under the tree, so this target still starts clean and CI keeps it in
+# its own job. The report goes to a separate file because the two builds
+# instrument different line sets of the same sources; Codecov unions them via
+# flags.
 coverage-cxx:
 	$(MAKE) clean-artifacts
 	$(MAKE) test USE_CXX=1 COVERAGE=1
@@ -979,7 +1010,7 @@ make-sylvan: download-sylvan
 	if [ ! -d deps/lace ]; then git clone --branch v1.4.1 --depth 1 https://github.com/trolando/lace.git deps/lace; fi && \
 	mkdir -p build && \
 	cd build && \
-	cmake .. -DCMAKE_BUILD_TYPE=$(if $(filter 1,$(PROFILE)),RelWithDebInfo,Release) \
+	cmake .. -DCMAKE_BUILD_TYPE=$(if $(filter debug,$(BUILD)),RelWithDebInfo,Release) \
 	         -DFETCHCONTENT_SOURCE_DIR_LACE="$(CURDIR)/sylvan/deps/lace" && \
 	$(MAKE) -j$(N_JOBS)
 
@@ -991,7 +1022,7 @@ make-motobuddy: download-motobuddy
 	mkdir -p build && \
 	cd build && \
 	cmake .. -DCMAKE_CXX_STANDARD=17 \
-	         -DCMAKE_BUILD_TYPE=$(if $(filter 1,$(PROFILE)),RelWithDebInfo,Release) && \
+	         -DCMAKE_BUILD_TYPE=$(if $(filter debug,$(BUILD)),RelWithDebInfo,Release) && \
 	make -j$(N_JOBS) buddy
 
 download-motobuddy:
@@ -1018,7 +1049,7 @@ clean-all: clean-artifacts clean-deps clean-benchmark
 
 clean-artifacts:
 	rm -rf $(EXEC) $(F_OUT_NAME).dot $(F_OUT_NAME).$(OF_TYPE) \
-	       $(LONG_NUMS_OUT_FILE) $(OBJ_DIR) \
+	       $(LONG_NUMS_OUT_FILE) $(OBJ_ROOT) \
 	       MEDUSA_buddy_doubles_f32 MEDUSA_buddy_doubles_f64 \
 	       MEDUSA_buddy_doubles_f80 MEDUSA_buddy_doubles_f128 \
 	       MEDUSA_buddy_gmp \

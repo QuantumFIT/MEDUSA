@@ -27,6 +27,21 @@ make
 ```
 `make help` lists all targets.
 
+### Build types
+
+| | flags | object tree | use |
+|---|---|---|---|
+| `make` (`BUILD=release`) | `-O2 -g`, LTO | `obj/release` | what CI tests and what benchmarks measure |
+| `make BUILD=debug` | `-O0 -g -fno-omit-frame-pointer` | `obj/debug` | gdb, valgrind, gcov: every local visible, every line its own line |
+
+Both produce the same binary names (`./MEDUSA_buddy_doubles_f128`, ...), so a
+debug build overwrites the release binary; the object trees are separate, so
+switching back is a relink, not a rebuild. `COVERAGE=1` is the debug build plus
+`--coverage` (`obj/coverage`); `PROFILE=1` is kept as an alias for `BUILD=debug`.
+`LTO=0` gives a release build without link-time optimisation; `USE_CXX=1` and
+`MEDUSA_DEBUG=1` combine with either type and get their own trees
+(`obj/release-cxx`, `obj/debug-dbglog`, ...).
+
 Optional Sylvan backend (C gates only):
 ```
 make init-sylvan
@@ -67,7 +82,7 @@ See `tests/README.md`.
 
 ### Coverage
 
-`COVERAGE=1` switches the build to `-O0 -g --coverage`, so the suites record
+`COVERAGE=1` selects the debug build (`-O0 -g`) plus `--coverage`, so the suites record
 gcov data. Reports are produced with [gcovr](https://gcovr.com/)
 (`apt install gcovr`) as a Cobertura `coverage.xml`:
 ```
@@ -99,15 +114,16 @@ When leaf values are very large, substitute variable names are used in `res.dot`
 
 ## Profiling
 
-To profile with Valgrind's callgrind tool, build with `PROFILE=1`:
+To profile with Valgrind's callgrind tool, use the debug build (`PROFILE=1` is an alias):
 ```
-make PROFILE=1
+make BUILD=debug
 ```
 This disables optimisation (`-O0`) and keeps debug symbols so callgrind can annotate sources. Then run:
 ```
 valgrind --tool=callgrind ./MEDUSA --file benchmarks/...
 callgrind_annotate callgrind.out.<pid>
 ```
+For wall-clock profiles of the optimised code use `perf record` on the default release build instead; it keeps `-g`, so symbols resolve.
 
 ## Citing MEDUSA
 
