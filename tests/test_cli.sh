@@ -187,6 +187,27 @@ QASM
 check "parse-first-invalid-index" nonzero "outside the declared register" \
       "${BIN}" --file "${WORKDIR}/bad/edge_first_invalid.qasm"
 
+# Measurement targets are bounded too, and the classical index gets its own
+# diagnostic (get_c_idx): c[5] on a 2-bit register must be reported as a *bit*
+# index, not a qubit one. Both statement forms reach the check - the
+# `measure q -> c` form reads the qubit first, the OpenQASM 3 `c = measure q`
+# form reads the bit first - so each gets a rejected and an accepted case.
+for form in arrow assign; do
+    if [[ "${form}" == arrow ]]; then
+        bad_stmt='measure q[0] -> c[5];'; good_stmt='measure q[1] -> c[1];'
+    else
+        bad_stmt='c[5] = measure q[0];';  good_stmt='c[1] = measure q[1];'
+    fi
+    printf 'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[2] q;\nbit[2] c;\nh q[0];\n%s\n' \
+        "${bad_stmt}" >"${WORKDIR}/bad/measure_bit_${form}.qasm"
+    printf 'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[2] q;\nbit[2] c;\nh q[0];\n%s\n' \
+        "${good_stmt}" >"${WORKDIR}/bad/measure_ok_${form}.qasm"
+    check "parse-measure-bit-out-of-range-${form}" nonzero "bit index c\[5\] is outside" \
+          "${BIN}" --file "${WORKDIR}/bad/measure_bit_${form}.qasm"
+    check "parse-measure-last-bit-${form}" 0 "" \
+          "${BIN}" --file "${WORKDIR}/bad/measure_ok_${form}.qasm"
+done
+
 # An empty file declares no qubit register, so nothing is simulated and there
 # is no result to report. That is a failure rather than a trivial success, and
 # since #13 the exit status says so.
