@@ -53,6 +53,14 @@ LEAF_OBJ_algebraic           := $(OBJ_DIR)/leaf_algebraic_mpz.o
 CC     := gcc
 CXX    := g++
 CFLAGS := -O2 -g
+
+# LTO=1 adds link-time optimisation: ~6 % faster on the apply-heavy benchmarks
+# on top of the inlined wrappers (issue #19). Fat objects keep the .o files
+# linkable by a later LTO=0 build, so switching does not need a clean.
+LTO ?= 0
+ifeq ($(LTO), 1)
+  CFLAGS += -flto=auto -ffat-lto-objects
+endif
 CLIBS  := -lgmp -lpthread -lm
 
 # USE_CXX=1 compiles gates.c as C++ (enables mtbdd_traverse_to/mtbdd_swap path)
@@ -230,6 +238,7 @@ help:
 	@echo "  make buddy_gmp        algebraic GMP leaves (MoToBuddy)"
 	@echo "  make buddy_doubles_f32|f64|f80|f128|all"
 	@echo "  make USE_CXX=1 ...    C++ tree gates + MOSF (MoToBuddy only, experimental)"
+	@echo "  make LTO=1 ...        link-time optimisation (~6 % faster apply-heavy runs)"
 	@echo "  make init             clone/pin MoToBuddy @ $(MOTOBUDDY_COMMIT) and build"
 	@echo "  make init-sylvan      clone and build lib/sylvan (optional; Lace via CMake)"
 	@echo "  make sylvan_gmp       algebraic GMP leaves on Sylvan (C path, no MOSF)"
@@ -934,6 +943,11 @@ $(SYLVAN_GMP_OBJ_DIR) $(SYLVAN_DOUBLES_OBJ_DIR):
 
 -include $(OBJS_BUDDY_GMP:.o=.d)
 -include $(OBJS_BUDDY_DOUBLES:.o=.d)
+# The leaf objects live outside the per-backend object dirs, so their .d files
+# need including too - otherwise a header-only change (e.g. the inline wrappers
+# in interface_motobuddy.h) leaves them stale and the link fails.
+-include $(LEAF_OBJ_double:.o=.d) $(LEAF_OBJ_reim:.o=.d)
+-include $(OBJ_DIR)/leaf_primitive_mpz.d $(OBJ_DIR)/leaf_algebraic_mpz.d
 -include $(OBJS_SYLVAN_GMP:.o=.d)
 -include $(OBJS_SYLVAN_DOUBLES:.o=.d)
 

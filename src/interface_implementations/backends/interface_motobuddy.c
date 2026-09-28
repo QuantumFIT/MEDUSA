@@ -86,73 +86,9 @@ size_t qBDD_classicLType() {
     return lt_classic;
 }
 
-size_t qBDD_level(qBDD node) {
-    return LEVEL(node);
-}
-/* 
- * Reference counting
- */
-
-qBDD qBDD_protect(qBDD toProtect) {
-    qBDD r = bdd_addref(toProtect);
-    /* Noisy: enable with MEDUSA_DEBUG=protect */
-    MEDUSA_DBG(.cat = MEDUSA_DBG_PROTECT, .evt = "protect", .where = "qBDD_protect",
-               .use_bdd = 1, .bdd = (int)toProtect,
-               .ref = medusa_dbg_bdd_ref((int)toProtect),
-               .is_false = qBDD_isFalse(toProtect), .leaves = 0);
-    return r;
-}
-
-qBDD qBDD_unprotect(qBDD toUnprotect) {
-    int ref_before = medusa_dbg_bdd_ref((int)toUnprotect);
-    qBDD r = bdd_delref(toUnprotect);
-    /* Noisy: enable with MEDUSA_DEBUG=protect (or protect,gc,...) */
-    MEDUSA_DBG(.cat = MEDUSA_DBG_PROTECT, .evt = "unprotect", .where = "qBDD_unprotect",
-               .use_bdd = 1, .bdd = (int)toUnprotect,
-               .ref = medusa_dbg_bdd_ref((int)toUnprotect),
-               .is_false = qBDD_isFalse(toUnprotect), .leaves = 0,
-               .note = (ref_before == 1) ? "ref_was_1" : NULL);
-    return r;
-}
-
-
-/* 
- * Node classification
- */
-
-int qBDD_isFalse(qBDD toCheck) {
-    return toCheck == bdd_false();
-}
-
-int qBDD_isTerminal(qBDD toCheck) {
-    return ISCONST(toCheck) || ISTERMINAL(toCheck);
-}
-
-int qBDD_isInternal(qBDD toCheck) {
-    return !ISTERMINAL(toCheck) && !ISCONST(toCheck);
-}
-
-
 /* 
  * Node construction
  */
-
-qBDD qBDD_false() {
-    return bdd_false();
-}
-
-qBDD qBDD_true() {
-    return bdd_true();
-}
-
-qBDD newqBDD(unsigned int target, qBDD lhs, qBDD rhs) {
-    /* Children must stay live if makenode triggers GC (CUSTOM terminals are refcou=0). */
-    PUSHREF(lhs);
-    PUSHREF(rhs);
-    qBDD res = bdd_makenode(target, READREF(2), READREF(1));
-    POPREF(2);
-    return res;
-}
 
 qBDD qBDD_maketerminal(size_t type, void* valuep) {
     return mtbdd_maketerminal(valuep, type);
@@ -161,14 +97,6 @@ qBDD qBDD_maketerminal(size_t type, void* valuep) {
 /*
  * Node traversal
  */
-
-qBDD qBDD_getHigh(qBDD a) {
-    return HIGH(a);
-}
-
-qBDD qBDD_getLow(qBDD a) {
-    return LOW(a);
-}
 
 size_t qBDD_getVar(qBDD a) {
     return bdd_var(a);
