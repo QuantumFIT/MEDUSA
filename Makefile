@@ -9,10 +9,11 @@ BIN_DIR     := .
 LIB_DIR     := lib
 BUDDY_DIR   := $(LIB_DIR)/MoToBuddy
 
-# MoToBuddy commit that keys the op-cache on the full size_t param (rotation angles).
+# MoToBuddy commit: op-cache keyed on the full size_t param (rotation angles), and
+# mtbdd_findterminal skips internal nodes sharing a hash bucket (#34).
 # Pin like Sylvan's tag so `make init` does not silently keep an old clone.
 MOTOBUDDY_REPO   := https://github.com/VeriFIT/MoToBuddy.git
-MOTOBUDDY_COMMIT := 61b4195f8517a080185a824528d2e8fadcae8805
+MOTOBUDDY_COMMIT := 32ec8c6b9966fadd3cc3ed249ce478ea7639b46b
 
 # ==============================================================================
 # Source and object file lists
