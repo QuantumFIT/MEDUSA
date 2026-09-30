@@ -130,6 +130,14 @@ run_one "MOGrover-03"     "${ROOT}/benchmarks/no-measure/MOGrover/03.qasm"
 
 run_one "LP-PF-07" "${ROOT}/benchmarks/no-measure/LP-PeriodFinding/07_03_05_0.qasm"
 run_one "LP-QC-07" "${ROOT}/benchmarks/no-measure/LP-QuantumCounting/07_03_05_0.qasm"
+# Regression guard for the MoToBuddy mtbdd_findterminal fix (#34). The old
+# lookup walked hash buckets shared with internal nodes without checking the
+# level, so it could hand back an internal node for a leaf value; on this
+# circuit under f128 the diagram then grew past 2M nodes and never finished
+# (>30 s). Fixed, it takes ~4 s with 1914 terminals and unit norm. Capped so a
+# regression fails here instead of hanging the job.
+TIMEOUT_SEC="${MEDUSA_TEST_TIMEOUT:-60}" \
+    run_one "LP-QC-08-findterminal" "${ROOT}/benchmarks/no-measure/LP-QuantumCounting/08_04_05_0.qasm"
 
 run_one "RevLib-peres" "${ROOT}/benchmarks/no-measure/RevLib/peres_9.qasm"
 run_one "RevLib-4gt11" "${ROOT}/benchmarks/no-measure/RevLib/4gt11_84.qasm"
