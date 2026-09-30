@@ -34,8 +34,15 @@ extern mtbdd_terminal_type lt_classic;
 extern mtbdd_terminal_type lt_symb_map;
 extern mtbdd_terminal_type lt_symb_val;
 
+/* Debug-only NaN probe for hot leaf ops. Call on an intermediate re/im
+ * component after arithmetic and before snap_pimpl(); label names the site.
+ * Release builds compile it away - snap() still aborts on NaN. */
+#ifdef MEDUSA_DEBUG
 #define SNAP_CHECK(x, label) \
     do { if (LEAF_ISNAN((x)[0])) { \
-        printf( "NaN at: %s\n", label); abort(); } } while(0)
+        printf("NaN at: %s\n", label); abort(); } } while (0)
+#else
+#define SNAP_CHECK(x, label) ((void)0)
+#endif
 
 #endif /* LEAF_REIM_DOUBLE_H */
