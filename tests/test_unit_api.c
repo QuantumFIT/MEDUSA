@@ -13,6 +13,8 @@
 #include "medusa_mem_track.h"
 
 #include <stdint.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 /* Complete the opaque leaf layout used by LEAF_BACKEND_DOUBLES (must match
  * leaf_reim_double.c). Needed only for constructing/inspecting leaves in tests. */
@@ -749,8 +751,111 @@ static void test_leaf_ops_null_and_cancel(void) {
     LEAF_TYPE sum = addLeaf(a, neg);
     TEST_ASSERT_MSG(sum.pImpl == NULL, "a + (-a) must be NULL leaf (false)");
 
+    /* subLeaf both-non-null cancel (covers LEAF_ZERO path never hit via gates) */
+    LEAF_TYPE diff = subLeaf(a, a);
+    TEST_ASSERT_MSG(diff.pImpl == NULL, "a - a must be NULL leaf (false)");
+
+    /* Both-non-null, non-zero result: first && clause must take the false edge */
+    LEAF_TYPE c = make_leaf(1.0, 2.0);
+    LEAF_TYPE d = make_leaf(3.0, 4.0);
+    LEAF_TYPE sum_nz = addLeaf(c, d);
+    TEST_ASSERT(sum_nz.pImpl != NULL);
+    TEST_ASSERT_NEAR(to_double_generic(sum_nz.pImpl->re), 4.0, UNIT_EPS(1e-12));
+    buddy_free_unused_result(wrap_owned(sum_nz));
+    LEAF_TYPE diff_nz = subLeaf(d, c);
+    TEST_ASSERT(diff_nz.pImpl != NULL);
+    TEST_ASSERT_NEAR(to_double_generic(diff_nz.pImpl->re), 2.0, UNIT_EPS(1e-12));
+    buddy_free_unused_result(wrap_owned(diff_nz));
+    destroy_owned_leaf(&c);
+    destroy_owned_leaf(&d);
+
+    /* re cancels, im does not: second clause of && must evaluate false */
+    LEAF_TYPE b = make_leaf(-0.5, 0.1);
+    LEAF_TYPE partial = addLeaf(a, b);
+    TEST_ASSERT(partial.pImpl != NULL);
+    TEST_ASSERT_NEAR(to_double_generic(partial.pImpl->re), 0.0, UNIT_EPS(1e-12));
+    TEST_ASSERT_NEAR(to_double_generic(partial.pImpl->im), 0.35, UNIT_EPS(1e-12));
+    buddy_free_unused_result(wrap_owned(partial));
+
+    LEAF_TYPE partial_sub_b = make_leaf(0.5, 0.0);
+    LEAF_TYPE partial_sub = subLeaf(a, partial_sub_b);
+    TEST_ASSERT(partial_sub.pImpl != NULL);
+    TEST_ASSERT_NEAR(to_double_generic(partial_sub.pImpl->re), 0.0, UNIT_EPS(1e-12));
+    TEST_ASSERT_NEAR(to_double_generic(partial_sub.pImpl->im), 0.25, UNIT_EPS(1e-12));
+    buddy_free_unused_result(wrap_owned(partial_sub));
+    destroy_owned_leaf(&partial_sub_b);
+    destroy_owned_leaf(&b);
+
     buddy_free_unused_result(wrap_owned(neg));
     destroy_owned_leaf(&a);
+}
+
+static void test_rz_leaf_zero_result(void) {
+    TEST_SECTION("rz_low/high_leaf free when result is exact zero");
+
+    /* Non-canonical zero pImpl (not the NULL false leaf) still rounds to NULL. */
+    LEAF_TYPE zero = make_leaf(0.0, 0.0);
+    double theta = 0.0;
+    size_t theta0 = 0;
+    memcpy(&theta0, &theta, sizeof(double));
+
+    LEAF_TYPE rlow = rz_low_leaf(zero, theta0);
+    TEST_ASSERT_MSG(rlow.pImpl == NULL, "rz_low of 0 must be NULL");
+    LEAF_TYPE rhigh = rz_high_leaf(zero, theta0);
+    TEST_ASSERT_MSG(rhigh.pImpl == NULL, "rz_high of 0 must be NULL");
+
+    /* re==0, im!=0: first && clause true, second false */
+    LEAF_TYPE imag = make_leaf(0.0, 1.0);
+    LEAF_TYPE keep = rz_low_leaf(imag, theta0);
+    TEST_ASSERT(keep.pImpl != NULL);
+    TEST_ASSERT_NEAR(to_double_generic(keep.pImpl->im), 1.0, UNIT_EPS(1e-12));
+    buddy_free_unused_result(wrap_owned(keep));
+
+    LEAF_TYPE keep_h = rz_high_leaf(imag, theta0);
+    TEST_ASSERT(keep_h.pImpl != NULL);
+    buddy_free_unused_result(wrap_owned(keep_h));
+
+    destroy_owned_leaf(&zero);
+    destroy_owned_leaf(&imag);
+}
+
+static void test_medusa_mem_get_null_args(void) {
+    TEST_SECTION("medusa_mem_get tolerates NULL out-params");
+
+    medusa_mem_reset();
+    medusa_mem_note_pimpl_alloc();
+    medusa_mem_note_pimpl_free();
+    medusa_mem_note_wrap_alloc();
+
+    size_t a = 99, f = 99, w = 99;
+    medusa_mem_get(NULL, &f, &w);
+    TEST_ASSERT(f == 1 && w == 1);
+    medusa_mem_get(&a, NULL, &w);
+    TEST_ASSERT(a == 1 && w == 1);
+    medusa_mem_get(&a, &f, NULL);
+    TEST_ASSERT(a == 1 && f == 1);
+    medusa_mem_get(NULL, NULL, NULL);
+}
+
+static void test_snap_nan_aborts(void) {
+    TEST_SECTION("snap(NaN) prints and exits");
+
+    pid_t pid = fork();
+    TEST_ASSERT_MSG(pid >= 0, "fork failed");
+    if (pid == 0) {
+        /* Production snap_pimpl path (coverage attributed to leaf sources). */
+        if (freopen("/dev/null", "w", stdout) == NULL) { /* keep going */ }
+        if (freopen("/dev/null", "w", stderr) == NULL) { /* keep going */ }
+        LEAF_TYPE nan_leaf = make_leaf(NAN, 0.0);
+        LEAF_TYPE other = make_leaf(1.0, 0.0);
+        (void)addLeaf(nan_leaf, other);
+        _exit(0); /* unreachable if snap aborts */
+    }
+
+    int status = 0;
+    TEST_ASSERT(waitpid(pid, &status, 0) == pid);
+    TEST_ASSERT_MSG(WIFEXITED(status) && WEXITSTATUS(status) == 1,
+        "snap(NaN) must exit(1)");
 }
 
 static void test_maketerminal_dedup_preserves_stored_value(void) {
@@ -1159,6 +1264,9 @@ int main(void) {
     test_clone_independent_of_source();
     test_apply_equal_result_free_does_not_touch_live();
     test_leaf_ops_null_and_cancel();
+    test_rz_leaf_zero_result();
+    test_medusa_mem_get_null_args();
+    test_snap_nan_aborts();
     test_terminal_hash_compare_consistency();
     test_hash_ignores_scalar_padding();
     test_terminal_compare_and_maketerminal();
