@@ -222,6 +222,7 @@ bool symb_refine(mtbdd_symb_t *symbc, rdata_t *rdata)
 
 void symb_eval(qBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata)
 {
+#ifdef MEDUSA_DEBUG
     size_t pa = 0, pf = 0, wa = 0;
     medusa_mem_get(&pa, &pf, &wa);
     MEDUSA_DBG(.cat = MEDUSA_DBG_SYMB, .evt = "eval_enter", .where = "symb_eval",
@@ -229,6 +230,7 @@ void symb_eval(qBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata)
                .is_false = qBDD_isFalse(*circ), .leaves = qBDD_leafcount(*circ),
                .use_iters = 1, .iters = iters,
                .use_mem = 1, .pimpl_live = pa - pf, .wrap_allocs = wa);
+#endif
 
     coef_t *new_map = my_malloc(sizeof(coef_t) * symbc->vm->msize);
 
