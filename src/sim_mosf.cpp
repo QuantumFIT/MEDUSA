@@ -7,7 +7,7 @@
  */
 
 #include "sim_mosf.h"
-#include "../lib/MoToBuddy/src/mosf_parser.h"
+#include "mosf_parser.h"  /* MoToBuddy src/ is on the include path in both builds */
 #include "interface.h"
 
 
