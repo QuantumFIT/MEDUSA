@@ -14,6 +14,7 @@ BUDDY_DIR   := $(LIB_DIR)/MoToBuddy
 # bddcalc example no longer needs flex/bison to configure, and node and cache
 # hashing are cheaper (no divisions, fewer multiplications).
 # Pin like Sylvan's tag so `make init` does not silently keep an old clone.
+# Keep in sync with MEDUSA_MOTOBUDDY_COMMIT in CMakeLists.txt while both builds exist.
 MOTOBUDDY_REPO   := https://github.com/VeriFIT/MoToBuddy.git
 MOTOBUDDY_COMMIT := 3f9b6b412493be23b437ae82a596fdd198b161e4
 

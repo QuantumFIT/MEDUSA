@@ -17,6 +17,7 @@ MEDUSA_*
 /test_stress_f128
 /test_stress_gmp
 /obj
+/build
 
 # Scratch / local dumps
 tmp_*

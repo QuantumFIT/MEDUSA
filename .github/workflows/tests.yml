@@ -202,3 +202,37 @@ jobs:
           make test-unit BUILD=debug
           make test-circuits BUILD=debug
           make test-unit-gmp BUILD=debug
+
+  # The CMake build, alongside the Makefile until CI moves over to it. One
+  # configure builds every variant (MoToBuddy f32/f64/f80/f128/GMP, each with the
+  # C and the C++ gate path) and CTest runs the default-product, C++-gate and
+  # memory suites from that single build tree - the same checks as the
+  # "MoToBuddy", "C++ gate implementations" and "Stress and leak checks" jobs.
+  # MoToBuddy is fetched at the commit pinned in CMakeLists.txt.
+  cmake:
+    name: CMake build (all variants, ctest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+              libgmp-dev cmake g++ python3 valgrind
+
+      - name: Show toolchain
+        run: |
+          gcc --version | head -1
+          cmake --version | head -1
+
+      - name: Configure
+        run: cmake --preset release
+
+      - name: Build
+        run: cmake --build --preset release -j "$(nproc)"
+
+      - name: Test (pr, cxx, memory)
+        run: ctest --test-dir build/release -L 'pr|cxx|memory' -j "$(nproc)" --output-on-failure

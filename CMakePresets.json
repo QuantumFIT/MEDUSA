@@ -1,0 +1,53 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "release",
+      "displayName": "Release (-O2 -g, LTO): what CI tests and benchmarks measure",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug (-O0 -g): gdb, valgrind",
+      "binaryDir": "${sourceDir}/build/debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "coverage",
+      "displayName": "Coverage (Debug + gcov)",
+      "binaryDir": "${sourceDir}/build/coverage",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "MEDUSA_COVERAGE": "ON" }
+    },
+    {
+      "name": "sylvan",
+      "displayName": "Release with the optional Sylvan backend",
+      "binaryDir": "${sourceDir}/build/sylvan",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "MEDUSA_SYLVAN": "ON" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "release",  "configurePreset": "release" },
+    { "name": "debug",    "configurePreset": "debug" },
+    { "name": "coverage", "configurePreset": "coverage" },
+    { "name": "sylvan",   "configurePreset": "sylvan" }
+  ],
+  "testPresets": [
+    {
+      "name": "pr", "configurePreset": "release",
+      "filter": { "include": { "label": "pr|cxx" } },
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "memory", "configurePreset": "release",
+      "filter": { "include": { "label": "memory" } },
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "sylvan", "configurePreset": "sylvan",
+      "filter": { "include": { "label": "sylvan" }, "exclude": { "label": "nightly" } },
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}
