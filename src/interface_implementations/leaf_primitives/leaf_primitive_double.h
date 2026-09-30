@@ -38,6 +38,7 @@ typedef float           leaf_scalar_t;
 #ifndef LEAF_ABS_EPS
 #define LEAF_ABS_EPS    1e-6f
 #endif
+#define LEAF_INV_ABS_EPS (LEAF_ONE / LEAF_ABS_EPS)
 #define LEAF_SQRT2INV   0.707106781f                // 1/sqrt(2), ~7 sig. digits
 
 /*  double  */
@@ -57,6 +58,7 @@ typedef double          leaf_scalar_t;
 #ifndef LEAF_ABS_EPS
 #define LEAF_ABS_EPS    1e-9
 #endif
+#define LEAF_INV_ABS_EPS (LEAF_ONE / LEAF_ABS_EPS)
 #define LEAF_SQRT2INV   M_SQRT1_2                   // 0.7071067811865475... from <math.h>
 
 /*  long double  */
@@ -76,6 +78,7 @@ typedef long double     leaf_scalar_t;
 #ifndef LEAF_ABS_EPS
 #define LEAF_ABS_EPS    1e-12L
 #endif
+#define LEAF_INV_ABS_EPS (LEAF_ONE / LEAF_ABS_EPS)
 #define LEAF_SQRT2INV   0.707106781186547524400844362104849039L  // 80-bit full precision
 
 /*  __float128  */
@@ -86,17 +89,25 @@ typedef __float128      leaf_scalar_t;
 #define LEAF_ROUND      roundq
 #define LEAF_ZERO       0.0q
 #define LEAF_ONE        1.0q
-#define LEAF_ABS        fabsq
 #define LEAF_SQRT       sqrtq
 #define LEAF_POW        powq
-#define LEAF_ISNAN(x)   isnanq(x)
+#define LEAF_ISNAN(x)   ((x) != (x))
 #ifndef LEAF_REL_EPS
 #define LEAF_REL_EPS    1e-28q
 #endif
 #ifndef LEAF_ABS_EPS
 #define LEAF_ABS_EPS    1e-32q
 #endif
+#define LEAF_INV_ABS_EPS (LEAF_ONE / LEAF_ABS_EPS)
 #define LEAF_SQRT2INV   M_SQRT1_2q
+
+/* Clear sign bit; avoids fabsq PLT on the hot snap path. */
+static inline leaf_scalar_t leaf_abs_q(leaf_scalar_t x) {
+    union { __float128 f; struct { uint64_t lo, hi; } u; } v = { .f = x };
+    v.u.hi &= ~((uint64_t)1 << 63);
+    return v.f;
+}
+#define LEAF_ABS(x) leaf_abs_q(x)
 
 #else
 #error "Unknown LEAF_FLOAT_TYPE"
@@ -129,12 +140,94 @@ typedef __float128      leaf_scalar_t;
 #define LEAF_SCALAR_HASH_BYTES sizeof(leaf_scalar_t)
 #endif
 
+/* Hot float ops are header-inlined, GMP/MPFR keep out-of-line defs. */
+#define LEAF_PRIMITIVE_OPS_INLINED 1
+
+static inline int cmp_generic(leaf_primitive_t a, leaf_primitive_t b) {
+    return !(a[0] == b[0]);
+}
+
+static inline void init_generic(leaf_primitive_t x) {
+    x[0] = LEAF_ZERO;
+}
+
+static inline void init_set_generic(leaf_primitive_t dst, leaf_primitive_t src) {
+    dst[0] = src[0];
+}
+
+static inline void clear_generic(leaf_primitive_t x) {
+    x[0] = LEAF_ZERO;
+}
+
+static inline void mul_ui_generic(leaf_primitive_t r, leaf_primitive_t x, unsigned long c) {
+    r[0] = x[0] * (leaf_scalar_t)c;
+}
+
+static inline void neg_generic(leaf_primitive_t r, leaf_primitive_t x) {
+    r[0] = -x[0];
+}
+
+static inline void add_generic(leaf_primitive_t r, leaf_primitive_t a, leaf_primitive_t b) {
+    r[0] = a[0] + b[0];
+}
+
+static inline void init_set_ui_generic(leaf_primitive_t x, unsigned long v) {
+    x[0] = (leaf_scalar_t)v;
+}
+
+static inline int sgn_generic(leaf_primitive_t x) {
+    leaf_scalar_t s = x[0];
+    if (s > LEAF_ZERO) return 1;
+    if (s < LEAF_ZERO) return -1;
+    return 0;
+}
+
+static inline void set_ui_generic(leaf_primitive_t x, unsigned long v) {
+    x[0] = (leaf_scalar_t)v;
+}
+
+static inline void set_generic(leaf_primitive_t dst, leaf_primitive_t src) {
+    dst[0] = src[0];
+}
+
+static inline void mul_generic(leaf_primitive_t r, leaf_primitive_t a, leaf_primitive_t b) {
+    r[0] = a[0] * b[0];
+}
+
+static inline void set_d_generic(leaf_primitive_t x, double v) {
+    x[0] = (leaf_scalar_t)v;
+}
+
+static inline void sub_generic(leaf_primitive_t r, leaf_primitive_t a, leaf_primitive_t b) {
+    r[0] = a[0] - b[0];
+}
+
+static inline void div_generic(leaf_primitive_t r, leaf_primitive_t a, leaf_primitive_t b) {
+    r[0] = a[0] / b[0];
+}
+
+static inline void mul_d_generic(leaf_primitive_t r, leaf_primitive_t x, double s) {
+    r[0] = x[0] * (leaf_scalar_t)s;
+}
+
+static inline void mul_sqrt2inv_generic(leaf_primitive_t r, leaf_primitive_t x) {
+    r[0] = x[0] * (leaf_scalar_t)LEAF_SQRT2INV;
+}
+
+static inline double to_double_generic(leaf_primitive_t x) {
+    return (double)x[0];
+}
+
 #endif /* LEAF_PRIMITIVE_DEFINED */
 
 static inline leaf_scalar_t snap(leaf_scalar_t x) {
-    if (LEAF_ISNAN(x)) {printf("ERROR: NaN detected. Possible numerical instability.\n"); exit(1);}
+    if (LEAF_ISNAN(x)) {
+        printf("ERROR: NaN detected. Possible numerical instability.\n");
+        exit(1);
+    }
     if (LEAF_ABS(x) < LEAF_ABS_EPS) return LEAF_ZERO;
-    return LEAF_ROUND(x / LEAF_ABS_EPS) * LEAF_ABS_EPS;
+    /* Multiply by the exact reciprocal - avoids soft-float __divtf3 on f128. */
+    return LEAF_ROUND(x * LEAF_INV_ABS_EPS) * LEAF_ABS_EPS;
 }
 
 #endif /* LEAF_PRIMITIVE_DOUBLE_H */

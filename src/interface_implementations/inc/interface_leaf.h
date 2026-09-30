@@ -176,6 +176,7 @@ LEAF_TYPE rz_high_leaf(LEAF_TYPE l, size_t param);
  */
 uint64_t hash_comb_generic(leaf_primitive_t data);
 
+#ifndef LEAF_PRIMITIVE_OPS_INLINED
 /**
  * @brief Compares two primitive leaf values for ordering.
  * @param a The first operand
@@ -306,6 +307,7 @@ void set_generic(leaf_primitive_t dst, leaf_primitive_t src);
  * @param b The second operand
  */
 void mul_generic(leaf_primitive_t r, leaf_primitive_t a, leaf_primitive_t b);
+#endif /* !LEAF_PRIMITIVE_OPS_INLINED */
 
 /**
  * @brief Multiplies a primitive leaf by a GMP integer scalar.
