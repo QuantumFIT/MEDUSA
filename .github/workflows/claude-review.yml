@@ -121,7 +121,7 @@ jobs:
           set -o pipefail
           # No symlinks in the tree the model can read: a PR could add one
           # pointing outside the checkout.
-          find . -path ./.git -prune -o -type l -print -delete
+          find . -type l -not -path './.git/*' -print -delete
           d="${REVIEW_DIR}"; mkdir -p "${d}"
           gh pr view "${PR}" --json title,body,files \
             --template '{{.title}}{{"\n\n"}}{{.body}}{{"\n\nFiles:\n"}}{{range .files}}{{.path}} (+{{.additions}}/-{{.deletions}}){{"\n"}}{{end}}' \
