@@ -101,7 +101,8 @@ typedef __float128      leaf_scalar_t;
 #define LEAF_INV_ABS_EPS (LEAF_ONE / LEAF_ABS_EPS)
 #define LEAF_SQRT2INV   M_SQRT1_2q
 
-/* Clear sign bit; avoids fabsq PLT on the hot snap path. */
+/* Clear sign bit; avoids fabsq PLT on the hot snap path.
+ * {lo, hi} is little-endian IEEE binary128 (x86); fine for every target we build. */
 static inline leaf_scalar_t leaf_abs_q(leaf_scalar_t x) {
     union { __float128 f; struct { uint64_t lo, hi; } u; } v = { .f = x };
     v.u.hi &= ~((uint64_t)1 << 63);
@@ -226,7 +227,9 @@ static inline leaf_scalar_t snap(leaf_scalar_t x) {
         exit(1);
     }
     if (LEAF_ABS(x) < LEAF_ABS_EPS) return LEAF_ZERO;
-    /* Multiply by the exact reciprocal - avoids soft-float __divtf3 on f128. */
+    /* Multiply by a precomputed reciprocal to avoid soft-float __divtf3 on f128.
+     * LEAF_INV_ABS_EPS is 1/fl(eps) rounded, so near a grid boundary this can
+     * snap to a different point than LEAF_ROUND(x / LEAF_ABS_EPS) would. */
     return LEAF_ROUND(x * LEAF_INV_ABS_EPS) * LEAF_ABS_EPS;
 }
 
