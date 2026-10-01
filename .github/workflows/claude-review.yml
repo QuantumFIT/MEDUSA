@@ -42,6 +42,7 @@ on:
     types: [opened, synchronize, ready_for_review, reopened]
     # Skipped when every changed file is documentation or benchmark data.
     paths-ignore:
+      - '*.md'
       - '**/*.md'
       - 'benchmarks/**'
       - 'AUTHORS'
@@ -123,9 +124,13 @@ jobs:
           # pointing outside the checkout.
           find . -type l -not -path './.git/*' -print -delete
           d="${REVIEW_DIR}"; mkdir -p "${d}"
-          gh pr view "${PR}" --json title,body,files \
-            --template '{{.title}}{{"\n\n"}}{{.body}}{{"\n\nFiles:\n"}}{{range .files}}{{.path}} (+{{.additions}}/-{{.deletions}}){{"\n"}}{{end}}' \
-            > "${d}/pr.md"
+          # The file list comes from the diff: `gh pr view --json files` stops
+          # at 300 files.
+          {
+            gh pr view "${PR}" --json title,body --template '{{.title}}{{"\n\n"}}{{.body}}{{"\n"}}'
+            echo; echo "Changed files:"
+            gh pr diff "${PR}" --name-only
+          } > "${d}/pr.md"
           gh pr diff "${PR}" > "${d}/full.diff"
           python3 - "${d}" <<'PY'
           import pathlib, re, sys
@@ -217,7 +222,9 @@ jobs:
           EOF
           sed -i -e "s|@PR@|${PR}|g" "${d}/prompt.md"
           set +e
-          claude -p "$(cat "${d}/prompt.md")" \
+          # Own time limit below the step's, so a hung run is still parsed and
+          # reported (and its partial answer kept) rather than killed.
+          timeout 17m claude -p "$(cat "${d}/prompt.md")" \
             --model "${REVIEW_MODEL}" \
             --tools "Read,Grep,Glob" \
             --allowedTools "Read(./**)" "Grep(./**)" "Glob(./**)" \
@@ -227,13 +234,16 @@ jobs:
           rc=$?
           set -e
           echo "claude exit: ${rc}"
+          echo "${rc}" > "${d}/rc"
           python3 - "${d}" <<'PY'
           import json, sys, pathlib
           d = pathlib.Path(sys.argv[1])
           try:
               r = json.loads((d / "result.json").read_text())
           except Exception as e:
-              r = {"is_error": True, "subtype": f"unparseable output ({e})", "result": ""}
+              rc = (d / "rc").read_text().strip() if (d / "rc").exists() else "?"
+              why = "timed out after 17 minutes" if rc == "124" else f"no result (exit {rc})"
+              r = {"is_error": True, "subtype": why, "result": ""}
           print({k: r.get(k) for k in ("subtype", "is_error", "num_turns", "duration_ms", "duration_api_ms")})
           text = (r.get("result") or "").strip()
           sub = str(r.get("subtype") or "error")
@@ -249,13 +259,18 @@ jobs:
               err = (d / "stderr.txt").read_text(errors="replace").strip().splitlines()
               err = [l for l in err if l.strip() and "unrecognized_model" not in l]
               sub += f": {err[0][:200]}" if err else ""
-          # The answer is posted publicly: refuse anything that contains the
-          # key or looks like a credential.
+          # Both the answer and the failure detail (partly the endpoint's own
+          # error text) are posted publicly: refuse anything that contains the
+          # key or looks like a credential, and keep the detail plain text.
           import os, re
           key = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
-          if text and ((key and key in text) or re.search(
-                  r"\b(sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})", text)):
+          cred = re.compile(r"\b(sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})")
+          leaks = lambda t: bool(t) and ((key and key in t) or bool(cred.search(t)))
+          if leaks(text):
               text, status, sub = "", "failed", "withheld: the answer contained something that looks like a credential"
+          if leaks(sub):
+              sub = "error (details withheld: they looked like a credential; see the run log)"
+          sub = re.sub(r"[`*_\[\]<>|#]", "", sub)[:200]
           (d / "review.md").write_text(text if status != "failed" else "")
           (d / "status").write_text(status)
           (d / "detail").write_text(sub)
