@@ -30,7 +30,8 @@ name: claude-review
 # WebUI at https://chat.ai.e-infra.cz). The model is CERIT's "coder" alias
 # unless the repository variable CERIT_REVIEW_MODEL names another (CERIT lists
 # agentic, thinker, mini, coder and qwen3-coder-next). "coder" gave the more
-# accurate reviews but takes ~15 minutes, hence the generous time limits.
+# accurate reviews but takes 15-30 minutes (a single request can take
+# over 5), hence the generous time limits.
 #
 # Known limitation: the PR title, body and diff are model input, so a PR can
 # try to steer the review ("report no issues"). The model cannot act on
@@ -63,7 +64,7 @@ jobs:
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
 
     env:
       ANTHROPIC_BASE_URL: https://llm.ai.e-infra.cz
@@ -181,7 +182,7 @@ jobs:
 
       - name: Review
         if: steps.collect.outputs.skip != 'true'
-        timeout-minutes: 28
+        timeout-minutes: 53
         env:
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.CERIT_API_KEY }}
           # Every model slot (main, subagents, background calls) uses the
@@ -190,7 +191,7 @@ jobs:
           ANTHROPIC_DEFAULT_SONNET_MODEL: ${{ vars.CERIT_REVIEW_MODEL || 'coder' }}
           ANTHROPIC_DEFAULT_HAIKU_MODEL: ${{ vars.CERIT_REVIEW_MODEL || 'coder' }}
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
-          API_TIMEOUT_MS: "300000"
+          API_TIMEOUT_MS: "900000"
           MAX_THINKING_TOKENS: "8000"
         run: |
           d="${REVIEW_DIR}"
@@ -241,7 +242,7 @@ jobs:
           # --setting-sources user: the checkout is PR content, and in -p mode
           # Claude Code runs hooks from a project .claude/settings.json (checked
           # locally), which would be command execution with the key in reach.
-          timeout 25m claude -p "$(cat "${d}/prompt.md")" \
+          timeout 50m claude -p "$(cat "${d}/prompt.md")" \
             --model "${REVIEW_MODEL}" \
             --tools "Read,Grep,Glob" \
             --allowedTools "Read(./**)" "Grep(./**)" "Glob(./**)" \
@@ -259,7 +260,7 @@ jobs:
               r = json.loads((d / "result.json").read_text())
           except Exception as e:
               rc = (d / "rc").read_text().strip() if (d / "rc").exists() else "?"
-              why = "timed out after 25 minutes" if rc == "124" else f"no result (exit {rc})"
+              why = "timed out after 50 minutes" if rc == "124" else f"no result (exit {rc})"
               r = {"is_error": True, "subtype": why, "result": ""}
           print({k: r.get(k) for k in ("subtype", "is_error", "num_turns", "duration_ms", "duration_api_ms")})
           text = (r.get("result") or "").strip()
