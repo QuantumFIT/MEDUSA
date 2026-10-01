@@ -19,14 +19,16 @@ name: claude-review
 #     A first version used claude-code-action, whose "auto" permission mode let
 #     the model run arbitrary shell commands; with CERIT's models it wandered
 #     off to inspect its own CI run and timed out without a review.
-#   - CERIT's models are not Claude ("agentic" is a Qwen model), so turns and
-#     thinking are capped and the prompt is explicit about the output format.
+#   - CERIT's models are not Claude ("coder" is currently GLM, "agentic"
+#     Qwen), so turns and thinking are capped and the prompt is explicit about
+#     the output format.
 #   - One comment per PR, updated in place on every push.
 #
 # The key is the repository secret CERIT_API_KEY (generated in the AI Chat
-# WebUI at https://chat.ai.e-infra.cz). The model is CERIT's "agentic" alias
+# WebUI at https://chat.ai.e-infra.cz). The model is CERIT's "coder" alias
 # unless the repository variable CERIT_REVIEW_MODEL names another (CERIT lists
-# agentic, thinker, mini, coder and qwen3-coder-next).
+# agentic, thinker, mini, coder and qwen3-coder-next). "coder" gave the more
+# accurate reviews but takes ~15 minutes, hence the generous time limits.
 #
 # Known limitation: the PR title, body and diff are model input, so a PR can
 # try to steer the review ("report no issues"). The model cannot act on
@@ -40,13 +42,9 @@ name: claude-review
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
-    # Skipped when every changed file is documentation or benchmark data.
-    paths-ignore:
-      - '*.md'
-      - '**/*.md'
-      - 'benchmarks/**'
-      - 'AUTHORS'
-      - 'LICENSE'
+    # No paths-ignore: a PR that changes only documentation or benchmark data
+    # is skipped by the Collect step instead, which can still mark an earlier
+    # review as stale (paths-ignore would leave it looking current).
 
 permissions:
   contents: read
@@ -63,11 +61,11 @@ jobs:
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
 
     env:
       ANTHROPIC_BASE_URL: https://llm.ai.e-infra.cz
-      REVIEW_MODEL: ${{ vars.CERIT_REVIEW_MODEL || 'agentic' }}
+      REVIEW_MODEL: ${{ vars.CERIT_REVIEW_MODEL || 'coder' }}
       PR: ${{ github.event.pull_request.number }}
       # Inside the checkout, so the model's path-scoped tools can read it.
       REVIEW_DIR: ${{ github.workspace }}/claude-review-input
@@ -153,28 +151,41 @@ jobs:
           d.joinpath("pr.diff").write_text(out)
           print(f"diff: {len(full)} bytes, {len(files)} files, {len(dropped)} not shown")
           d.joinpath("nfiles").write_text(str(len(files)))
+          skip = lambda n: (n.endswith(".md") or n.startswith("benchmarks/")
+                            or n in ("AUTHORS", "LICENSE"))
+          if files and all(skip(name(p)) for p in files):
+              d.joinpath("docs-only").touch()
           PY
+          # The model is pointed at pr.diff; the untrimmed diff must not be
+          # within its reach, or the cut would not hold.
+          rm -f "${d}/full.diff"
           if [ "$(cat "${d}/nfiles")" = "0" ]; then
             echo "empty=true" >> "${GITHUB_OUTPUT}"
             echo "Empty diff; nothing to review."
+          elif [ -f "${d}/docs-only" ]; then
+            # Not reviewed, but an earlier review must not look current.
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+            echo failed > "${d}/status"
+            echo "skipped: the PR changes only documentation or benchmark data" > "${d}/detail"
+            echo "Only documentation or benchmark data changed; not reviewing."
           fi
 
       # Pinned, from npm: a fixed CLI version rather than a remote install
       # script piped into a shell.
       - name: Install Claude Code
-        if: steps.collect.outputs.empty != 'true'
+        if: steps.collect.outputs.empty != 'true' && steps.collect.outputs.skip != 'true'
         run: npm install -g @anthropic-ai/claude-code@2.1.286
 
       - name: Review
-        if: steps.collect.outputs.empty != 'true'
-        timeout-minutes: 20
+        if: steps.collect.outputs.empty != 'true' && steps.collect.outputs.skip != 'true'
+        timeout-minutes: 28
         env:
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.CERIT_API_KEY }}
           # Every model slot (main, subagents, background calls) uses the
           # configured model, so CERIT_REVIEW_MODEL really switches the run.
-          ANTHROPIC_DEFAULT_OPUS_MODEL: ${{ vars.CERIT_REVIEW_MODEL || 'agentic' }}
-          ANTHROPIC_DEFAULT_SONNET_MODEL: ${{ vars.CERIT_REVIEW_MODEL || 'agentic' }}
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: ${{ vars.CERIT_REVIEW_MODEL || 'agentic' }}
+          ANTHROPIC_DEFAULT_OPUS_MODEL: ${{ vars.CERIT_REVIEW_MODEL || 'coder' }}
+          ANTHROPIC_DEFAULT_SONNET_MODEL: ${{ vars.CERIT_REVIEW_MODEL || 'coder' }}
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: ${{ vars.CERIT_REVIEW_MODEL || 'coder' }}
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
           API_TIMEOUT_MS: "300000"
           MAX_THINKING_TOKENS: "8000"
@@ -224,7 +235,7 @@ jobs:
           set +e
           # Own time limit below the step's, so a hung run is still parsed and
           # reported (and its partial answer kept) rather than killed.
-          timeout 17m claude -p "$(cat "${d}/prompt.md")" \
+          timeout 25m claude -p "$(cat "${d}/prompt.md")" \
             --model "${REVIEW_MODEL}" \
             --tools "Read,Grep,Glob" \
             --allowedTools "Read(./**)" "Grep(./**)" "Glob(./**)" \
@@ -242,7 +253,7 @@ jobs:
               r = json.loads((d / "result.json").read_text())
           except Exception as e:
               rc = (d / "rc").read_text().strip() if (d / "rc").exists() else "?"
-              why = "timed out after 17 minutes" if rc == "124" else f"no result (exit {rc})"
+              why = "timed out after 25 minutes" if rc == "124" else f"no result (exit {rc})"
               r = {"is_error": True, "subtype": why, "result": ""}
           print({k: r.get(k) for k in ("subtype", "is_error", "num_turns", "duration_ms", "duration_api_ms")})
           text = (r.get("result") or "").strip()
@@ -299,6 +310,10 @@ jobs:
             echo "::warning::Could not list PR comments; not posting (${status}: ${detail})."
             exit 0
           fi
+          if [ -f "${d}/docs-only" ] && [ -z "${id}" ]; then
+            echo "Nothing reviewed and no earlier review to mark; not posting."
+            exit 0
+          fi
           if [ "${status}" = "failed" ] && [ -n "${id}" ]; then
             # Keep the earlier review, but mark it as not covering this commit.
             gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${id}" --jq .body > "${d}/old.md"
@@ -307,7 +322,7 @@ jobs:
           d, sha, detail, run = pathlib.Path(sys.argv[1]), *sys.argv[2:]
           body = d.joinpath("old.md").read_text()
           body = re.sub(r"(?m)^> \*\*Stale:\*\*.*\n\n", "", body)
-          note = (f"> **Stale:** the review of {sha} did not complete ({detail}); "
+          note = (f"> **Stale:** {sha} was not reviewed ({detail}); "
                   f"the findings below are for the commit named in the heading. [Run]({run})\n\n")
           head, sep, rest = body.partition("\n")            # marker line
           heading, sep2, rest = rest.partition("\n")        # "### ..." line
