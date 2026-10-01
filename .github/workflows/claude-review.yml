@@ -100,6 +100,7 @@ jobs:
           if [ "${size}" -gt "${limit}" ]; then
             head -c "${limit}" "${RUNNER_TEMP}/review/full.diff" > "${RUNNER_TEMP}/review/pr.diff"
             printf '\n\n[diff truncated: %s of %s bytes shown]\n' "${limit}" "${size}" >> "${RUNNER_TEMP}/review/pr.diff"
+            echo "${limit} ${size}" > "${RUNNER_TEMP}/review/truncated"
           else
             cp "${RUNNER_TEMP}/review/full.diff" "${RUNNER_TEMP}/review/pr.diff"
           fi
@@ -114,7 +115,6 @@ jobs:
         timeout-minutes: 15
         env:
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.CERIT_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.CERIT_API_KEY }}
           ANTHROPIC_DEFAULT_OPUS_MODEL: thinker
           ANTHROPIC_DEFAULT_SONNET_MODEL: agentic
           ANTHROPIC_DEFAULT_HAIKU_MODEL: mini
@@ -178,13 +178,26 @@ jobs:
               r = {"is_error": True, "subtype": f"unparseable output ({e})", "result": ""}
           print({k: r.get(k) for k in ("subtype", "is_error", "num_turns", "duration_ms", "duration_api_ms")})
           text = (r.get("result") or "").strip()
-          ok = bool(text) and not r.get("is_error")
-          (d / "review.md").write_text(text if ok else "")
-          (d / "status").write_text("ok" if ok else str(r.get("subtype") or "error"))
+          sub = str(r.get("subtype") or "error")
+          if text and not r.get("is_error"):
+              status = "ok"
+          elif text and sub.startswith("error_max"):
+              status = "partial"          # cut short by a cap: still worth posting
+          else:
+              status = "failed"
+              err = (d / "stderr.txt").read_text(errors="replace").strip().splitlines()
+              err = [l for l in err if l.strip() and "unrecognized_model" not in l]
+              sub += f": {err[0][:200]}" if err else ""
+          (d / "review.md").write_text(text if status != "failed" else "")
+          (d / "status").write_text(status)
+          (d / "detail").write_text(sub)
           PY
           echo "--- stderr (first 20 lines) ---"; head -20 "${d}/stderr.txt" || true
 
       # One comment per PR, found by a hidden marker and edited on later runs.
+      # A failed run leaves an earlier review in place (it only warns), so a
+      # flaky endpoint cannot erase a review someone already read. Advisory:
+      # this step never fails the job.
       - name: Post the review
         if: always()
         env:
@@ -193,25 +206,38 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           d="${RUNNER_TEMP}/review"
-          status=$(cat "${d}/status" 2>/dev/null || echo "not run")
+          status=$(cat "${d}/status" 2>/dev/null || echo "failed")
+          detail=$(cat "${d}/detail" 2>/dev/null || echo "the review step did not run")
+          id=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --paginate \
+                 --jq '.[] | select(.body | startswith("<!-- claude-review -->")) | .id' | tail -1)
+          if [ "${status}" = "failed" ] && [ -n "${id}" ]; then
+            echo "::warning::Review did not complete (${detail}); keeping the earlier review comment."
+            exit 0
+          fi
           {
             echo "<!-- claude-review -->"
             echo "### Claude Code review (CERIT, model \`${REVIEW_MODEL}\`) of ${SHA:0:7}"
             echo
-            if [ "${status}" = "ok" ]; then
-              cat "${d}/review.md"
-            else
-              echo "_The review did not complete (${status}); see [the run](${RUN_URL})._"
+            if [ -f "${d}/truncated" ]; then
+              read -r shown total < "${d}/truncated"
+              echo "> Reviewed the first ${shown} of ${total} diff bytes; the rest of this PR was not examined."
+              echo
             fi
+            case "${status}" in
+              ok) cat "${d}/review.md" ;;
+              partial)
+                echo "> The review was cut short (${detail}); findings so far:"
+                echo
+                cat "${d}/review.md" ;;
+              *) echo "_The review did not complete (${detail}); see [the run](${RUN_URL})._" ;;
+            esac
             echo
             echo "<sub>Automated and advisory: it may be wrong, and it does not block merging. [Run](${RUN_URL}).</sub>"
           } > "${d}/comment.md"
-          id=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --paginate \
-                 --jq '.[] | select(.body | startswith("<!-- claude-review -->")) | .id' | tail -1)
           if [ -n "${id}" ]; then
             gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${id}" -F body=@"${d}/comment.md" > /dev/null
             echo "updated comment ${id}"
           else
             gh pr comment "${PR}" --body-file "${d}/comment.md"
           fi
-          [ "${status}" = "ok" ]
+          if [ "${status}" != "ok" ]; then echo "::warning::Review ${status}: ${detail}"; fi
