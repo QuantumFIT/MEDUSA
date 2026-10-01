@@ -44,8 +44,11 @@ jobs:
         with:
           fetch-depth: 1
 
-      # Fail early with a readable message when the secret is missing or the
-      # endpoint rejects it, instead of a long Claude Code run that errors out.
+      # Fail early, with a readable message, when the secret is missing or the
+      # endpoint cannot serve Claude Code: a one-token /v1/messages request with
+      # each header style CERIT might check, then the same request streamed (as
+      # Claude Code sends it), each timed. Prints status codes, timings and the
+      # model's reply to "Reply with OK" only - this repository is public.
       - name: Check CERIT endpoint and key
         env:
           CERIT_API_KEY: ${{ secrets.CERIT_API_KEY }}
@@ -54,21 +57,34 @@ jobs:
             echo "::error::Repository secret CERIT_API_KEY is not set."
             exit 1
           fi
-          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
-                   -H "Authorization: Bearer ${CERIT_API_KEY}" \
-                   "${ANTHROPIC_BASE_URL%/}/v1/models")
-          echo "GET ${ANTHROPIC_BASE_URL%/}/v1/models -> HTTP ${code}"
-          case "${code}" in
-            401|403)
-              echo "::error::CERIT rejected the key (HTTP ${code}); check CERIT_API_KEY."
-              exit 1 ;;
-            000)
-              echo "::error::Could not reach ${ANTHROPIC_BASE_URL}."
-              exit 1 ;;
-            200) ;;
-            *)
-              echo "::warning::Unexpected HTTP ${code} from the model list; trying the review anyway." ;;
-          esac
+          url="${ANTHROPIC_BASE_URL%/}/v1/messages"
+          body='{"model":"agentic","max_tokens":16,"messages":[{"role":"user","content":"Reply with OK"}]}'
+          probe() {  # label, stream(true|false), header...
+            local label=$1 stream=$2; shift 2
+            local b=${body%\}}",\"stream\":${stream}}"
+            local out code t
+            out=$(curl -sS --max-time 120 -o resp.txt -w '%{http_code} %{time_starttransfer} %{time_total}' \
+                    -H 'content-type: application/json' -H 'anthropic-version: 2023-06-01' \
+                    "$@" -d "$b" "$url") || out="000 - -"
+            read -r code ttfb t <<<"$out"
+            echo "${label}: HTTP ${code}, first byte ${ttfb}s, total ${t}s"
+            if [ -s resp.txt ]; then head -c 300 resp.txt | tr '\n' ' '; echo; fi
+            rm -f resp.txt
+            echo "${code}" > "code_${label}"
+          }
+          probe bearer   false -H "Authorization: Bearer ${CERIT_API_KEY}"
+          probe x-api-key false -H "x-api-key: ${CERIT_API_KEY}"
+          probe stream   true  -H "Authorization: Bearer ${CERIT_API_KEY}" -H "x-api-key: ${CERIT_API_KEY}"
+          for l in bearer x-api-key stream; do
+            c=$(cat "code_$l"); rm -f "code_$l"
+            case "$c" in
+              200) ;;
+              401|403) echo "::error::CERIT rejected the key (${l}: HTTP ${c})."; fail=1 ;;
+              000) echo "::error::No response from ${url} (${l})."; fail=1 ;;
+              *) echo "::warning::${l}: HTTP ${c}" ;;
+            esac
+          done
+          [ -z "${fail:-}" ]
 
       - name: Review
         uses: anthropics/claude-code-action@v1
@@ -85,7 +101,8 @@ jobs:
                 "ANTHROPIC_DEFAULT_OPUS_MODEL": "thinker",
                 "ANTHROPIC_DEFAULT_SONNET_MODEL": "agentic",
                 "ANTHROPIC_DEFAULT_HAIKU_MODEL": "mini",
-                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+                "API_TIMEOUT_MS": "300000"
               }
             }
           claude_args: |
