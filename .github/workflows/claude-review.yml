@@ -86,66 +86,14 @@ jobs:
           done
           [ -z "${fail:-}" ]
 
-      # TEMPORARY diagnostic (remove once the review completes): run the Claude
-      # Code CLI directly on a trivial task with stream-json logging, to see
-      # per-turn latency and any API errors against CERIT - the action hides
-      # its output. Only event types and timings go to the job log; the full
-      # event log is a short-lived artifact. Tools are limited to Read.
-      - name: Diagnose Claude Code against CERIT
-        continue-on-error: true
-        timeout-minutes: 12
-        env:
-          ANTHROPIC_AUTH_TOKEN: ${{ secrets.CERIT_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.CERIT_API_KEY }}
-          ANTHROPIC_MODEL: agentic
-          ANTHROPIC_DEFAULT_OPUS_MODEL: thinker
-          ANTHROPIC_DEFAULT_SONNET_MODEL: agentic
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: mini
-          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
-          API_TIMEOUT_MS: "300000"
-        run: |
-          curl -fsSL https://claude.ai/install.sh | bash >/dev/null 2>&1
-          export PATH="$HOME/.local/bin:$PATH"
-          claude --version
-          start=$(date +%s)
-          timeout 600 claude -p "Read README.md and reply with the number of lines it has, nothing else." \
-            --model agentic --max-turns 4 --allowedTools Read \
-            --output-format stream-json --verbose > claude-diag.jsonl 2> claude-diag.err || echo "claude exit: $?"
-          echo "elapsed: $(( $(date +%s) - start ))s"
-          python3 - <<'PYEOF'
-          import json, time
-          for i, line in enumerate(open("claude-diag.jsonl")):
-              try:
-                  e = json.loads(line)
-              except Exception:
-                  print(i, "non-json", len(line)); continue
-              t = e.get("type"); st = e.get("subtype", "")
-              extra = ""
-              if t == "assistant":
-                  kinds = [c.get("type") for c in e.get("message", {}).get("content", [])]
-                  extra = f"content={kinds}"
-              if t == "result":
-                  extra = {k: e.get(k) for k in ("is_error", "num_turns", "duration_ms", "duration_api_ms", "stop_reason")}
-              if t == "system" and st == "api_retry" or "error" in line[:200].lower():
-                  extra = line[:300]
-              print(i, t, st, extra)
-          PYEOF
-          echo "--- stderr (first 40 lines, secrets masked by Actions) ---"; head -40 claude-diag.err
-
-      - name: Upload diagnostic log
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: claude-diag
-          path: |
-            claude-diag.jsonl
-            claude-diag.err
-          retention-days: 3
-          if-no-files-found: ignore
-
       - name: Review
+        timeout-minutes: 15
         uses: anthropics/claude-code-action@v1
         with:
+          # TEMPORARY: show Claude Code's output to find where the review
+          # stalls. Tools are limited to public PR/repo reads and GitHub masks
+          # secrets; switch off again before merging.
+          show_full_output: true
           anthropic_api_key: ${{ secrets.CERIT_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           use_sticky_comment: true
