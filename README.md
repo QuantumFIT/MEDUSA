@@ -49,6 +49,28 @@ make sylvan_doubles          # ./MEDUSA_sylvan_doubles_f128
 make sylvan_gmp              # ./MEDUSA_sylvan_gmp
 ```
 
+### Building with CMake
+
+The CMake build is being introduced alongside the Makefile and will replace it.
+One configure builds every variant side by side - MoToBuddy with f32, f64, f80,
+f128 and GMP leaves, each with the C and the C++ gate path - and CTest runs the
+suites from that one tree, in parallel. MoToBuddy is fetched at the pinned
+commit; no `make init` is needed.
+```
+cmake --preset release                 # build/release: -O2 -g, LTO
+cmake --build --preset release -j
+ctest --preset pr -j                   # the per-PR suites (C and C++ gates)
+ctest --test-dir build/release -L memory -j   # stress + valgrind
+```
+Binaries land in `build/<preset>/bin/` under the Makefile's names
+(`MEDUSA_buddy_doubles_f128`, `MEDUSA_buddy_gmp`, ...), with a `_cxx` suffix for
+the C++ gate path. Presets: `release`, `debug` (`-O0 -g`), `coverage` (debug +
+gcov) and `sylvan` (adds the Sylvan variants). Options: `MEDUSA_FLOAT_TYPES`,
+`MEDUSA_GMP`, `MEDUSA_CXX_GATES`, `MEDUSA_SYLVAN`, `MEDUSA_LTO`,
+`MEDUSA_DEBUG_LOG`, `MEDUSA_LEAF_ABS_EPS` / `MEDUSA_LEAF_REL_EPS`. Test labels:
+`pr`, `cxx`, `memory`, `sylvan`, `nightly`. Mutation testing (`make
+test-mutation`) is Makefile-only for now.
+
 ## Backends
 
 The default product is MoToBuddy, selectable at compile time by leaf type:

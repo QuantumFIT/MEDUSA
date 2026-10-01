@@ -12,6 +12,7 @@ BUDDY_DIR   := $(LIB_DIR)/MoToBuddy
 # MoToBuddy commit: op-cache keyed on the full size_t param (rotation angles), and
 # mtbdd_findterminal skips internal nodes sharing a hash bucket (#34).
 # Pin like Sylvan's tag so `make init` does not silently keep an old clone.
+# Keep in sync with MEDUSA_MOTOBUDDY_COMMIT in CMakeLists.txt while both builds exist.
 MOTOBUDDY_REPO   := https://github.com/VeriFIT/MoToBuddy.git
 MOTOBUDDY_COMMIT := 32ec8c6b9966fadd3cc3ed249ce478ea7639b46b
 
