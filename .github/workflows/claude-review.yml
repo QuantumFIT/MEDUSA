@@ -1,0 +1,132 @@
+name: claude-review
+
+# Automated code review of pull requests by Claude Code, run against the
+# CERIT-SC LLM service (Anthropic-compatible API) instead of api.anthropic.com:
+# https://docs.cerit.io/en/docs/ai-as-a-service/llm-integration
+#
+# The key is the repository secret CERIT_API_KEY (generated in the AI Chat
+# WebUI at https://chat.ai.e-infra.cz). It is passed twice: as
+# `anthropic_api_key`, which claude-code-action requires and sends as
+# `x-api-key`, and as ANTHROPIC_AUTH_TOKEN, the Bearer token CERIT documents.
+# Model names are CERIT's aliases, not Anthropic model ids.
+#
+# The review is advisory: it posts comments and never approves or blocks.
+# It runs only for PRs from branches of this repository - pull requests from
+# forks get no secrets - and skips drafts.
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# A new push supersedes a review still in progress.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Claude Code review (CERIT)
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      ANTHROPIC_BASE_URL: https://llm.ai.e-infra.cz/
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      # Fail early with a readable message when the secret is missing or the
+      # endpoint rejects it, instead of a long Claude Code run that errors out.
+      - name: Check CERIT endpoint and key
+        env:
+          CERIT_API_KEY: ${{ secrets.CERIT_API_KEY }}
+        run: |
+          if [ -z "${CERIT_API_KEY}" ]; then
+            echo "::error::Repository secret CERIT_API_KEY is not set."
+            exit 1
+          fi
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+                   -H "Authorization: Bearer ${CERIT_API_KEY}" \
+                   "${ANTHROPIC_BASE_URL%/}/v1/models")
+          echo "GET ${ANTHROPIC_BASE_URL%/}/v1/models -> HTTP ${code}"
+          case "${code}" in
+            401|403)
+              echo "::error::CERIT rejected the key (HTTP ${code}); check CERIT_API_KEY."
+              exit 1 ;;
+            000)
+              echo "::error::Could not reach ${ANTHROPIC_BASE_URL}."
+              exit 1 ;;
+            200) ;;
+            *)
+              echo "::warning::Unexpected HTTP ${code} from the model list; trying the review anyway." ;;
+          esac
+
+      - name: Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.CERIT_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          use_sticky_comment: true
+          settings: |
+            {
+              "env": {
+                "ANTHROPIC_BASE_URL": "https://llm.ai.e-infra.cz/",
+                "ANTHROPIC_AUTH_TOKEN": "${{ secrets.CERIT_API_KEY }}",
+                "ANTHROPIC_MODEL": "agentic",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL": "thinker",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL": "agentic",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "mini",
+                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+              }
+            }
+          claude_args: |
+            --model agentic
+            --max-turns 40
+            --allowedTools "Read,Grep,Glob,mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            You are reviewing a pull request to MEDUSA, a quantum circuit
+            simulator in C (with an optional C++ gate path) built on
+            multi-terminal BDDs from the MoToBuddy library (lib/, fetched
+            separately - not in this checkout). Get the diff with
+            `gh pr diff ${{ github.event.pull_request.number }}` and the
+            description with `gh pr view ${{ github.event.pull_request.number }}`.
+            Read surrounding code with Read/Grep/Glob where the diff alone is
+            not enough. Keep the review to the changed code.
+
+            Look for, in this order:
+            1. Correctness bugs: wrong results, crashes, undefined behaviour,
+               integer overflow, off-by-one, NaN/zero handling in leaf
+               arithmetic.
+            2. Reference-counting and GC safety: every qBDD that must survive a
+               later apply is qBDD_protect-ed and later qBDD_unprotect-ed
+               exactly once; nothing is used after its last unprotect; leaf
+               values (LEAF_TYPE / pImpl) are freed exactly once.
+            3. Memory leaks and missing error handling on new allocation or
+               I/O paths.
+            4. Performance regressions on hot paths (apply callbacks, leaf ops,
+               per-gate code), and changes to numerical behaviour (snapping,
+               epsilons) that alter results.
+            5. Missing or weak tests for the behaviour that changed, and build
+               or CI changes that break the Makefile or CMake builds.
+
+            Rules:
+            - Report only issues you can point at in the diff, with a concrete
+              failure scenario. No style nits, no praise, no restating what the
+              PR does.
+            - Use inline comments (mcp__github_inline_comment__create_inline_comment)
+              for specific lines, one issue per comment.
+            - Finish with one summary comment via `gh pr comment`: a short list
+              of the findings ranked by severity, or a single sentence saying
+              you found no issues. Say plainly when you are unsure.
