@@ -7,8 +7,15 @@ name: claude-review
 # How it runs, and why this shape:
 #   - The workflow, not the model, fetches the PR (diff and description) and
 #     posts the result. The model only reads: Claude Code gets the Read, Grep
-#     and Glob tools and nothing else (--tools), every other request is denied
-#     (--permission-mode dontAsk), and no GitHub token is in its environment.
+#     and Glob tools and nothing else (--tools), each limited to the checkout
+#     (Read(./**) etc.), every other request is denied (--permission-mode
+#     dontAsk), and no GitHub token is in its environment.
+#   - Its answer is posted publicly, and its environment necessarily holds the
+#     CERIT key, so it must not be able to read anything outside the checkout:
+#     the PR inputs are placed inside it, symlinks are removed from it (a PR
+#     could add one pointing at /proc/self/environ), the path rules deny
+#     everything else - verified locally against a decoy file - and the
+#     answer is scanned for the key and common token formats before posting.
 #     A first version used claude-code-action, whose "auto" permission mode let
 #     the model run arbitrary shell commands; with CERIT's models it wandered
 #     off to inspect its own CI run and timed out without a review.
@@ -55,12 +62,14 @@ jobs:
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     env:
-      ANTHROPIC_BASE_URL: https://llm.ai.e-infra.cz/
+      ANTHROPIC_BASE_URL: https://llm.ai.e-infra.cz
       REVIEW_MODEL: ${{ vars.CERIT_REVIEW_MODEL || 'agentic' }}
       PR: ${{ github.event.pull_request.number }}
+      # Inside the checkout, so the model's path-scoped tools can read it.
+      REVIEW_DIR: ${{ github.workspace }}/claude-review-input
 
     steps:
       - uses: actions/checkout@v7
@@ -86,13 +95,19 @@ jobs:
                   -d "${body}" "${ANTHROPIC_BASE_URL%/}/v1/messages") || out="000 -"
           read -r code ttfb <<<"${out}"
           echo "model ${REVIEW_MODEL}: HTTP ${code}, first byte ${ttfb}s"
-          if [ -s resp.txt ]; then grep -o '"model": *"[^"]*"' resp.txt | head -1; fi
+          if [ -s resp.txt ]; then grep -o '"model": *"[^"]*"' resp.txt | head -1 || true; fi
+          # A streamed reply can be HTTP 200 and still carry an error event.
+          if grep -q '"type": *"error"' resp.txt 2>/dev/null; then
+            echo "::warning::CERIT answered with an error event for model ${REVIEW_MODEL}; the review may fail."
+          fi
           rm -f resp.txt
+          # Fatal only for what will certainly break the review (the key, the
+          # connection); anything else is reported and the review is tried.
           case "${code}" in
             200) ;;
             401|403) echo "::error::CERIT rejected the key (HTTP ${code})."; exit 1 ;;
             000) echo "::error::No response from ${ANTHROPIC_BASE_URL}."; exit 1 ;;
-            *) echo "::error::CERIT returned HTTP ${code} for model ${REVIEW_MODEL}."; exit 1 ;;
+            *) echo "::warning::CERIT returned HTTP ${code} for model ${REVIEW_MODEL}; trying the review anyway." ;;
           esac
 
       # The PR as the model sees it. Large diffs are cut at file boundaries,
@@ -104,7 +119,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -o pipefail
-          d="${RUNNER_TEMP}/review"; mkdir -p "${d}"
+          # No symlinks in the tree the model can read: a PR could add one
+          # pointing outside the checkout.
+          find . -path ./.git -prune -o -type l -print -delete
+          d="${REVIEW_DIR}"; mkdir -p "${d}"
           gh pr view "${PR}" --json title,body,files \
             --template '{{.title}}{{"\n\n"}}{{.body}}{{"\n\nFiles:\n"}}{{range .files}}{{.path}} (+{{.additions}}/-{{.deletions}}){{"\n"}}{{end}}' \
             > "${d}/pr.md"
@@ -126,7 +144,7 @@ jobs:
           out = "".join(kept)
           if dropped:
               out += "\n[diff cut at file boundaries; not shown: " + ", ".join(dropped) + "]\n"
-              d.joinpath("truncated").write_text(f"{len(kept)} {len(files)} " + " ".join(dropped))
+              d.joinpath("truncated").write_text(f"{len(kept)} {len(files)} " + " ".join(dropped) + "\n")
           d.joinpath("pr.diff").write_text(out)
           print(f"diff: {len(full)} bytes, {len(files)} files, {len(dropped)} not shown")
           d.joinpath("nfiles").write_text(str(len(files)))
@@ -144,7 +162,7 @@ jobs:
 
       - name: Review
         if: steps.collect.outputs.empty != 'true'
-        timeout-minutes: 15
+        timeout-minutes: 20
         env:
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.CERIT_API_KEY }}
           # Every model slot (main, subagents, background calls) uses the
@@ -156,17 +174,18 @@ jobs:
           API_TIMEOUT_MS: "300000"
           MAX_THINKING_TOKENS: "8000"
         run: |
-          d="${RUNNER_TEMP}/review"
+          d="${REVIEW_DIR}"
           # Quoted heredoc: nothing in the prompt is expanded by the shell.
-          # @PR@ and @DIR@ are filled in by sed below.
+          # @PR@ is filled in by sed below.
           cat > "${d}/prompt.md" <<'EOF'
           You are reviewing pull request #@PR@ of MEDUSA, a quantum circuit
           simulator in C (with an optional C++ gate path) built on
           multi-terminal BDDs from the MoToBuddy library. MoToBuddy itself is
           not in this checkout; the MEDUSA sources are under src/ and tests/.
 
-          The pull request description is in @DIR@/pr.md and its diff in
-          @DIR@/pr.diff. Read both first. If the diff ends with a note that
+          The pull request description is in claude-review-input/pr.md and its
+          diff in claude-review-input/pr.diff (relative to the current
+          directory, which is the repository checkout). Read both first. If the diff ends with a note that
           some files are not shown, say which in your answer. Then read surrounding source files
           with Read, Grep and Glob only where the diff alone is not enough.
           Review the changed code only. Do not investigate the CI environment,
@@ -196,13 +215,14 @@ jobs:
           "**file:line** - the problem, then the scenario where it goes wrong";
           or, if you found nothing, the single line "No issues found."
           EOF
-          sed -i -e "s|@PR@|${PR}|g" -e "s|@DIR@|${d}|g" "${d}/prompt.md"
+          sed -i -e "s|@PR@|${PR}|g" "${d}/prompt.md"
           set +e
           claude -p "$(cat "${d}/prompt.md")" \
             --model "${REVIEW_MODEL}" \
-            --tools "Read,Grep,Glob" --allowedTools "Read,Grep,Glob" \
+            --tools "Read,Grep,Glob" \
+            --allowedTools "Read(./**)" "Grep(./**)" "Glob(./**)" \
             --permission-mode dontAsk --strict-mcp-config \
-            --add-dir "${d}" --max-turns 25 \
+            --max-turns 40 \
             --output-format json < /dev/null > "${d}/result.json" 2> "${d}/stderr.txt"
           rc=$?
           set -e
@@ -221,11 +241,21 @@ jobs:
               status = "ok"
           elif text and sub.startswith("error_max"):
               status = "partial"          # cut short by a cap: still worth posting
+          elif sub.startswith("error_max"):
+              status = "failed"
+              sub += " (the model used up its turns without writing a review)"
           else:
               status = "failed"
               err = (d / "stderr.txt").read_text(errors="replace").strip().splitlines()
               err = [l for l in err if l.strip() and "unrecognized_model" not in l]
               sub += f": {err[0][:200]}" if err else ""
+          # The answer is posted publicly: refuse anything that contains the
+          # key or looks like a credential.
+          import os, re
+          key = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
+          if text and ((key and key in text) or re.search(
+                  r"\b(sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})", text)):
+              text, status, sub = "", "failed", "withheld: the answer contained something that looks like a credential"
           (d / "review.md").write_text(text if status != "failed" else "")
           (d / "status").write_text(status)
           (d / "detail").write_text(sub)
@@ -238,16 +268,22 @@ jobs:
       # this step never fails the job.
       - name: Post the review
         if: always() && steps.collect.outputs.empty != 'true'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          d="${RUNNER_TEMP}/review"
+          set -o pipefail
+          d="${REVIEW_DIR}"; mkdir -p "${d}"
           status=$(cat "${d}/status" 2>/dev/null || echo "failed")
-          detail=$(cat "${d}/detail" 2>/dev/null || echo "the review step did not run")
-          id=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --paginate \
-                 --jq '.[] | select(.body | startswith("<!-- claude-review -->")) | .id' | tail -1)
+          detail=$(cat "${d}/detail" 2>/dev/null || echo "an earlier step failed")
+          if ! id=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --paginate \
+                      --jq '.[] | select(.body | startswith("<!-- claude-review -->")) | .id' | tail -1); then
+            # Without knowing the existing comment, posting would duplicate it.
+            echo "::warning::Could not list PR comments; not posting (${status}: ${detail})."
+            exit 0
+          fi
           if [ "${status}" = "failed" ] && [ -n "${id}" ]; then
             # Keep the earlier review, but mark it as not covering this commit.
             gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${id}" --jq .body > "${d}/old.md"
@@ -258,8 +294,9 @@ jobs:
           body = re.sub(r"(?m)^> \*\*Stale:\*\*.*\n\n", "", body)
           note = (f"> **Stale:** the review of {sha} did not complete ({detail}); "
                   f"the findings below are for the commit named in the heading. [Run]({run})\n\n")
-          lines = body.split("\n", 2)          # marker, heading, rest
-          d.joinpath("comment.md").write_text("\n".join(lines[:2]) + "\n\n" + note + lines[2].lstrip("\n"))
+          head, sep, rest = body.partition("\n")            # marker line
+          heading, sep2, rest = rest.partition("\n")        # "### ..." line
+          d.joinpath("comment.md").write_text(f"{head}\n{heading}\n\n{note}{rest.lstrip(chr(10))}")
           PY
             gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${id}" -F body=@"${d}/comment.md" > /dev/null
             echo "::warning::Review did not complete (${detail}); marked the earlier review as stale."
@@ -270,7 +307,7 @@ jobs:
             echo "### Claude Code review (CERIT, model \`${REVIEW_MODEL}\`) of ${SHA:0:7}"
             echo
             if [ -f "${d}/truncated" ]; then
-              read -r shown total dropped < "${d}/truncated"
+              read -r shown total dropped < "${d}/truncated" || true
               echo "> The diff was too large: ${shown} of ${total} files were reviewed. Not examined: ${dropped}"
               echo
             fi
