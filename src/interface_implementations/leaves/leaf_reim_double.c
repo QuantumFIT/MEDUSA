@@ -240,7 +240,7 @@ LEAF_TYPE addLeaf(LEAF_TYPE a, LEAF_TYPE b) {
     add_generic(result.pImpl->im, a.pImpl->im, b.pImpl->im);
     SNAP_CHECK(result.pImpl->im, "addLeaf im");
     snap_pimpl(result.pImpl);
-    if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
+    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
         clear_generic(result.pImpl->re);
         clear_generic(result.pImpl->im);
         free(result.pImpl); medusa_mem_note_pimpl_free();
@@ -260,7 +260,7 @@ LEAF_TYPE addLeafS(LEAF_TYPE a, LEAF_TYPE b) {
         SNAP_CHECK(result.pImpl->re, "addLeafS re");
     add_generic(result.pImpl->im, a.pImpl->im, b.pImpl->im);
     SNAP_CHECK(result.pImpl->im, "addLeafS im");
-    if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
+    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
         clear_generic(result.pImpl->re);
         clear_generic(result.pImpl->im);
         free(result.pImpl); medusa_mem_note_pimpl_free();
@@ -287,7 +287,7 @@ LEAF_TYPE subLeaf(LEAF_TYPE a, LEAF_TYPE b) {
     sub_generic(result.pImpl->im, a.pImpl->im, b.pImpl->im);
     SNAP_CHECK(result.pImpl->im, "subLeaf im");
     snap_pimpl(result.pImpl);
-    if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
+    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
         clear_generic(result.pImpl->re);
         clear_generic(result.pImpl->im);
         free(result.pImpl); medusa_mem_note_pimpl_free();
@@ -307,7 +307,7 @@ LEAF_TYPE subLeafS(LEAF_TYPE a, LEAF_TYPE b) {
     sub_generic(result.pImpl->im, a.pImpl->im, b.pImpl->im);
     SNAP_CHECK(result.pImpl->im, "subLeafS im");
 
-    if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
+    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
         clear_generic(result.pImpl->re);
         clear_generic(result.pImpl->im);
         free(result.pImpl); medusa_mem_note_pimpl_free();
@@ -489,7 +489,7 @@ LEAF_TYPE ry_low_leaf(LEAF_TYPE low, LEAF_TYPE high, size_t param) {
     if (high.pImpl != NULL) mul_generic(tmp2, high.pImpl->im, sp); else tmp2[0] = LEAF_ZERO;
     sub_generic(result.pImpl->im, tmp1, tmp2);
     snap_pimpl(result.pImpl);
-    if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
+    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
         free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
@@ -516,7 +516,7 @@ LEAF_TYPE ry_high_leaf(LEAF_TYPE low, LEAF_TYPE high, size_t param) {
     if (high.pImpl != NULL) mul_generic(tmp2, high.pImpl->im, cp); else tmp2[0] = LEAF_ZERO;
     add_generic(result.pImpl->im, tmp1, tmp2);
     snap_pimpl(result.pImpl);
-    if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
+    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
         free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
@@ -543,7 +543,7 @@ LEAF_TYPE rx_low_leaf(LEAF_TYPE low, LEAF_TYPE high, size_t param) {
     if (high.pImpl != NULL) mul_generic(tmp2, high.pImpl->re, sp); else tmp2[0] = LEAF_ZERO;
     sub_generic(result.pImpl->im, tmp1, tmp2);
     snap_pimpl(result.pImpl);
-    if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
+    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
         free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
@@ -570,7 +570,7 @@ LEAF_TYPE rx_high_leaf(LEAF_TYPE low, LEAF_TYPE high, size_t param) {
     if (low.pImpl != NULL) mul_generic(tmp2, low.pImpl->re, sp); else tmp2[0] = LEAF_ZERO;
     sub_generic(result.pImpl->im, tmp1, tmp2);
     snap_pimpl(result.pImpl);
-    if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
+    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
         free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
@@ -596,7 +596,7 @@ LEAF_TYPE rz_low_leaf(LEAF_TYPE l, size_t param) {
     sub_generic(result.pImpl->im, tmp1, tmp2);
 
     snap_pimpl(result.pImpl);
-    if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
+    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
         free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
@@ -621,7 +621,7 @@ LEAF_TYPE rz_high_leaf(LEAF_TYPE l, size_t param) {
     mul_generic(tmp2, l.pImpl->re, sp);
     add_generic(result.pImpl->im, tmp1, tmp2);
     snap_pimpl(result.pImpl);
-    if (!sgn_generic(result.pImpl->re) && !sgn_generic(result.pImpl->im)) {
+    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
         free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
@@ -875,7 +875,7 @@ qBDD mtbdd_from_symb_i(qBDD t, size_t raw_map) {
         
         snap_pimpl(new_data);
 
-        if (!sgn_generic(new_data->re) && !sgn_generic(new_data->im)) {
+        if (new_data->re[0] == LEAF_ZERO && new_data->im[0] == LEAF_ZERO) {
             clear_generic(new_data->re);
             clear_generic(new_data->im);
             free(new_data);
@@ -1002,7 +1002,7 @@ qBDD mtbdd_map_to_symb_val_reduced_i(qBDD t, size_t raw_map) {
         sl_map_t *t_data = (sl_map_t*) leaf.pImpl;
         
 
-        if (!sgn_generic(map[t_data->vre]) && !sgn_generic(map[t_data->vim])) {
+        if (map[t_data->vre][0] == LEAF_ZERO && map[t_data->vim][0] == LEAF_ZERO) {
             validateApplyResult();
             return qBDD_false();
         }
@@ -1140,7 +1140,7 @@ bool can_be_reduced(mtbdd_symb_t *symbc, rdata_t *rdata)
     // The whole leaf behaves the same way, so checking every 2nd variable is sufficient
     for (int i = 0; i < rdata->vm->next_var; i += 2) {
         // If leaf is initially 0:
-        if (!sgn_generic(rdata->vm->map[i]) && !sgn_generic(rdata->vm->map[i+1])){
+        if (rdata->vm->map[i][0] == LEAF_ZERO && rdata->vm->map[i+1][0] == LEAF_ZERO){
             is_zero[i] = true;
             is_zero[i+1] = true;
 
