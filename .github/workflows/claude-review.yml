@@ -4,15 +4,26 @@ name: claude-review
 # CERIT-SC LLM service (Anthropic-compatible API) instead of api.anthropic.com:
 # https://docs.cerit.io/en/docs/ai-as-a-service/llm-integration
 #
-# The key is the repository secret CERIT_API_KEY (generated in the AI Chat
-# WebUI at https://chat.ai.e-infra.cz). It is passed twice: as
-# `anthropic_api_key`, which claude-code-action requires and sends as
-# `x-api-key`, and as ANTHROPIC_AUTH_TOKEN, the Bearer token CERIT documents.
-# Model names are CERIT's aliases, not Anthropic model ids.
+# How it runs, and why this shape:
+#   - The workflow, not the model, fetches the PR (diff and description) and
+#     posts the result. The model only reads: Claude Code gets the Read, Grep
+#     and Glob tools and nothing else (--tools), every other request is denied
+#     (--permission-mode dontAsk), and no GitHub token is in its environment.
+#     A first version used claude-code-action, whose "auto" permission mode let
+#     the model run arbitrary shell commands; with CERIT's models it wandered
+#     off to inspect its own CI run and timed out without a review.
+#   - CERIT's models are not Claude ("agentic" is a Qwen model), so turns and
+#     thinking are capped and the prompt is explicit about the output format.
+#   - One comment per PR, updated in place on every push.
 #
-# The review is advisory: it posts comments and never approves or blocks.
-# It runs only for PRs from branches of this repository - pull requests from
-# forks get no secrets - and skips drafts.
+# The key is the repository secret CERIT_API_KEY (generated in the AI Chat
+# WebUI at https://chat.ai.e-infra.cz). The model is CERIT's "agentic" alias
+# unless the repository variable CERIT_REVIEW_MODEL names another (CERIT lists
+# agentic, thinker, mini, coder and qwen3-coder-next).
+#
+# The review is advisory: it comments and never approves or blocks. It runs
+# only for PRs from branches of this repository (forks get no secrets) and
+# skips drafts; a new push cancels a review still in progress.
 
 on:
   pull_request:
@@ -22,7 +33,6 @@ permissions:
   contents: read
   pull-requests: write
 
-# A new push supersedes a review still in progress.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -34,10 +44,12 @@ jobs:
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
 
     env:
       ANTHROPIC_BASE_URL: https://llm.ai.e-infra.cz/
+      REVIEW_MODEL: ${{ vars.CERIT_REVIEW_MODEL || 'agentic' }}
+      PR: ${{ github.event.pull_request.number }}
 
     steps:
       - uses: actions/checkout@v7
@@ -45,10 +57,9 @@ jobs:
           fetch-depth: 1
 
       # Fail early, with a readable message, when the secret is missing or the
-      # endpoint cannot serve Claude Code: a one-token /v1/messages request with
-      # each header style CERIT might check, then the same request streamed (as
-      # Claude Code sends it), each timed. Prints status codes, timings and the
-      # model's reply to "Reply with OK" only - this repository is public.
+      # endpoint cannot serve requests: a one-token /v1/messages call, streamed
+      # as Claude Code sends it. Prints only status, timing and the reply to
+      # "Reply with OK" - this repository is public.
       - name: Check CERIT endpoint and key
         env:
           CERIT_API_KEY: ${{ secrets.CERIT_API_KEY }}
@@ -57,98 +68,150 @@ jobs:
             echo "::error::Repository secret CERIT_API_KEY is not set."
             exit 1
           fi
-          url="${ANTHROPIC_BASE_URL%/}/v1/messages"
-          body='{"model":"agentic","max_tokens":16,"messages":[{"role":"user","content":"Reply with OK"}]}'
-          probe() {  # label, stream(true|false), header...
-            local label=$1 stream=$2; shift 2
-            local b=${body%\}}",\"stream\":${stream}}"
-            local out code t
-            out=$(curl -sS --max-time 120 -o resp.txt -w '%{http_code} %{time_starttransfer} %{time_total}' \
-                    -H 'content-type: application/json' -H 'anthropic-version: 2023-06-01' \
-                    "$@" -d "$b" "$url") || out="000 - -"
-            read -r code ttfb t <<<"$out"
-            echo "${label}: HTTP ${code}, first byte ${ttfb}s, total ${t}s"
-            if [ -s resp.txt ]; then head -c 300 resp.txt | tr '\n' ' '; echo; fi
-            rm -f resp.txt
-            echo "${code}" > "code_${label}"
-          }
-          probe bearer   false -H "Authorization: Bearer ${CERIT_API_KEY}"
-          probe x-api-key false -H "x-api-key: ${CERIT_API_KEY}"
-          probe stream   true  -H "Authorization: Bearer ${CERIT_API_KEY}" -H "x-api-key: ${CERIT_API_KEY}"
-          for l in bearer x-api-key stream; do
-            c=$(cat "code_$l"); rm -f "code_$l"
-            case "$c" in
-              200) ;;
-              401|403) echo "::error::CERIT rejected the key (${l}: HTTP ${c})."; fail=1 ;;
-              000) echo "::error::No response from ${url} (${l})."; fail=1 ;;
-              *) echo "::warning::${l}: HTTP ${c}" ;;
-            esac
-          done
-          [ -z "${fail:-}" ]
+          body=$(printf '{"model":"%s","max_tokens":16,"stream":true,"messages":[{"role":"user","content":"Reply with OK"}]}' "${REVIEW_MODEL}")
+          out=$(curl -sS --max-time 120 -o resp.txt -w '%{http_code} %{time_starttransfer}' \
+                  -H 'content-type: application/json' -H 'anthropic-version: 2023-06-01' \
+                  -H "Authorization: Bearer ${CERIT_API_KEY}" -H "x-api-key: ${CERIT_API_KEY}" \
+                  -d "${body}" "${ANTHROPIC_BASE_URL%/}/v1/messages") || out="000 -"
+          read -r code ttfb <<<"${out}"
+          echo "model ${REVIEW_MODEL}: HTTP ${code}, first byte ${ttfb}s"
+          if [ -s resp.txt ]; then grep -o '"model": *"[^"]*"' resp.txt | head -1; fi
+          rm -f resp.txt
+          case "${code}" in
+            200) ;;
+            401|403) echo "::error::CERIT rejected the key (HTTP ${code})."; exit 1 ;;
+            000) echo "::error::No response from ${ANTHROPIC_BASE_URL}."; exit 1 ;;
+            *) echo "::error::CERIT returned HTTP ${code} for model ${REVIEW_MODEL}."; exit 1 ;;
+          esac
+
+      # The PR as the model sees it. Very large diffs are cut, with a note, so
+      # the prompt stays within the model's context.
+      - name: Collect the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/review"
+          gh pr view "${PR}" --json title,body,author,baseRefName,headRefName,files \
+            --template '{{.title}}{{"\n\n"}}{{.body}}{{"\n\nFiles:\n"}}{{range .files}}{{.path}} (+{{.additions}}/-{{.deletions}}){{"\n"}}{{end}}' \
+            > "${RUNNER_TEMP}/review/pr.md"
+          gh pr diff "${PR}" > "${RUNNER_TEMP}/review/full.diff"
+          limit=120000
+          size=$(wc -c < "${RUNNER_TEMP}/review/full.diff")
+          if [ "${size}" -gt "${limit}" ]; then
+            head -c "${limit}" "${RUNNER_TEMP}/review/full.diff" > "${RUNNER_TEMP}/review/pr.diff"
+            printf '\n\n[diff truncated: %s of %s bytes shown]\n' "${limit}" "${size}" >> "${RUNNER_TEMP}/review/pr.diff"
+          else
+            cp "${RUNNER_TEMP}/review/full.diff" "${RUNNER_TEMP}/review/pr.diff"
+          fi
+          echo "diff: ${size} bytes, $(grep -c '^diff --git' "${RUNNER_TEMP}/review/full.diff") files"
+
+      - name: Install Claude Code
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
       - name: Review
         timeout-minutes: 15
-        uses: anthropics/claude-code-action@v1
-        with:
-          # TEMPORARY: show Claude Code's output to find where the review
-          # stalls. Tools are limited to public PR/repo reads and GitHub masks
-          # secrets; switch off again before merging.
-          show_full_output: true
-          anthropic_api_key: ${{ secrets.CERIT_API_KEY }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          use_sticky_comment: true
-          settings: |
-            {
-              "env": {
-                "ANTHROPIC_BASE_URL": "https://llm.ai.e-infra.cz/",
-                "ANTHROPIC_AUTH_TOKEN": "${{ secrets.CERIT_API_KEY }}",
-                "ANTHROPIC_MODEL": "agentic",
-                "ANTHROPIC_DEFAULT_OPUS_MODEL": "thinker",
-                "ANTHROPIC_DEFAULT_SONNET_MODEL": "agentic",
-                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "mini",
-                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-                "API_TIMEOUT_MS": "300000"
-              }
-            }
-          claude_args: |
-            --model agentic
-            --max-turns 40
-            --allowedTools "Read,Grep,Glob,mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
-          prompt: |
-            REPO: ${{ github.repository }}
-            PR NUMBER: ${{ github.event.pull_request.number }}
+        env:
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.CERIT_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.CERIT_API_KEY }}
+          ANTHROPIC_DEFAULT_OPUS_MODEL: thinker
+          ANTHROPIC_DEFAULT_SONNET_MODEL: agentic
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: mini
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+          API_TIMEOUT_MS: "300000"
+          MAX_THINKING_TOKENS: "8000"
+        run: |
+          d="${RUNNER_TEMP}/review"
+          cat > "${d}/prompt.md" <<EOF
+          You are reviewing pull request #${PR} of MEDUSA, a quantum circuit
+          simulator in C (with an optional C++ gate path) built on
+          multi-terminal BDDs from the MoToBuddy library. MoToBuddy itself is
+          not in this checkout; the MEDUSA sources are under src/ and tests/.
 
-            You are reviewing a pull request to MEDUSA, a quantum circuit
-            simulator in C (with an optional C++ gate path) built on
-            multi-terminal BDDs from the MoToBuddy library (lib/, fetched
-            separately - not in this checkout). Get the diff with
-            `gh pr diff ${{ github.event.pull_request.number }}` and the
-            description with `gh pr view ${{ github.event.pull_request.number }}`.
-            Read surrounding code with Read/Grep/Glob where the diff alone is
-            not enough. Keep the review to the changed code.
+          The pull request description is in ${d}/pr.md and its diff in
+          ${d}/pr.diff. Read both first. Then read surrounding source files
+          with Read, Grep and Glob only where the diff alone is not enough.
+          Review the changed code only. Do not investigate the CI environment,
+          the workflow running you, or anything outside the repository.
 
-            Look for, in this order:
-            1. Correctness bugs: wrong results, crashes, undefined behaviour,
-               integer overflow, off-by-one, NaN/zero handling in leaf
-               arithmetic.
-            2. Reference-counting and GC safety: every qBDD that must survive a
-               later apply is qBDD_protect-ed and later qBDD_unprotect-ed
-               exactly once; nothing is used after its last unprotect; leaf
-               values (LEAF_TYPE / pImpl) are freed exactly once.
-            3. Memory leaks and missing error handling on new allocation or
-               I/O paths.
-            4. Performance regressions on hot paths (apply callbacks, leaf ops,
-               per-gate code), and changes to numerical behaviour (snapping,
-               epsilons) that alter results.
-            5. Missing or weak tests for the behaviour that changed, and build
-               or CI changes that break the Makefile or CMake builds.
+          Look for, in this order:
+          1. Correctness bugs: wrong results, crashes, undefined behaviour,
+             integer overflow, off-by-one, NaN or zero handling in leaf
+             arithmetic.
+          2. Reference counting and GC safety: every qBDD that must survive a
+             later apply is qBDD_protect-ed and qBDD_unprotect-ed exactly once,
+             nothing is used after its last unprotect, leaf values (LEAF_TYPE,
+             pImpl) are freed exactly once.
+          3. Memory leaks and missing error handling on new allocation or I/O.
+          4. Performance regressions on hot paths (apply callbacks, leaf ops,
+             per-gate code) and changes to numerical behaviour (snapping,
+             epsilons) that alter results.
+          5. Missing tests for changed behaviour; changes that break the
+             Makefile or CMake builds or the CI workflows.
 
-            Rules:
-            - Report only issues you can point at in the diff, with a concrete
-              failure scenario. No style nits, no praise, no restating what the
-              PR does.
-            - Use inline comments (mcp__github_inline_comment__create_inline_comment)
-              for specific lines, one issue per comment.
-            - Finish with one summary comment via `gh pr comment`: a short list
-              of the findings ranked by severity, or a single sentence saying
-              you found no issues. Say plainly when you are unsure.
+          Report only issues you can point at in the diff, each with a concrete
+          failure scenario. No style remarks, no praise, no summary of what the
+          PR does. Say so when you are unsure.
+
+          Your final answer is posted verbatim as a GitHub comment. Format it
+          as Markdown: a list of findings, most severe first, each as
+          "**file:line** - the problem, then the scenario where it goes wrong";
+          or, if you found nothing, the single line "No issues found."
+          EOF
+          set +e
+          claude -p "$(cat "${d}/prompt.md")" \
+            --model "${REVIEW_MODEL}" \
+            --tools "Read,Grep,Glob" --allowedTools "Read,Grep,Glob" \
+            --permission-mode dontAsk --strict-mcp-config \
+            --add-dir "${d}" --max-turns 25 \
+            --output-format json < /dev/null > "${d}/result.json" 2> "${d}/stderr.txt"
+          rc=$?
+          set -e
+          echo "claude exit: ${rc}"
+          python3 - "${d}" <<'PY'
+          import json, sys, pathlib
+          d = pathlib.Path(sys.argv[1])
+          try:
+              r = json.loads((d / "result.json").read_text())
+          except Exception as e:
+              r = {"is_error": True, "subtype": f"unparseable output ({e})", "result": ""}
+          print({k: r.get(k) for k in ("subtype", "is_error", "num_turns", "duration_ms", "duration_api_ms")})
+          text = (r.get("result") or "").strip()
+          ok = bool(text) and not r.get("is_error")
+          (d / "review.md").write_text(text if ok else "")
+          (d / "status").write_text("ok" if ok else str(r.get("subtype") or "error"))
+          PY
+          echo "--- stderr (first 20 lines) ---"; head -20 "${d}/stderr.txt" || true
+
+      # One comment per PR, found by a hidden marker and edited on later runs.
+      - name: Post the review
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          d="${RUNNER_TEMP}/review"
+          status=$(cat "${d}/status" 2>/dev/null || echo "not run")
+          {
+            echo "<!-- claude-review -->"
+            echo "### Claude Code review (CERIT, model \`${REVIEW_MODEL}\`) of ${SHA:0:7}"
+            echo
+            if [ "${status}" = "ok" ]; then
+              cat "${d}/review.md"
+            else
+              echo "_The review did not complete (${status}); see [the run](${RUN_URL})._"
+            fi
+            echo
+            echo "<sub>Automated and advisory: it may be wrong, and it does not block merging. [Run](${RUN_URL}).</sub>"
+          } > "${d}/comment.md"
+          id=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --paginate \
+                 --jq '.[] | select(.body | startswith("<!-- claude-review -->")) | .id' | tail -1)
+          if [ -n "${id}" ]; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${id}" -F body=@"${d}/comment.md" > /dev/null
+            echo "updated comment ${id}"
+          else
+            gh pr comment "${PR}" --body-file "${d}/comment.md"
+          fi
+          [ "${status}" = "ok" ]
