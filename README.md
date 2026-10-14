@@ -21,7 +21,7 @@ Download and build MoToBuddy (requires `git`):
 ```
 make init
 ```
-Then build (default is MoToBuddy `__float128` / f128). That also creates `./MEDUSA` as a symlink to `./MEDUSA_buddy_doubles_f128`:
+Then build (default is MoToBuddy f128, IEEE binary128 leaves). That also creates `./MEDUSA` as a symlink to `./MEDUSA_buddy_doubles_f128`:
 ```
 make
 ```
@@ -55,7 +55,7 @@ The default product is MoToBuddy, selectable at compile time by leaf type:
 
 | Target | Backend | Leaf type |
 |---|---|---|
-| `make` / `make buddy_doubles_f128` | **MoToBuddy (preferred)** | Complex floating-point re+im (__float128) |
+| `make` / `make buddy_doubles_f128` | **MoToBuddy (preferred)** | Complex floating-point re+im (binary128: `__float128`, or `long double` where that is binary128; no libquadmath needed) |
 | `make buddy_gmp` | MoToBuddy | Algebraic integers (exact, GMP) |
 | `make buddy_doubles_f32` | MoToBuddy | Complex floating-point re+im (float) |
 | `make buddy_doubles_f64` | MoToBuddy | Complex floating-point re+im (double) |

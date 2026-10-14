@@ -2,6 +2,12 @@
 #ifndef LEAF_PRIMITIVE_DOUBLE_H
 #define LEAF_PRIMITIVE_DOUBLE_H
 
+/* glibc's _Float128 functions (roundf128, sqrtf128, powf128, strfromf128),
+ * which f128 uses instead of libquadmath. Must precede <math.h>/<stdlib.h>. */
+#ifndef __STDC_WANT_IEC_60559_TYPES_EXT__
+#define __STDC_WANT_IEC_60559_TYPES_EXT__ 1
+#endif
+#include <float.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -81,20 +87,57 @@ typedef long double     leaf_scalar_t;
 #define LEAF_INV_ABS_EPS (LEAF_ONE / LEAF_ABS_EPS)
 #define LEAF_SQRT2INV   0.707106781186547524400844362104849039L  // 80-bit full precision
 
-/*  __float128  */
+/*  IEEE binary128 (f128)
+ *
+ * No CPU does binary128 in hardware; the compiler emits soft-float calls
+ * either way. What differs is the type's name: where long double already is
+ * binary128 (aarch64, riscv64 and s390x Linux) it is used directly, otherwise
+ * __float128 (x86_64, ppc64le) with glibc's *f128 functions. Neither needs
+ * GCC's libquadmath, so clang works too. arm64 macOS has neither type. */
 #elif LEAF_FLOAT_TYPE == LEAF_TYPE_QUAD
-/* GCC's libquadmath: missing under clang and on arm64 macOS. */
-#if defined(__has_include) && !__has_include(<quadmath.h>)
-#error "LEAF_FLOAT_TYPE=3 (__float128, the default) needs GCC's libquadmath, which this compiler lacks; build another leaf type, e.g. make buddy_doubles_f64"
+#if LDBL_MANT_DIG == 113
+#define LEAF_QUAD_IS_LONG_DOUBLE 1
+typedef long double     leaf_primitive_t[1];
+typedef long double     leaf_scalar_t;
+#define LEAF_ROUND      roundl
+#define LEAF_ZERO       0.0L
+#define LEAF_ONE        1.0L
+#define LEAF_ABS        fabsl
+#define LEAF_SQRT       sqrtl
+#define LEAF_POW        powl
+#define LEAF_ISNAN(x)   ((x) != (x))
+#ifndef LEAF_REL_EPS
+#define LEAF_REL_EPS    1e-28L
 #endif
-#include <quadmath.h>
+#ifndef LEAF_ABS_EPS
+#define LEAF_ABS_EPS    1e-32L
+#endif
+#define LEAF_INV_ABS_EPS (LEAF_ONE / LEAF_ABS_EPS)
+#define LEAF_SQRT2INV   0.707106781186547524400844362104849039L
+
+#elif defined(__SIZEOF_FLOAT128__)
+/* glibc declares its *f128 functions only for compilers it trusts with
+ * _Float128, which excludes clang; libm and libc export them regardless, and
+ * on these targets _Float128 and __float128 share one ABI. */
+#if defined(__GLIBC__) && !__HAVE_FLOAT128
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern __float128 roundf128(__float128);
+extern __float128 sqrtf128(__float128);
+extern __float128 powf128(__float128, __float128);
+extern int strfromf128(char *, size_t, const char *, __float128);
+#ifdef __cplusplus
+}
+#endif
+#endif
 typedef __float128      leaf_primitive_t[1];
 typedef __float128      leaf_scalar_t;
-#define LEAF_ROUND      roundq
+#define LEAF_ROUND      roundf128
 #define LEAF_ZERO       0.0q
 #define LEAF_ONE        1.0q
-#define LEAF_SQRT       sqrtq
-#define LEAF_POW        powq
+#define LEAF_SQRT       sqrtf128
+#define LEAF_POW        powf128
 #define LEAF_ISNAN(x)   ((x) != (x))
 #ifndef LEAF_REL_EPS
 #define LEAF_REL_EPS    1e-28q
@@ -103,16 +146,21 @@ typedef __float128      leaf_scalar_t;
 #define LEAF_ABS_EPS    1e-32q
 #endif
 #define LEAF_INV_ABS_EPS (LEAF_ONE / LEAF_ABS_EPS)
-#define LEAF_SQRT2INV   M_SQRT1_2q
+#define LEAF_SQRT2INV   0.707106781186547524400844362104849039q
 
-/* Clear sign bit; avoids fabsq PLT on the hot snap path.
- * {lo, hi} is little-endian IEEE binary128 (x86); fine for every target we build. */
+/* Clear sign bit; avoids a fabsf128 call on the hot snap path.
+ * {lo, hi} is little-endian binary128: x86_64 and ppc64le, the only targets
+ * that take this branch. */
 static inline leaf_scalar_t leaf_abs_q(leaf_scalar_t x) {
     union { __float128 f; struct { uint64_t lo, hi; } u; } v = { .f = x };
     v.u.hi &= ~((uint64_t)1 << 63);
     return v.f;
 }
 #define LEAF_ABS(x) leaf_abs_q(x)
+
+#else
+#error "LEAF_FLOAT_TYPE=3 (f128, the default) needs an IEEE binary128 type: __float128 or a 128-bit long double. This target has neither (e.g. arm64 macOS); build another leaf type, e.g. make buddy_doubles_f64"
+#endif
 
 #else
 #error "Unknown LEAF_FLOAT_TYPE"
