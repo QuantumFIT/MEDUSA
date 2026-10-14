@@ -29,7 +29,11 @@ leaf_scalar_t qBDD_calculateProb(qBDD);
  * @param n          Total number of variables
  * @return           The probability contribution from paths matching curr_state
  */
+#ifdef LEAF_SCALAR_IS_SOFT    /* prob_t (mtbdd.h) is double there */
+double interface_prob_sum(qBDD t, uint32_t xt, char* curr_state, int n);
+#else
 leaf_scalar_t interface_prob_sum(qBDD t, uint32_t xt, char* curr_state, int n);
+#endif
 
 #ifdef __cplusplus
 }

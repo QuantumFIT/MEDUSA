@@ -68,7 +68,7 @@ static prob_t basis_prob(qBDD t, const char *bits, int n)
     }
     if (qBDD_isFalse(t))
         return 0.0;
-    return (prob_t)qBDD_calculateProb(t);
+    return (prob_t)LEAF_S_TO_PROB(qBDD_calculateProb(t));
 }
 
 static void fill_zeros(char *bits, int n)
