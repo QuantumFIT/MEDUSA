@@ -116,6 +116,21 @@ typedef long double     leaf_scalar_t;
 #define LEAF_SQRT2INV   0.707106781186547524400844362104849039L
 
 #elif defined(__SIZEOF_FLOAT128__)
+/* glibc declares its *f128 functions only for compilers it trusts with
+ * _Float128, which excludes clang; libm and libc export them regardless, and
+ * on these targets _Float128 and __float128 share one ABI. */
+#if defined(__GLIBC__) && !__HAVE_FLOAT128
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern __float128 roundf128(__float128);
+extern __float128 sqrtf128(__float128);
+extern __float128 powf128(__float128, __float128);
+extern int strfromf128(char *, size_t, const char *, __float128);
+#ifdef __cplusplus
+}
+#endif
+#endif
 typedef __float128      leaf_primitive_t[1];
 typedef __float128      leaf_scalar_t;
 #define LEAF_ROUND      roundf128
