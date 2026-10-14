@@ -12,7 +12,8 @@
 # platform; an expected failure that passes is reported, so the list does not
 # go stale silently. PLATFORM labels the summary.
 #
-# Run from the repository root, after `make init`. Honours CC, CXX and JOBS.
+# Run from the repository root, after `make init`. Honours CC, CXX and JOBS,
+# and passes MAKE_EXTRA (e.g. "LTO=0") to every make.
 set -u
 
 JOBS="${JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)}"
@@ -20,6 +21,8 @@ EXPECT_FAIL=" ${EXPECT_FAIL:-} "
 MAKE_ARGS=(--no-print-directory -j"${JOBS}")
 [ -n "${CC:-}" ] && MAKE_ARGS+=("CC=${CC}")
 [ -n "${CXX:-}" ] && MAKE_ARGS+=("CXX=${CXX}")
+# shellcheck disable=SC2206 # word splitting intended
+MAKE_ARGS+=(${MAKE_EXTRA:-})
 LOGS="probe-logs"; mkdir -p "${LOGS}"
 
 names=(); results=(); unexpected=0
