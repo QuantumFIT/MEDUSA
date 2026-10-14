@@ -9,11 +9,12 @@ BIN_DIR     := .
 LIB_DIR     := lib
 BUDDY_DIR   := $(LIB_DIR)/MoToBuddy
 
-# MoToBuddy commit: op-cache keyed on the full size_t param (rotation angles), and
-# mtbdd_findterminal skips internal nodes sharing a hash bucket (#34).
+# MoToBuddy commit: op-cache keyed on the full size_t param (rotation angles),
+# mtbdd_findterminal skips internal nodes sharing a hash bucket (#34), and the
+# bddcalc example no longer needs flex/bison to configure.
 # Pin like Sylvan's tag so `make init` does not silently keep an old clone.
 MOTOBUDDY_REPO   := https://github.com/VeriFIT/MoToBuddy.git
-MOTOBUDDY_COMMIT := 32ec8c6b9966fadd3cc3ed249ce478ea7639b46b
+MOTOBUDDY_COMMIT := acc4c2681b37ba1e694b63ed4cd7edaee78fef7b
 
 # ==============================================================================
 # Source and object file lists
