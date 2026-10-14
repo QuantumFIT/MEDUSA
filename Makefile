@@ -58,7 +58,7 @@ endif
 ifeq ($(BUILD), release)
   CFLAGS := -O2 -g
   ifeq ($(LTO), 1)
-    CFLAGS += -flto=auto -ffat-lto-objects
+    CFLAGS += -flto=auto
   endif
 else ifeq ($(BUILD), debug)
   CFLAGS := -O0 -g -fno-omit-frame-pointer
@@ -119,6 +119,13 @@ LEAF_OBJ_algebraic           := $(OBJ_DIR)/leaf_algebraic_mpz.o
 CC     := gcc
 CXX    := g++
 CLIBS  := -lgmp -lpthread -lm
+
+# Fat LTO objects carry ordinary code beside the IR, so an LTO=0 link can reuse
+# them. Only where the compiler accepts the flag: Apple clang rejects it.
+ifeq ($(BUILD)$(LTO),release1)
+  CFLAGS += $(shell $(CC) -ffat-lto-objects -x c -c /dev/null -o /dev/null 2>/dev/null \
+                    && echo -ffat-lto-objects)
+endif
 
 # USE_CXX=1 compiles gates.c as C++ (enables mtbdd_traverse_to/mtbdd_swap path)
 # and also compiles sim_mosf.cpp (MOSF simulation support).
