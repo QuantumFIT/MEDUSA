@@ -2,6 +2,7 @@
 #define INTERFACE_NORM_H
 
 #ifdef __cplusplus
+#include <stdio.h>  /* before gmp.h: it declares mpz_out_str only if FILE is known */
 #include <gmp.h>
 extern "C" {
 #endif
