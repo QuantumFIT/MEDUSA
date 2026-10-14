@@ -83,6 +83,18 @@ ifeq ($(MEDUSA_DEBUG), 1)
   OBJ_TAG := $(OBJ_TAG)-dbglog
 endif
 
+# f128 on Berkeley SoftFloat (src/.../leaf_f128_soft.h), for targets with no
+# binary128 type. On by default only on macOS, where it needs
+# `make init-softfloat` once; Linux builds neither need nor use it.
+ifeq ($(shell uname -s),Darwin)
+  SOFTFLOAT ?= 1
+else
+  SOFTFLOAT ?= 0
+endif
+ifeq ($(SOFTFLOAT), 1)
+  OBJ_TAG := $(OBJ_TAG)-softfloat
+endif
+
 OBJ_DIR := $(OBJ_ROOT)/$(OBJ_TAG)
 
 SRCS             := $(wildcard $(SRC_DIR)/*.c)
@@ -118,6 +130,14 @@ LEAF_OBJ_algebraic           := $(OBJ_DIR)/leaf_algebraic_mpz.o
 CC     := gcc
 CXX    := g++
 CLIBS  := -lgmp -lpthread -lm
+
+# SoftFloat 3e, pinned. Its build directory is named Linux-x86_64-GCC, but it is
+# SoftFloat's generic 64-bit little-endian configuration and builds with any
+# GCC or clang (8086-SSE only selects NaN encodings, which MEDUSA never uses).
+SOFTFLOAT_REPO   := https://github.com/ucb-bar/berkeley-softfloat-3.git
+SOFTFLOAT_COMMIT := a0c6494cdc11865811dec815d5c0049fba9d82a8
+SOFTFLOAT_DIR    := $(LIB_DIR)/softfloat
+SOFTFLOAT_LIB    := $(SOFTFLOAT_DIR)/build/Linux-x86_64-GCC/softfloat.a
 
 # Fat LTO objects carry ordinary code beside the IR, so an LTO=0 link can reuse
 # them. Only where the compiler accepts the flag: Apple clang rejects it, but
@@ -167,6 +187,11 @@ else ifeq ($(LEAF_FLOAT_TYPE), 2)
   FLOAT_SUFFIX := f80
 else ifeq ($(LEAF_FLOAT_TYPE), 3)
   FLOAT_SUFFIX := f128
+  ifeq ($(SOFTFLOAT), 1)
+    CFLAGS += -DLEAF_F128_SOFTFLOAT -I $(SOFTFLOAT_DIR)/source/include
+    CLIBS  += $(SOFTFLOAT_LIB)
+    F128_DEPS := $(SOFTFLOAT_LIB)
+  endif
 else
   $(error Unknown LEAF_FLOAT_TYPE=$(LEAF_FLOAT_TYPE))
 endif
@@ -242,7 +267,7 @@ BSCRIPT_PATH       := benchmark-utils/scripts
 .PHONY: all help clean clean-all clean-artifacts clean-deps clean-benchmark \
         plot benchmarks                                                     \
         init init-motobuddy make-motobuddy download-motobuddy               \
-        init-sylvan make-sylvan download-sylvan                             \
+        init-sylvan make-sylvan download-sylvan init-softfloat              \
         make-sliqsim                                                        \
         sylvan_gmp sylvan_doubles buddy_mpfr                                \
         buddy_gmp                                                           \
@@ -280,6 +305,7 @@ help:
 	@echo "  make LTO=0 ...        release without link-time optimisation"
 	@echo "  make init             clone/pin MoToBuddy @ $(MOTOBUDDY_COMMIT) and build"
 	@echo "  make init-sylvan      clone and build lib/sylvan (optional; Lace via CMake)"
+	@echo "  make init-softfloat   clone and build lib/softfloat (macOS only: f128 there)"
 	@echo "  make sylvan_gmp       algebraic GMP leaves on Sylvan (C path, no MOSF)"
 	@echo "  make sylvan_doubles   float leaves on Sylvan (LEAF_FLOAT_TYPE, default f128)"
 	@echo "  make test             MoToBuddy unit + circuits + benchmarks + metamorphic"
@@ -896,7 +922,7 @@ buddy_doubles: $(SIM_MOSF_OBJ) \
                $(INTERFACE_OBJ_buddy_doubles) \
                $(LEAF_OBJ_double) \
                $(LEAF_OBJ_reim) \
-               $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a | $(BIN_DIR)
+               $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a | $(BIN_DIR) $(F128_DEPS)
 	$(LINKER) $(INC_DIRS_BUDDY_DOUBLES) $(CFLAGS) \
 	    -o $(BIN_DIR)/MEDUSA_buddy_doubles_$(FLOAT_SUFFIX) $^ $(CLIBS)
 ifeq ($(LEAF_FLOAT_TYPE),3)
@@ -1033,6 +1059,16 @@ benchmarks:
 # ==============================================================================
 
 init: init-motobuddy
+
+# Only for f128 on macOS (SOFTFLOAT=1); see SOFTFLOAT_COMMIT above.
+init-softfloat:
+	rm -rf $(SOFTFLOAT_DIR)
+	git clone -q $(SOFTFLOAT_REPO) $(SOFTFLOAT_DIR)
+	git -C $(SOFTFLOAT_DIR) checkout -q $(SOFTFLOAT_COMMIT)
+	$(MAKE) -C $(dir $(SOFTFLOAT_LIB)) SPECIALIZE_TYPE=8086-SSE
+
+$(SOFTFLOAT_LIB):
+	@echo >&2 "error: f128 with SOFTFLOAT=1 needs SoftFloat. Run: make init-softfloat"; exit 1
 
 init-motobuddy: make-motobuddy
 	mkdir -p $(LIB_DIR) && rm -rf $(LIB_DIR)/MoToBuddy && mv MoToBuddy $(LIB_DIR)

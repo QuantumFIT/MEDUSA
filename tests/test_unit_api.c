@@ -337,7 +337,7 @@ static prob_t test_basis_prob(qBDD t, const char *bits)
     }
     if (qBDD_isFalse(t))
         return 0.0;
-    return (prob_t)qBDD_calculateProb(t);
+    return (prob_t)LEAF_S_TO_PROB(qBDD_calculateProb(t));
 }
 
 static void test_x_flips_computational_basis(void) {
@@ -1202,7 +1202,7 @@ static void test_terminal_hash_compare_consistency(void) {
 static void test_hash_ignores_scalar_padding(void) {
     TEST_SECTION("leaf hash ignores representation padding");
 
-    const leaf_scalar_t v = (leaf_scalar_t)0.70710678118654752440L;
+    const leaf_scalar_t v = LEAF_SQRT2INV;
 
     /* Two scalars holding v, with every non-value byte set differently. */
     leaf_primitive_t p0, p1;
