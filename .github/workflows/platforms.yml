@@ -37,11 +37,11 @@ jobs:
       fail-fast: false
       matrix:
         # Default toolchain of each release (GCC / CMake / GMP):
-        #   20.04 GCC 9, CMake 3.16, GMP 6.2.0 - oldest, past standard support
-        #   22.04 GCC 11, CMake 3.22, GMP 6.2.1
+        #   22.04 GCC 11, CMake 3.22, GMP 6.2.1 - oldest supported (MoToBuddy
+        #         needs GCC 11+: declarations directly after case labels)
         #   24.04 GCC 13, CMake 3.28, GMP 6.3.0 - what tests.yml runs on
-        #   26.04 newest LTS
-        release: ['20.04', '22.04', '24.04', '26.04']
+        #   26.04 GCC 15, CMake 4.2, GMP 6.3.0
+        release: ['22.04', '24.04', '26.04']
         cc: [gcc]
         include:
           - release: '24.04'
@@ -49,6 +49,8 @@ jobs:
     env:
       DEBIAN_FRONTEND: noninteractive
       PLATFORM: Ubuntu ${{ matrix.release }}, ${{ matrix.cc }}
+      # f128 needs GCC's libquadmath; clang has no quadmath.h.
+      EXPECT_FAIL: ${{ matrix.cc == 'clang' && 'build-f128' || '' }}
     steps:
       # flex and bison: MoToBuddy's CMake configuration needs them (its bddcalc
       # example calls FLEX_TARGET). The GitHub runner image happens to have
@@ -89,12 +91,9 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 45
     env:
-      PLATFORM: macOS 15 arm64, Apple clang, LTO=0
-      # Apple clang rejects -ffat-lto-objects, which the release build always
-      # passes, so nothing builds with the default flags. LTO=0 gets past that
-      # to whatever comes next; the Makefile should only add the flag where it
-      # is supported.
-      MAKE_EXTRA: LTO=0
+      PLATFORM: macOS 15 arm64, Apple clang
+      # No __float128 / libquadmath on arm64.
+      EXPECT_FAIL: build-f128
     steps:
       - uses: actions/checkout@v7
 
