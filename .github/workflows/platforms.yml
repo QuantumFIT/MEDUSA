@@ -50,11 +50,14 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       PLATFORM: Ubuntu ${{ matrix.release }}, ${{ matrix.cc }}
     steps:
+      # flex and bison: MoToBuddy's CMake configuration needs them (its bddcalc
+      # example calls FLEX_TARGET). The GitHub runner image happens to have
+      # them, which is why tests.yml never noticed; a plain system does not.
       - name: Install dependencies
         run: |
           apt-get update -qq
           apt-get install -y -qq --no-install-recommends \
-              build-essential cmake git ca-certificates libgmp-dev python3 \
+              build-essential cmake git ca-certificates libgmp-dev python3 flex bison \
               ${{ matrix.cc == 'clang' && 'clang' || '' }} > /dev/null
 
       - uses: actions/checkout@v7
@@ -86,7 +89,12 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 45
     env:
-      PLATFORM: macOS 15 arm64, Apple clang
+      PLATFORM: macOS 15 arm64, Apple clang, LTO=0
+      # Apple clang rejects -ffat-lto-objects, which the release build always
+      # passes, so nothing builds with the default flags. LTO=0 gets past that
+      # to whatever comes next; the Makefile should only add the flag where it
+      # is supported.
+      MAKE_EXTRA: LTO=0
     steps:
       - uses: actions/checkout@v7
 
