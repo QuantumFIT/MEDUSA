@@ -55,14 +55,11 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       PLATFORM: Ubuntu ${{ matrix.release }}, ${{ matrix.cc }}
     steps:
-      # flex and bison: MoToBuddy's CMake configuration needs them (its bddcalc
-      # example calls FLEX_TARGET). The GitHub runner image happens to have
-      # them, which is why tests.yml never noticed; a plain system does not.
       - name: Install dependencies
         run: |
           apt-get update -qq
           apt-get install -y -qq --no-install-recommends \
-              build-essential cmake git ca-certificates libgmp-dev python3 flex bison \
+              build-essential cmake git ca-certificates libgmp-dev python3 \
               ${{ matrix.cc == 'clang' && 'clang' || '' }} > /dev/null
 
       - uses: actions/checkout@v7
