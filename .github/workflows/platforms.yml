@@ -54,8 +54,6 @@ jobs:
     env:
       DEBIAN_FRONTEND: noninteractive
       PLATFORM: Ubuntu ${{ matrix.release }}, ${{ matrix.cc }}
-      # f128 needs GCC's libquadmath; clang has no quadmath.h.
-      EXPECT_FAIL: ${{ matrix.cc == 'clang' && 'build-f128' || '' }}
     steps:
       # flex and bison: MoToBuddy's CMake configuration needs them (its bddcalc
       # example calls FLEX_TARGET). The GitHub runner image happens to have
@@ -97,7 +95,8 @@ jobs:
     timeout-minutes: 45
     env:
       PLATFORM: macOS 15 arm64, Apple clang
-      # No __float128 / libquadmath on arm64.
+      # arm64 macOS has no binary128 type (neither __float128 nor a 128-bit
+      # long double).
       EXPECT_FAIL: build-f128
     steps:
       - uses: actions/checkout@v7
