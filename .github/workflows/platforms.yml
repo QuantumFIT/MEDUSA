@@ -48,6 +48,9 @@ jobs:
         #   26.04 GCC 15, CMake 4.2, GMP 6.3.0
         release: ['22.04', '24.04', '26.04']
         cc: [gcc]
+        # An axis of its own, so the SoftFloat entry below is added as a new
+        # job rather than merged into the plain 24.04 one.
+        softfloat: [false]
         include:
           - release: '24.04'
             cc: clang
