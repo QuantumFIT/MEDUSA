@@ -121,9 +121,10 @@ CXX    := g++
 CLIBS  := -lgmp -lpthread -lm
 
 # Fat LTO objects carry ordinary code beside the IR, so an LTO=0 link can reuse
-# them. Only where the compiler accepts the flag: Apple clang rejects it.
+# them. Only where the compiler accepts the flag: Apple clang rejects it, but
+# only alongside -flto, so the check has to pass both.
 ifeq ($(BUILD)$(LTO),release1)
-  CFLAGS += $(shell $(CC) -ffat-lto-objects -x c -c /dev/null -o /dev/null 2>/dev/null \
+  CFLAGS += $(shell $(CC) -flto=auto -ffat-lto-objects -x c -c /dev/null -o /dev/null 2>/dev/null \
                     && echo -ffat-lto-objects)
 endif
 
