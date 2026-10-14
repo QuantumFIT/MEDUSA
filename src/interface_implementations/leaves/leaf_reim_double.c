@@ -174,7 +174,8 @@ char* terminal_to_str_generic(void* ldata_raw, char *buddy_buf, size_t buddy_buf
 
     if (g_print_leaf_prob) {
         LEAF_TYPE_IMPL *ldata = leafValP->pImpl;
-        double p = (double)(ldata->re[0] * ldata->re[0] + ldata->im[0] * ldata->im[0]);
+        double p = LEAF_S_TO_DOUBLE(LEAF_S_ADD(LEAF_S_MUL(ldata->re[0], ldata->re[0]),
+                                               LEAF_S_MUL(ldata->im[0], ldata->im[0])));
         chars_written = snprintf(ldata_string, MAX_LEAF_STR_LEN, "%f", p);
         return leaf_str_emit(ldata_string, chars_written, buddy_buf, buddy_bufsize);
     }
@@ -240,7 +241,7 @@ LEAF_TYPE addLeaf(LEAF_TYPE a, LEAF_TYPE b) {
     add_generic(result.pImpl->im, a.pImpl->im, b.pImpl->im);
     SNAP_CHECK(result.pImpl->im, "addLeaf im");
     snap_pimpl(result.pImpl);
-    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
+    if (LEAF_S_IS_ZERO(result.pImpl->re[0]) && LEAF_S_IS_ZERO(result.pImpl->im[0])) {
         clear_generic(result.pImpl->re);
         clear_generic(result.pImpl->im);
         free(result.pImpl); medusa_mem_note_pimpl_free();
@@ -260,7 +261,7 @@ LEAF_TYPE addLeafS(LEAF_TYPE a, LEAF_TYPE b) {
         SNAP_CHECK(result.pImpl->re, "addLeafS re");
     add_generic(result.pImpl->im, a.pImpl->im, b.pImpl->im);
     SNAP_CHECK(result.pImpl->im, "addLeafS im");
-    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
+    if (LEAF_S_IS_ZERO(result.pImpl->re[0]) && LEAF_S_IS_ZERO(result.pImpl->im[0])) {
         clear_generic(result.pImpl->re);
         clear_generic(result.pImpl->im);
         free(result.pImpl); medusa_mem_note_pimpl_free();
@@ -287,7 +288,7 @@ LEAF_TYPE subLeaf(LEAF_TYPE a, LEAF_TYPE b) {
     sub_generic(result.pImpl->im, a.pImpl->im, b.pImpl->im);
     SNAP_CHECK(result.pImpl->im, "subLeaf im");
     snap_pimpl(result.pImpl);
-    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
+    if (LEAF_S_IS_ZERO(result.pImpl->re[0]) && LEAF_S_IS_ZERO(result.pImpl->im[0])) {
         clear_generic(result.pImpl->re);
         clear_generic(result.pImpl->im);
         free(result.pImpl); medusa_mem_note_pimpl_free();
@@ -307,7 +308,7 @@ LEAF_TYPE subLeafS(LEAF_TYPE a, LEAF_TYPE b) {
     sub_generic(result.pImpl->im, a.pImpl->im, b.pImpl->im);
     SNAP_CHECK(result.pImpl->im, "subLeafS im");
 
-    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
+    if (LEAF_S_IS_ZERO(result.pImpl->re[0]) && LEAF_S_IS_ZERO(result.pImpl->im[0])) {
         clear_generic(result.pImpl->re);
         clear_generic(result.pImpl->im);
         free(result.pImpl); medusa_mem_note_pimpl_free();
@@ -426,9 +427,9 @@ LEAF_TYPE mulPhaseLeaf(LEAF_TYPE t, size_t arg) {
     LEAF_TYPE_IMPL *ldata = t.pImpl;
     const PhaseParam *p = (const PhaseParam *)arg;
     double c = p->c;
-    leaf_primitive_t primitive_c = {(leaf_scalar_t)c};
+    leaf_primitive_t primitive_c = {LEAF_S_FROM_DOUBLE(c)};
     double s = p->s;
-    leaf_primitive_t primitive_s = {(leaf_scalar_t)s};
+    leaf_primitive_t primitive_s = {LEAF_S_FROM_DOUBLE(s)};
 
     LEAF_TYPE result;
     allocPimpl(&result);
@@ -473,8 +474,8 @@ LEAF_TYPE ry_low_leaf(LEAF_TYPE low, LEAF_TYPE high, size_t param) {
     if (low.pImpl == NULL && high.pImpl == NULL) return (LEAF_TYPE){ .pImpl = NULL };
     double theta;
     memcpy(&theta, &param, sizeof(double));
-    leaf_scalar_t c = (leaf_scalar_t)cos(theta / 2.0);
-    leaf_scalar_t s = (leaf_scalar_t)sin(theta / 2.0);
+    leaf_scalar_t c = LEAF_S_FROM_DOUBLE(cos(theta / 2.0));
+    leaf_scalar_t s = LEAF_S_FROM_DOUBLE(sin(theta / 2.0));
     leaf_primitive_t cp = {c};
     leaf_primitive_t sp = {s};
     LEAF_TYPE result;
@@ -489,7 +490,7 @@ LEAF_TYPE ry_low_leaf(LEAF_TYPE low, LEAF_TYPE high, size_t param) {
     if (high.pImpl != NULL) mul_generic(tmp2, high.pImpl->im, sp); else tmp2[0] = LEAF_ZERO;
     sub_generic(result.pImpl->im, tmp1, tmp2);
     snap_pimpl(result.pImpl);
-    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
+    if (LEAF_S_IS_ZERO(result.pImpl->re[0]) && LEAF_S_IS_ZERO(result.pImpl->im[0])) {
         free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
@@ -500,8 +501,8 @@ LEAF_TYPE ry_high_leaf(LEAF_TYPE low, LEAF_TYPE high, size_t param) {
     if (low.pImpl == NULL && high.pImpl == NULL) return (LEAF_TYPE){ .pImpl = NULL };
     double theta;
     memcpy(&theta, &param, sizeof(double));
-    leaf_scalar_t c = (leaf_scalar_t)cos(theta / 2.0);
-    leaf_scalar_t s = (leaf_scalar_t)sin(theta / 2.0);
+    leaf_scalar_t c = LEAF_S_FROM_DOUBLE(cos(theta / 2.0));
+    leaf_scalar_t s = LEAF_S_FROM_DOUBLE(sin(theta / 2.0));
     leaf_primitive_t cp = {c};
     leaf_primitive_t sp = {s};
     LEAF_TYPE result;
@@ -516,7 +517,7 @@ LEAF_TYPE ry_high_leaf(LEAF_TYPE low, LEAF_TYPE high, size_t param) {
     if (high.pImpl != NULL) mul_generic(tmp2, high.pImpl->im, cp); else tmp2[0] = LEAF_ZERO;
     add_generic(result.pImpl->im, tmp1, tmp2);
     snap_pimpl(result.pImpl);
-    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
+    if (LEAF_S_IS_ZERO(result.pImpl->re[0]) && LEAF_S_IS_ZERO(result.pImpl->im[0])) {
         free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
@@ -527,8 +528,8 @@ LEAF_TYPE rx_low_leaf(LEAF_TYPE low, LEAF_TYPE high, size_t param) {
     if (low.pImpl == NULL && high.pImpl == NULL) return (LEAF_TYPE){ .pImpl = NULL };
     double theta;
     memcpy(&theta, &param, sizeof(double));
-    leaf_scalar_t c = (leaf_scalar_t)cos(theta / 2.0);
-    leaf_scalar_t s = (leaf_scalar_t)sin(theta / 2.0);
+    leaf_scalar_t c = LEAF_S_FROM_DOUBLE(cos(theta / 2.0));
+    leaf_scalar_t s = LEAF_S_FROM_DOUBLE(sin(theta / 2.0));
     leaf_primitive_t cp = {c};
     leaf_primitive_t sp = {s};
     LEAF_TYPE result;
@@ -543,7 +544,7 @@ LEAF_TYPE rx_low_leaf(LEAF_TYPE low, LEAF_TYPE high, size_t param) {
     if (high.pImpl != NULL) mul_generic(tmp2, high.pImpl->re, sp); else tmp2[0] = LEAF_ZERO;
     sub_generic(result.pImpl->im, tmp1, tmp2);
     snap_pimpl(result.pImpl);
-    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
+    if (LEAF_S_IS_ZERO(result.pImpl->re[0]) && LEAF_S_IS_ZERO(result.pImpl->im[0])) {
         free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
@@ -554,8 +555,8 @@ LEAF_TYPE rx_high_leaf(LEAF_TYPE low, LEAF_TYPE high, size_t param) {
     if (low.pImpl == NULL && high.pImpl == NULL) return (LEAF_TYPE){ .pImpl = NULL };
     double theta;
     memcpy(&theta, &param, sizeof(double));
-    leaf_scalar_t c = (leaf_scalar_t)cos(theta / 2.0);
-    leaf_scalar_t s = (leaf_scalar_t)sin(theta / 2.0);
+    leaf_scalar_t c = LEAF_S_FROM_DOUBLE(cos(theta / 2.0));
+    leaf_scalar_t s = LEAF_S_FROM_DOUBLE(sin(theta / 2.0));
     leaf_primitive_t cp = {c};
     leaf_primitive_t sp = {s};
     LEAF_TYPE result;
@@ -570,7 +571,7 @@ LEAF_TYPE rx_high_leaf(LEAF_TYPE low, LEAF_TYPE high, size_t param) {
     if (low.pImpl != NULL) mul_generic(tmp2, low.pImpl->re, sp); else tmp2[0] = LEAF_ZERO;
     sub_generic(result.pImpl->im, tmp1, tmp2);
     snap_pimpl(result.pImpl);
-    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
+    if (LEAF_S_IS_ZERO(result.pImpl->re[0]) && LEAF_S_IS_ZERO(result.pImpl->im[0])) {
         free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
@@ -581,8 +582,8 @@ LEAF_TYPE rz_low_leaf(LEAF_TYPE l, size_t param) {
     if (l.pImpl == NULL) return (LEAF_TYPE){ .pImpl = NULL };
     double theta;
     memcpy(&theta, &param, sizeof(double));
-    leaf_scalar_t c = (leaf_scalar_t)cos(theta / 2.0);
-    leaf_scalar_t s = (leaf_scalar_t)sin(theta / 2.0);
+    leaf_scalar_t c = LEAF_S_FROM_DOUBLE(cos(theta / 2.0));
+    leaf_scalar_t s = LEAF_S_FROM_DOUBLE(sin(theta / 2.0));
     leaf_primitive_t cp = {c};
     leaf_primitive_t sp = {s};
     LEAF_TYPE result;
@@ -596,7 +597,7 @@ LEAF_TYPE rz_low_leaf(LEAF_TYPE l, size_t param) {
     sub_generic(result.pImpl->im, tmp1, tmp2);
 
     snap_pimpl(result.pImpl);
-    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
+    if (LEAF_S_IS_ZERO(result.pImpl->re[0]) && LEAF_S_IS_ZERO(result.pImpl->im[0])) {
         free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
@@ -607,8 +608,8 @@ LEAF_TYPE rz_high_leaf(LEAF_TYPE l, size_t param) {
     if (l.pImpl == NULL) return (LEAF_TYPE){ .pImpl = NULL };
     double theta;
     memcpy(&theta, &param, sizeof(double));
-    leaf_scalar_t c = (leaf_scalar_t)cos(theta / 2.0);
-    leaf_scalar_t s = (leaf_scalar_t)sin(theta / 2.0);
+    leaf_scalar_t c = LEAF_S_FROM_DOUBLE(cos(theta / 2.0));
+    leaf_scalar_t s = LEAF_S_FROM_DOUBLE(sin(theta / 2.0));
     leaf_primitive_t cp = {c};
     leaf_primitive_t sp = {s};
     LEAF_TYPE result;
@@ -621,7 +622,7 @@ LEAF_TYPE rz_high_leaf(LEAF_TYPE l, size_t param) {
     mul_generic(tmp2, l.pImpl->re, sp);
     add_generic(result.pImpl->im, tmp1, tmp2);
     snap_pimpl(result.pImpl);
-    if (result.pImpl->re[0] == LEAF_ZERO && result.pImpl->im[0] == LEAF_ZERO) {
+    if (LEAF_S_IS_ZERO(result.pImpl->re[0]) && LEAF_S_IS_ZERO(result.pImpl->im[0])) {
         free(result.pImpl); medusa_mem_note_pimpl_free();
         return (LEAF_TYPE){ .pImpl = NULL };
     }
@@ -875,7 +876,7 @@ qBDD mtbdd_from_symb_i(qBDD t, size_t raw_map) {
         
         snap_pimpl(new_data);
 
-        if (new_data->re[0] == LEAF_ZERO && new_data->im[0] == LEAF_ZERO) {
+        if (LEAF_S_IS_ZERO(new_data->re[0]) && LEAF_S_IS_ZERO(new_data->im[0])) {
             clear_generic(new_data->re);
             clear_generic(new_data->im);
             free(new_data);
@@ -1002,7 +1003,7 @@ qBDD mtbdd_map_to_symb_val_reduced_i(qBDD t, size_t raw_map) {
         sl_map_t *t_data = (sl_map_t*) leaf.pImpl;
         
 
-        if (map[t_data->vre][0] == LEAF_ZERO && map[t_data->vim][0] == LEAF_ZERO) {
+        if (LEAF_S_IS_ZERO(map[t_data->vre][0]) && LEAF_S_IS_ZERO(map[t_data->vim][0])) {
             validateApplyResult();
             return qBDD_false();
         }
@@ -1140,7 +1141,7 @@ bool can_be_reduced(mtbdd_symb_t *symbc, rdata_t *rdata)
     // The whole leaf behaves the same way, so checking every 2nd variable is sufficient
     for (int i = 0; i < rdata->vm->next_var; i += 2) {
         // If leaf is initially 0:
-        if (rdata->vm->map[i][0] == LEAF_ZERO && rdata->vm->map[i+1][0] == LEAF_ZERO){
+        if (LEAF_S_IS_ZERO(rdata->vm->map[i][0]) && LEAF_S_IS_ZERO(rdata->vm->map[i+1][0])){
             is_zero[i] = true;
             is_zero[i+1] = true;
 
@@ -1235,10 +1236,11 @@ void symb_init(qBDD *circ, mtbdd_symb_t *symbc)
 leaf_scalar_t qBDD_calculateProb(qBDD terminal) {
     LEAF_TYPE *tv = (LEAF_TYPE*)mtbdd_getTerminalValue(terminal);
     if (!tv || !tv->pImpl) {
-        return 0;
+        return LEAF_ZERO;
     }
     LEAF_TYPE_IMPL *leaf = tv->pImpl;
-    return leaf->re[0] * leaf->re[0] + leaf->im[0] * leaf->im[0];   // |z|^2
+    return LEAF_S_ADD(LEAF_S_MUL(leaf->re[0], leaf->re[0]),
+                      LEAF_S_MUL(leaf->im[0], leaf->im[0]));   // |z|^2
 }
 /**
  * Global square root coeffs handles

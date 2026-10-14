@@ -25,7 +25,14 @@ typedef struct cnum {
 }cnum;
 
 /// Type for the probability that a given qubit is 1
+#ifdef LEAF_SCALAR_IS_SOFT
+typedef double prob_t;          /* SoftFloat f128 has no operators: see leaf_f128_soft.h */
+#else
 typedef leaf_scalar_t prob_t;
+#endif
+#ifndef LEAF_S_TO_PROB                 /* backends other than the float leaves */
+#define LEAF_S_TO_PROB(x) (x)
+#endif
 
 // ==========================================
 // Measurement operations:

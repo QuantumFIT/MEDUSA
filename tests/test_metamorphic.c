@@ -243,7 +243,7 @@ static prob_t basis_prob(qBDD t, const char *bits) {
         t = (bits[v] == '1') ? qBDD_getHigh(t) : qBDD_getLow(t);
     }
     if (qBDD_isFalse(t)) return 0.0;
-    return (prob_t)qBDD_calculateProb(t);
+    return (prob_t)LEAF_S_TO_PROB(qBDD_calculateProb(t));
 }
 
 static int basis_amp(qBDD t, const char *bits, double *re, double *im) {

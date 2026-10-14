@@ -93,9 +93,14 @@ typedef long double     leaf_scalar_t;
  * either way. What differs is the type's name: where long double already is
  * binary128 (aarch64, riscv64 and s390x Linux) it is used directly, otherwise
  * __float128 (x86_64, ppc64le) with glibc's *f128 functions. Neither needs
- * GCC's libquadmath, so clang works too. arm64 macOS has neither type. */
+ * GCC's libquadmath, so clang works too. arm64 macOS has neither type; there
+ * (and on any other target, with SOFTFLOAT=1) f128 runs on Berkeley SoftFloat,
+ * see leaf_f128_soft.h. */
 #elif LEAF_FLOAT_TYPE == LEAF_TYPE_QUAD
-#if LDBL_MANT_DIG == 113
+#if defined(LEAF_F128_SOFTFLOAT)
+#include "leaf_f128_soft.h"
+
+#elif LDBL_MANT_DIG == 113
 #define LEAF_QUAD_IS_LONG_DOUBLE 1
 typedef long double     leaf_primitive_t[1];
 typedef long double     leaf_scalar_t;
@@ -120,7 +125,7 @@ typedef long double     leaf_scalar_t;
  * Without them (musl, macOS on x86_64, an older glibc) the build would only
  * fail at link time, on an undefined roundf128; say so here instead. */
 #if !defined(__GLIBC__) || __GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 26)
-#error "LEAF_FLOAT_TYPE=3 (f128) uses glibc's roundf128/sqrtf128/powf128/strfromf128, which this C library does not provide (glibc 2.26 or newer is needed); build another leaf type, e.g. f64 (make buddy_doubles_f64, or -DMEDUSA_FLOAT_TYPES=f64 with CMake)"
+#error "LEAF_FLOAT_TYPE=3 (f128) uses glibc's roundf128/sqrtf128/powf128/strfromf128, which this C library does not provide (glibc 2.26 or newer is needed): use the SoftFloat build (make init-softfloat, then SOFTFLOAT=1), or build another leaf type, e.g. f64 (make buddy_doubles_f64, or -DMEDUSA_FLOAT_TYPES=f64 with CMake)"
 #endif
 /* glibc declares its *f128 functions only for compilers it trusts with
  * _Float128, which excludes clang; libm and libc export them regardless, and
@@ -165,7 +170,7 @@ static inline leaf_scalar_t leaf_abs_q(leaf_scalar_t x) {
 #define LEAF_ABS(x) leaf_abs_q(x)
 
 #else
-#error "LEAF_FLOAT_TYPE=3 (f128, the default) needs an IEEE binary128 type: __float128 or a 128-bit long double. This target has neither (e.g. arm64 macOS); build another leaf type, e.g. f64 (make buddy_doubles_f64, or -DMEDUSA_FLOAT_TYPES=f64 with CMake)"
+#error "LEAF_FLOAT_TYPE=3 (f128, the default) needs an IEEE binary128 type: __float128 or a 128-bit long double. This target has neither (e.g. arm64 macOS): use the SoftFloat build (make init-softfloat, then SOFTFLOAT=1, the default on macOS), or build another leaf type, e.g. f64 (make buddy_doubles_f64, or -DMEDUSA_FLOAT_TYPES=f64 with CMake)"
 #endif
 
 #else
@@ -192,6 +197,25 @@ static inline leaf_scalar_t leaf_abs_q(leaf_scalar_t x) {
  * 113 IEEE binary128, 53 a long double that is really a double.
  */
 #include <float.h>
+
+#ifndef LEAF_SCALAR_IS_SOFT   /* leaf_f128_soft.h defines all of the below itself */
+
+/* Operators for the few call sites outside the leaf primitives; they exist
+ * so the same code also builds on the SoftFloat scalar. */
+#define LEAF_S_ADD(a, b)      ((a) + (b))
+#define LEAF_S_SUB(a, b)      ((a) - (b))
+#define LEAF_S_MUL(a, b)      ((a) * (b))
+#define LEAF_S_LT(a, b)       ((a) < (b))
+#define LEAF_S_LE(a, b)       ((a) <= (b))
+#define LEAF_S_IS_ZERO(x)     ((x) == LEAF_ZERO)
+#define LEAF_S_TO_DOUBLE(x)   ((double)(x))
+#define LEAF_S_FROM_DOUBLE(d) ((leaf_scalar_t)(d))
+#define LEAF_S_TO_PROB(x)     (x)
+#define LEAF_S_FROM_PROB(p)   (p)
+
+static inline leaf_scalar_t leaf_sqrt2inv_pow(long k) {
+    return LEAF_POW(LEAF_SQRT2INV, (leaf_scalar_t)k);
+}
 
 #if LEAF_FLOAT_TYPE == LEAF_TYPE_LONGDOUBLE && LDBL_MANT_DIG == 64
 #define LEAF_SCALAR_HASH_BYTES 10
@@ -277,8 +301,11 @@ static inline double to_double_generic(leaf_primitive_t x) {
     return (double)x[0];
 }
 
+#endif /* !LEAF_SCALAR_IS_SOFT */
+
 #endif /* LEAF_PRIMITIVE_DEFINED */
 
+#ifndef LEAF_SCALAR_IS_SOFT
 static inline leaf_scalar_t snap(leaf_scalar_t x) {
     if (LEAF_ISNAN(x)) {
         printf("ERROR: NaN detected. Possible numerical instability.\n");
@@ -290,5 +317,7 @@ static inline leaf_scalar_t snap(leaf_scalar_t x) {
      * snap to a different point than LEAF_ROUND(x / LEAF_ABS_EPS) would. */
     return LEAF_ROUND(x * LEAF_INV_ABS_EPS) * LEAF_ABS_EPS;
 }
+
+#endif /* !LEAF_SCALAR_IS_SOFT */
 
 #endif /* LEAF_PRIMITIVE_DOUBLE_H */

@@ -75,7 +75,7 @@ prob_t interface_prob_sum(qBDD t, uint32_t xt, char* curr_state, int n) {
         return res;
     }
     if (qBDD_isTerminal(t)) {
-        res = qBDD_calculateProb(t);
+        res = LEAF_S_TO_PROB(qBDD_calculateProb(t));
         return res;
     }
 
@@ -130,7 +130,7 @@ static prob_t prob_sum_recurse(qBDD t, uint32_t var, int n, uint64_t path_count)
     if (qBDD_isFalse(t)) return 0.0;
 
     if (qBDD_isTerminal(t)) {
-        prob_t p = qBDD_calculateProb(t);
+        prob_t p = LEAF_S_TO_PROB(qBDD_calculateProb(t));
         // variables from 'var' to 'n-1' are all skipped = 2^(n-var) equal paths
         uint64_t remaining = (var < n) ? (1ULL << (n - var)) : 1ULL;
         return p * (prob_t)path_count * (prob_t)remaining;

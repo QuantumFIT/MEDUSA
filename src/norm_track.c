@@ -14,7 +14,7 @@
 
 int g_norm_track_enabled = 0;
 int g_num_qubits = 0;
-leaf_scalar_t max_dev = 0.0;
+leaf_scalar_t max_dev;          /* zero-initialised: +0 */
 
 static FILE *s_csv = NULL;
 static uint64_t s_gate_idx = 0;
@@ -30,7 +30,7 @@ static void write_header() {
 #elif LEAF_FLOAT_TYPE == LEAF_TYPE_LONGDOUBLE
     fprintf(s_csv, "# epsilon:%.24Le\n", (long double)LEAF_ABS_EPS);
 #elif LEAF_FLOAT_TYPE == LEAF_TYPE_QUAD
-    fprintf(s_csv, "# epsilon:%.34e\n",  (double)LEAF_ABS_EPS);
+    fprintf(s_csv, "# epsilon:%.34e\n",  LEAF_S_TO_DOUBLE(LEAF_ABS_EPS));
 #else
     fprintf(s_csv, "# epsilon:unknown\n");
 #endif
@@ -76,15 +76,16 @@ void norm_track_record(const char *gate_name, qBDD circ, int n) {
     if (!s_csv) return;
 
     prob_t total = qBDD_total_prob(circ, n);
-    leaf_primitive_t total_primitive = { total };
-    leaf_scalar_t dev = LEAF_ABS(total - LEAF_ONE);
+    leaf_scalar_t total_s = LEAF_S_FROM_PROB(total);
+    leaf_primitive_t total_primitive = { total_s };
+    leaf_scalar_t dev = LEAF_ABS(LEAF_S_SUB(total_s, LEAF_ONE));
     leaf_primitive_t dev_primitive = { dev };
 
-    if (dev > max_dev) {
+    if (LEAF_S_LT(max_dev, dev)) {
         max_dev = dev;
     }
 
-    int within = (dev <= LEAF_ABS_EPS);
+    int within = LEAF_S_LE(dev, LEAF_ABS_EPS);
 
     char buf_total[64], buf_dev[64];
     to_str_generic(total_primitive, buf_total, sizeof(buf_total));
