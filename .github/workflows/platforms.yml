@@ -15,8 +15,13 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '17 3 * * 0'        # weekly, Sunday 03:17 UTC
+  # On PRs that can change what builds where: the build, the sources, the
+  # tests, and this probe itself.
   pull_request:
     paths:
+      - 'Makefile'
+      - 'src/**'
+      - 'tests/**'
       - '.github/workflows/platforms.yml'
       - '.github/scripts/platform-probe.sh'
 
