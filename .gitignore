@@ -47,3 +47,8 @@ coverage*.xml
 
 # Python bytecode from tools/
 __pycache__/
+
+# Jekyll (local preview of docs/)
+docs/_site/
+docs/.sass-cache/
+docs/.jekyll-cache/

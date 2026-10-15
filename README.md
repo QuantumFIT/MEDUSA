@@ -8,6 +8,8 @@
 
 **MEDUSA** (**M**ulti-Terminal Binary Decision Diagram-based **Q**uantum **S**imulator) is an MTBDD-based quantum circuit simulator supporting `OpenQASM` circuits. It is written in C and supports multiple MTBDD backends.
 
+**Documentation:** [quantum.fit.vut.cz/MEDUSA](http://quantum.fit.vut.cz/MEDUSA/), covering installation, usage and the command-line reference.
+
 **MoToBuddy is the preferred backend** (`make` / `./MEDUSA`). Sylvan is an optional C-only package for comparison with original MEDUSA; it does not support MOSF / `USE_CXX=1`.
 
 ## Build
