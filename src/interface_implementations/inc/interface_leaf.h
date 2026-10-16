@@ -7,6 +7,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdio.h>  /* before gmp.h: it declares mpz_out_str only if FILE is known */
 #include <gmp.h>
 
 #include "interface_bdd_core.h"
