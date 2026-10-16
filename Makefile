@@ -13,6 +13,7 @@ BUDDY_DIR   := $(LIB_DIR)/MoToBuddy
 # mtbdd_findterminal skips internal nodes sharing a hash bucket (#34), and the
 # bddcalc example no longer needs flex/bison to configure.
 # Pin like Sylvan's tag so `make init` does not silently keep an old clone.
+# Keep in sync with MEDUSA_MOTOBUDDY_COMMIT in CMakeLists.txt while both builds exist.
 MOTOBUDDY_REPO   := https://github.com/VeriFIT/MoToBuddy.git
 MOTOBUDDY_COMMIT := acc4c2681b37ba1e694b63ed4cd7edaee78fef7b
 
