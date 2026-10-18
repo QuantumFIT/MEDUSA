@@ -1,0 +1,10 @@
+---
+---
+
+@import "{{ site.theme }}";
+
+/* The theme stretches the logo to the full sidebar width; keep it small.
+   medusa-logo-web.png is 292 px wide, so it stays sharp on 2x displays. */
+header img {
+  max-width: 140px;
+}
