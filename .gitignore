@@ -29,6 +29,9 @@ tmp_*
 *.pdf
 *.dot
 res-vars.txt
+# ...but not the logo's vector versions
+!docs/logo/*.svg
+!docs/logo/*.pdf
 
 # For debug purposes
 gmon.out
