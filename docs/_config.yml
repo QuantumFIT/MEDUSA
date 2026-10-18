@@ -2,3 +2,4 @@ title: MEDUSA
 description: MTBDD-based quantum circuit simulator with symbolic loop summarization
 theme: jekyll-theme-minimal
 show_downloads: false
+logo: /logo/medusa-logo-web.png
