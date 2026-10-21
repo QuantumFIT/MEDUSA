@@ -3,6 +3,7 @@
  * @brief qBDD types and operations with algebraic complex number representation in leaves
  */
 
+#include <stdio.h>  /* before gmp.h: it declares mpz_out_str only if FILE is known */
 #include <gmp.h>
 #include <stdbool.h>
 #include "interface.h"
