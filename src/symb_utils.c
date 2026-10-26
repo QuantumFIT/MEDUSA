@@ -6,6 +6,7 @@
 #include "fmpz.h"       // fmpz includes need to be after gmp includes
 #include "fmpz_vec.h"
 #include "fmpz_mat.h"
+#include "longlong.h"   // FLINT_BIT_COUNT
 
 /// Opid for mtbdd_symb_refine (needed for mtbdd_applyp)
 static uint64_t apply_mtbdd_symb_refine_id;
@@ -177,14 +178,16 @@ TASK_IMPL_3(MTBDD, mtbdd_symb_refine, MTBDD*, p_map, MTBDD*, p_val, size_t, rd_r
 // =====================
 
 /// State of calculation of matrix power using repeated squaring
-/// Necessary to finish evaluation when limit is hit during repeated squaring
+///
+/// Used for finishing evaluation when limit is hit during repeated squaring
+/// and for checking if limit is hit
 typedef struct pow_state {
-    /// Matrix set to the value of the result (aliasing with the input matrix is not allowed)
+    /// Matrix set to the value of A^pow (aliasing with the input matrix A is not allowed)
     fmpz_mat_t mtx_res;
-    /// Current max square power of input matrix
+    /// Scratch matrix for squaring
     fmpz_mat_t mtx_p;
-    /// Remaining exponent to be calculated
-    ulong rem_exp;
+    /// Power of the current result of repeated squaring
+    ulong pow;
 } pow_state_t;
 
 /**
@@ -229,33 +232,49 @@ static void update_map_from_vec(fmpz* state, vars_t nvars, coef_t* map)
 }
 
 /**
- * TODO: Get current FLINT memory usage during matrix power.
- * Calculate as memory currently used by A, B, P + estimate P^2 < limit.
- * Either use exact values (system calls, not every iteration) or estimate.
- * For estimate, good initial value for each matrix is probably:
- *      number of elements of A * largest element of A
- * using fmpz_bits(). This approach would need to additionally track B and P
- * size estimates in the custom_mat_pow().
+ * Decides whether repeated squaring may continue to the next power.
+ *
+ * The next step computes mtx_res^2 (and possibly mtx_res^2 * A), so the entries roughly
+ * double in size. This can lead to OOM for big integers.
+ *
+ * @param ctx current state of repeated squaring computation
+ *
+ * @param next_pow power that mtx_res would hold after the next step
+ *
+ * @return true if the next step may be performed
  */
-// static size_t flint_mem_check()
-// {
-// }
+static inline bool pow_can_continue(const pow_state_t *ctx, ulong next_pow)
+{
+    /**
+     * TODO: Get current FLINT memory usage during matrix power.
+     * Calculate as memory currently used by A, B, P + estimate P^2 < limit.
+     * Either use exact values (system calls, not every iteration) or estimate
+     * (e.g. based on fmpz_mat_max_bits(ctx->mtx_res)).
+     * 
+     * For estimate, good initial value for each matrix is probably:
+     *      number of elements of A * largest element of A
+     * using fmpz_bits(). This approach would need to additionally track B and P
+     * size estimates in the custom_mat_pow().
+    */
+    (void) ctx;
+    return (next_pow <= POW_LIMIT);
+}
 
 /**
- * Computes power of a square matrix A. Utilizes repeated squaring while the matrix entries
+ * Computes power of a square matrix A using repeated squaring while the matrix entries
  * are not too large.
  * 
- * The size limit is necessary to avoid OOM by keeping a single copy. Result
- * is stored in the context, in case limit is encountered, the computation must be finished off
- * with linear multiplication using the intermediate result and the current max power. This is signalized
- * by nonzero remaining exponent in the updated context. The context must be initialized and cleaned
- * outside of this function.
+ * Processes exponent bits from MSB to LSB. This direction avoids big matrix * big matrix
+ * multiplications when '1' bit is encounntered in exponent.
  * 
- * Based on the iterative pseudocode described on Wikipedia:
- * https://en.wikipedia.org/wiki/Exponentiation_by_squaring
+ * The size limit is necessary to avoid OOM. Result is stored in the context.
+ * If stopped early (limit is encountered), ctx->pow < exp and the computation must be
+ * finished off with multiplication using the updated context.
+ * The context must be initialized and cleaned outside of this function.
  * 
- * @param ctx initialized context for repeated squaring
- * (contains the result, saving the whole context necessary for linear multiplication switch)
+ * Based on fmpz_mat_pow from FLINT library by Fredrik Johansson.
+ * 
+ * @param ctx initialized computational context for repeated squaring (necessary for early stop)
  * 
  * @param A base matrix (must be square)
  * 
@@ -264,28 +283,37 @@ static void update_map_from_vec(fmpz* state, vars_t nvars, coef_t* map)
  */
 static void custom_mat_pow(pow_state_t *ctx, const fmpz_mat_t A, ulong exp)
 {
-    // Current power
-    ulong p_pow = 1;
-    fmpz_mat_set(ctx->mtx_p, A);
-
-    // Set result for exp == 0
-    fmpz_mat_one(ctx->mtx_res);
-
-    // Repeated squaring LSB -> MSB
-    while (exp > 0) {
-        if (exp & UWORD(1)) fmpz_mat_mul(ctx->mtx_res, ctx->mtx_res, ctx->mtx_p);
-
-        // If over limit, stop and finish multiplication linearly
-        if ((p_pow << 1) > POW_LIMIT) break;
-
-        // Skip squaring for MSB: won't be used
-        if(exp > 1) {
-            fmpz_mat_sqr(ctx->mtx_p, ctx->mtx_p);
-            p_pow <<= 1;
-        }
-        exp >>= 1;
+    if (exp == 0) {
+        fmpz_mat_one(ctx->mtx_res);
+        ctx->pow = 0;
+        return;
     }
-    ctx->rem_exp = exp;
+
+    ulong next_pow;
+    
+    // MSB of exp is always 1: start with A^1
+    fmpz_mat_set(ctx->mtx_res, A);
+    ctx->pow = 1;
+
+    // Repeated squaring MSB -> LSB: square, then multiply by A if the bit is set
+    for (slong i = FLINT_BIT_COUNT(exp) - 2; i >= 0; i--) {
+        // Loop starts from i = index (-1) of second MSB (-1)
+
+        next_pow = exp >> i;
+        // If over limit, stop and finish multiplication linearly
+        if (!pow_can_continue(ctx, next_pow)) break;
+        
+        fmpz_mat_sqr(ctx->mtx_p, ctx->mtx_res);
+        if (next_pow & UWORD(1)) {
+            fmpz_mat_mul(ctx->mtx_res, ctx->mtx_p, A);
+        }
+        else {
+            // Square into P and then pointer swap, since squaring into mtx_res
+            // would allocate a hidden temporary on every call
+            fmpz_mat_swap(ctx->mtx_res, ctx->mtx_p);
+        }
+        ctx->pow = next_pow;
+    }
 }
 
 /**
@@ -297,13 +325,13 @@ static void custom_mat_pow(pow_state_t *ctx, const fmpz_mat_t A, ulong exp)
  * 
  * @param mtx_upd single loop iteration matrix
  * 
- * @param nvars number of variables (amplitudes)
- * 
  * @param iters number of loop iterations
  */
-static void rs_evaluate(fmpz *res, fmpz *state, fmpz_mat_t mtx_upd, vars_t nvars, ulong iters)
+static void rs_evaluate(fmpz *res, fmpz *state, fmpz_mat_t mtx_upd, ulong iters)
 {
-    // Create initial context for matrix power
+    vars_t nvars = fmpz_mat_nrows(mtx_upd);
+
+    // Create initial context for matrix power computation
     pow_state_t pow_ctx;
     fmpz_mat_init(pow_ctx.mtx_res, nvars, nvars);
     fmpz_mat_init(pow_ctx.mtx_p, nvars, nvars);
@@ -311,35 +339,38 @@ static void rs_evaluate(fmpz *res, fmpz *state, fmpz_mat_t mtx_upd, vars_t nvars
     // Repeated squaring
     custom_mat_pow(&pow_ctx, mtx_upd, iters);
 
-    fmpz_mat_mul_fmpz_vec(res, pow_ctx.mtx_res, state, nvars);
-    // If not finished, proceed with linear multiplication for remaining powers
-    if (pow_ctx.rem_exp > 0) {
-        // Get number of necessary multiplications by max achieved square power
-        ulong n_mult = 0;
-        pow_ctx.rem_exp >>= 1; // If LSB is 1, power is already contained in res
-        ulong current_pow = 2; // Initially 1, also shifted once with rem_exp
+    // Scratch matrix for squaring not needed for linear part
+    fmpz_mat_clear(pow_ctx.mtx_p);
 
-        while (pow_ctx.rem_exp > 0) {
-            if (pow_ctx.rem_exp & UWORD(1)) n_mult += current_pow;
-            current_pow <<= 1;
-            pow_ctx.rem_exp >>= 1;
+    if (pow_ctx.pow == iters) {
+        fmpz_mat_mul_fmpz_vec(res, pow_ctx.mtx_res, state, nvars);
+    }
+    // Not finished
+    else {
+        // iters = pow * n_mult + n_rem, n_rem < pow
+        ulong n_mult = iters / pow_ctx.pow;
+        ulong n_rem = iters % pow_ctx.pow;
+        fmpz *tmp_res = _fmpz_vec_init(nvars);
+
+        //TODO: Check whether it is safe in terms of memory to switch to RS here
+        // res = A^n_rem * state (first, while the vector is still small)
+        _fmpz_vec_set(res, state, nvars);
+        for (; n_rem > 0; n_rem--) {
+            fmpz_mat_mul_fmpz_vec(tmp_res, mtx_upd, res, nvars);
+            _fmpz_vec_swap(res, tmp_res, nvars);
         }
 
-        // Get P^n_mult * res
-        fmpz* tmp_res = _fmpz_vec_init(nvars);
+        // res = P^n_mult * res
         for (; n_mult > 0; n_mult--) {
-            fmpz_mat_mul_fmpz_vec(tmp_res, pow_ctx.mtx_p, res, nvars);
-
-            // Swap
-            fmpz *swap = res;
-            res = tmp_res;
-            tmp_res = swap;
+            fmpz_mat_mul_fmpz_vec(tmp_res, pow_ctx.mtx_res, res, nvars);
+            _fmpz_vec_swap(res, tmp_res, nvars);
         }
+
+        _fmpz_vec_clear(tmp_res, nvars);
     }
 
-    // Clean up pow context
+    // Clean up remaining pow context
     fmpz_mat_clear(pow_ctx.mtx_res);
-    fmpz_mat_clear(pow_ctx.mtx_p);
 }
 
 // ========================================
@@ -457,7 +488,7 @@ void symb_eval(MTBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata
     init_state_vector(state, nvars, symbc->vm->map);
 
     // Repeated squaring to get final vector
-    rs_evaluate(res, state, mtx_upd, nvars, iters);
+    rs_evaluate(res, state, mtx_upd, iters);
 
     // Update mtbdd
     update_map_from_vec(res, nvars, symbc->vm->map);
