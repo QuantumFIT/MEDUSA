@@ -46,6 +46,16 @@ option(MEDUSA_CXX_GATES  "Also build every variant with the C++ gate path"     O
 option(MEDUSA_SYLVAN     "Build the optional Sylvan backend variants"          OFF)
 option(MEDUSA_LTO        "Link-time optimisation in Release"                   ON)
 option(MEDUSA_COVERAGE   "gcov instrumentation (requires CMAKE_BUILD_TYPE=Debug)" OFF)
+
+# Float leaf types: reject anything else here, with a clear message, rather than
+# later (gmp would register its variant twice; f16 would hit an #error).
+foreach(_t IN LISTS MEDUSA_FLOAT_TYPES)
+  if(NOT _t MATCHES "^(f32|f64|f80|f128)$")
+    message(FATAL_ERROR "MEDUSA_FLOAT_TYPES: unknown float leaf type '${_t}' "
+                        "(use a subset of f32;f64;f80;f128; the GMP variant is MEDUSA_GMP)")
+  endif()
+endforeach()
+list(REMOVE_DUPLICATES MEDUSA_FLOAT_TYPES)
 option(MEDUSA_DEBUG_LOG  "Compile in the MEDUSA_DEBUG runtime event log"       OFF)
 option(MEDUSA_TESTS      "Build the test harnesses and register CTest tests"   ON)
 set(MEDUSA_LEAF_ABS_EPS "" CACHE STRING "Override LEAF_ABS_EPS (empty = per-type default)")
@@ -178,10 +188,12 @@ function(medusa_variant name)
     set(_leaf_hdr ${LEAF_PRIM}/leaf_primitive_double.h)
     set(_leaf_src ${LEAF_PRIM}/leaf_primitive_double.c ${LEAVES}/leaf_reim_double.c)
     set(_defs LEAF_BACKEND_DOUBLES LEAF_FLOAT_TYPE=${_ft})
-    if(MEDUSA_LEAF_ABS_EPS)
+    # Test for emptiness, not truth: 0 (or OFF) is a valid epsilon, and the
+    # Makefile passes it through too.
+    if(NOT "${MEDUSA_LEAF_ABS_EPS}" STREQUAL "")
       list(APPEND _defs LEAF_ABS_EPS=${MEDUSA_LEAF_ABS_EPS})
     endif()
-    if(MEDUSA_LEAF_REL_EPS)
+    if(NOT "${MEDUSA_LEAF_REL_EPS}" STREQUAL "")
       list(APPEND _defs LEAF_REL_EPS=${MEDUSA_LEAF_REL_EPS})
     endif()
   endif()
