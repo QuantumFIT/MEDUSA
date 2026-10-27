@@ -240,11 +240,41 @@ jobs:
             exit 1
           fi
 
+      # MEDUSA_TEST_TIMEOUT_MAX keeps every CTest timeout well inside the job's
+      # 30 minutes, so a hanging test is reported by name instead of the job
+      # being cut off with no output.
       - name: Configure
-        run: cmake --preset release
+        run: cmake --preset release -DMEDUSA_TEST_TIMEOUT_MAX=900
 
       - name: Build
         run: cmake --build --preset release -j "$(nproc)"
 
       - name: Test (pr, cxx, memory)
         run: ctest --test-dir build/release -L 'pr|cxx|memory' -j "$(nproc)" --output-on-failure
+
+  # The optional Sylvan backend through CMake: the FetchContent wiring, the
+  # patch_sylvan.cmake step and the sylvan-labelled tests (the same checks as
+  # the "Sylvan" Makefile job). Separate from the job above so it adds no
+  # wall-clock time; C++ gates are off since Sylvan has no C++ path.
+  cmake-sylvan:
+    name: CMake build, Sylvan backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+              libgmp-dev cmake g++ python3
+
+      - name: Configure
+        run: cmake --preset sylvan -DMEDUSA_CXX_GATES=OFF -DMEDUSA_TEST_TIMEOUT_MAX=900
+
+      - name: Build
+        run: cmake --build --preset sylvan -j "$(nproc)"
+
+      - name: Test (sylvan)
+        run: ctest --preset sylvan -j "$(nproc)" --output-on-failure

@@ -10,4 +10,10 @@ string(REPLACE "\${CMAKE_SOURCE_DIR}/cmake/sylvan-config.cmake.in"
                "\${PROJECT_SOURCE_DIR}/cmake/sylvan-config.cmake.in" patched "${content}")
 if(NOT patched STREQUAL content)
   file(WRITE ${f} "${patched}")
+elseif(NOT content MATCHES "PROJECT_SOURCE_DIR}/cmake/sylvan-config.cmake.in")
+  # Neither the original line nor the patched one: Sylvan changed (e.g. a new
+  # MEDUSA_SYLVAN_TAG). Fail here, at the commit that caused it, instead of
+  # with Sylvan's own CMAKE_SOURCE_DIR error later.
+  message(FATAL_ERROR "patch_sylvan.cmake: ${f} has no sylvan-config.cmake.in line to patch; "
+                      "update the script for this Sylvan version")
 endif()
