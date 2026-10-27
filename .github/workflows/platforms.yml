@@ -34,7 +34,7 @@ concurrency:
 
 jobs:
   ubuntu:
-    name: Ubuntu ${{ matrix.release }}${{ matrix.cc == 'clang' && ', clang' || '' }}
+    name: Ubuntu ${{ matrix.release }}${{ matrix.cc == 'clang' && ', clang' || '' }}${{ matrix.softfloat && ', SoftFloat' || '' }}
     runs-on: ubuntu-24.04
     container: ubuntu:${{ matrix.release }}
     timeout-minutes: 45
@@ -48,12 +48,21 @@ jobs:
         #   26.04 GCC 15, CMake 4.2, GMP 6.3.0
         release: ['22.04', '24.04', '26.04']
         cc: [gcc]
+        # An axis of its own, so the SoftFloat entry below is added as a new
+        # job rather than merged into the plain 24.04 one.
+        softfloat: [false]
         include:
           - release: '24.04'
             cc: clang
+          # The macOS f128 implementation, on a platform where it can be
+          # compared with native __float128 (same suites, same expectations).
+          - release: '24.04'
+            cc: gcc
+            softfloat: true
     env:
       DEBIAN_FRONTEND: noninteractive
-      PLATFORM: Ubuntu ${{ matrix.release }}, ${{ matrix.cc }}
+      PLATFORM: Ubuntu ${{ matrix.release }}, ${{ matrix.cc }}${{ matrix.softfloat && ', SoftFloat f128' || '' }}
+      MAKE_EXTRA: ${{ matrix.softfloat && 'SOFTFLOAT=1' || '' }}
     steps:
       - name: Install dependencies
         run: |
@@ -75,6 +84,10 @@ jobs:
       - name: Build MoToBuddy
         run: make init
 
+      - name: Build SoftFloat
+        if: matrix.softfloat
+        run: make init-softfloat
+
       - name: Probe
         run: bash .github/scripts/platform-probe.sh
 
@@ -82,7 +95,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: probe-logs-ubuntu-${{ matrix.release }}-${{ matrix.cc }}
+          name: probe-logs-ubuntu-${{ matrix.release }}-${{ matrix.cc }}${{ matrix.softfloat && '-softfloat' || '' }}
           path: probe-logs/
           if-no-files-found: ignore
 
@@ -91,10 +104,9 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 45
     env:
-      PLATFORM: macOS 15 arm64, Apple clang
-      # arm64 macOS has no binary128 type (neither __float128 nor a 128-bit
-      # long double).
-      EXPECT_FAIL: build-f128
+      # f128 on SoftFloat (SOFTFLOAT=1 is the default on macOS): arm64 macOS
+      # has no binary128 type.
+      PLATFORM: macOS 15 arm64, Apple clang, SoftFloat f128
     steps:
       - uses: actions/checkout@v7
 
@@ -109,8 +121,10 @@ jobs:
           echo "CPATH=${p}/include" >> "${GITHUB_ENV}"
           echo "LIBRARY_PATH=${p}/lib" >> "${GITHUB_ENV}"
 
-      - name: Build MoToBuddy
-        run: make init
+      - name: Build MoToBuddy and SoftFloat
+        run: |
+          make init
+          make init-softfloat
 
       - name: Probe
         run: bash .github/scripts/platform-probe.sh
