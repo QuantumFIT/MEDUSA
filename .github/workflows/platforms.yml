@@ -1,0 +1,124 @@
+name: platforms
+
+# Does MEDUSA build and pass on the systems people actually use? The tests
+# workflow runs on one image (ubuntu-latest), so it only ever sees one GCC,
+# one CMake and one GMP. This runs the same build across the Ubuntu releases
+# still in use, each with its own default toolchain and libraries, with clang
+# as a second compiler, and on Apple Silicon macOS.
+#
+# Each job runs .github/scripts/platform-probe.sh: per leaf type (f32, f64,
+# f80, f128, gmp) it builds MEDUSA and runs the unit suite, the Grover matrix
+# and the circuit smoke test, then writes a pass/FAIL table, headed by the
+# compiler, CMake and GMP versions, to the job summary.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 0'        # weekly, Sunday 03:17 UTC
+  # On PRs that can change what builds where: the build, the sources, the
+  # tests, and this probe itself.
+  pull_request:
+    paths:
+      - 'Makefile'
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/platforms.yml'
+      - '.github/scripts/platform-probe.sh'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ubuntu:
+    name: Ubuntu ${{ matrix.release }}${{ matrix.cc == 'clang' && ', clang' || '' }}
+    runs-on: ubuntu-24.04
+    container: ubuntu:${{ matrix.release }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # Default toolchain of each release (GCC / CMake / GMP):
+        #   22.04 GCC 11, CMake 3.22, GMP 6.2.1 - oldest supported (MoToBuddy
+        #         needs GCC 11+: declarations directly after case labels)
+        #   24.04 GCC 13, CMake 3.28, GMP 6.3.0 - what tests.yml runs on
+        #   26.04 GCC 15, CMake 4.2, GMP 6.3.0
+        release: ['22.04', '24.04', '26.04']
+        cc: [gcc]
+        include:
+          - release: '24.04'
+            cc: clang
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      PLATFORM: Ubuntu ${{ matrix.release }}, ${{ matrix.cc }}
+    steps:
+      - name: Install dependencies
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+              build-essential cmake git ca-certificates libgmp-dev python3 \
+              ${{ matrix.cc == 'clang' && 'clang' || '' }} > /dev/null
+
+      - uses: actions/checkout@v7
+
+      # clang builds MoToBuddy too (CMake reads CC/CXX) and MEDUSA (the probe
+      # passes CC/CXX to make).
+      - name: Select the compiler
+        if: matrix.cc == 'clang'
+        run: |
+          echo "CC=clang" >> "${GITHUB_ENV}"
+          echo "CXX=clang++" >> "${GITHUB_ENV}"
+
+      - name: Build MoToBuddy
+        run: make init
+
+      - name: Probe
+        run: bash .github/scripts/platform-probe.sh
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: probe-logs-ubuntu-${{ matrix.release }}-${{ matrix.cc }}
+          path: probe-logs/
+          if-no-files-found: ignore
+
+  macos:
+    name: macOS (Apple Silicon, Apple clang)
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      PLATFORM: macOS 15 arm64, Apple clang
+      # arm64 macOS has no binary128 type (neither __float128 nor a 128-bit
+      # long double).
+      EXPECT_FAIL: build-f128
+    steps:
+      - uses: actions/checkout@v7
+
+      # `gcc` is Apple clang here. Homebrew's bash and coreutils because the
+      # test scripts assume bash 4+ and GNU tools; Homebrew's prefix is not on
+      # the compiler's search path by default.
+      - name: Install dependencies
+        run: |
+          brew install gmp bash coreutils
+          p=$(brew --prefix)
+          echo "${p}/opt/coreutils/libexec/gnubin" >> "${GITHUB_PATH}"
+          echo "CPATH=${p}/include" >> "${GITHUB_ENV}"
+          echo "LIBRARY_PATH=${p}/lib" >> "${GITHUB_ENV}"
+
+      - name: Build MoToBuddy
+        run: make init
+
+      - name: Probe
+        run: bash .github/scripts/platform-probe.sh
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: probe-logs-macos
+          path: probe-logs/
+          if-no-files-found: ignore
