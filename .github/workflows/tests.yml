@@ -228,6 +228,18 @@ jobs:
           gcc --version | head -1
           cmake --version | head -1
 
+      # Both builds pin MoToBuddy, each in its own file; a bump that updates
+      # only one of them would test two different libraries (see #51).
+      - name: MoToBuddy pin is the same in the Makefile and CMakeLists.txt
+        run: |
+          make_pin=$(sed -n 's/^MOTOBUDDY_COMMIT *:= *\([0-9a-f]*\).*/\1/p' Makefile)
+          cmake_pin=$(sed -n 's/^set(MEDUSA_MOTOBUDDY_COMMIT *"\([0-9a-f]*\)".*/\1/p' CMakeLists.txt)
+          echo "Makefile: ${make_pin}"; echo "CMake:    ${cmake_pin}"
+          if [ -z "${make_pin}" ] || [ "${make_pin}" != "${cmake_pin}" ]; then
+            echo "::error::MoToBuddy pins differ between Makefile and CMakeLists.txt"
+            exit 1
+          fi
+
       - name: Configure
         run: cmake --preset release
 
