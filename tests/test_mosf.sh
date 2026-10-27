@@ -186,8 +186,12 @@ expect_error bad_rx_unimplemented "rx not implemented"
 # x_levels, and they use plus_s/minus_s which MEDUSA does not register.
 # Pinned so that if MEDUSA ever grows a registry entry for them, this turns
 # into a deliberate decision rather than a silent change.
-GATE_DEF="${ROOT}/lib/MoToBuddy/examples/quantum_gates/h.mosf"
-if [[ -f "${GATE_DEF}" ]]; then
+# MoToBuddy's source: lib/MoToBuddy after `make init`; the CMake build fetches
+# it elsewhere and passes the location in MOTOBUDDY_SRC.
+GATE_DEF="${MOTOBUDDY_SRC:-${ROOT}/lib/MoToBuddy}/examples/quantum_gates/h.mosf"
+if [[ ! -f "${GATE_DEF}" ]]; then
+    echo "SKIP mosf-error-vendored-gate-def: ${GATE_DEF} not found (set MOTOBUDDY_SRC)"
+else
     label="mosf-error-vendored-gate-def"
     log="${WORKDIR}/gatedef.log"
     rc=0
