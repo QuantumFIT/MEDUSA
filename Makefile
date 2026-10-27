@@ -58,7 +58,7 @@ endif
 ifeq ($(BUILD), release)
   CFLAGS := -O2 -g
   ifeq ($(LTO), 1)
-    CFLAGS += -flto=auto -ffat-lto-objects
+    CFLAGS += -flto=auto
   endif
 else ifeq ($(BUILD), debug)
   CFLAGS := -O0 -g -fno-omit-frame-pointer
@@ -120,6 +120,14 @@ CC     := gcc
 CXX    := g++
 CLIBS  := -lgmp -lpthread -lm
 
+# Fat LTO objects carry ordinary code beside the IR, so an LTO=0 link can reuse
+# them. Only where the compiler accepts the flag: Apple clang rejects it, but
+# only alongside -flto, so the check has to pass both.
+ifeq ($(BUILD)$(LTO),release1)
+  CFLAGS += $(shell $(CC) -flto=auto -ffat-lto-objects -x c -c /dev/null -o /dev/null 2>/dev/null \
+                    && echo -ffat-lto-objects)
+endif
+
 # USE_CXX=1 compiles gates.c as C++ (enables mtbdd_traverse_to/mtbdd_swap path)
 # and also compiles sim_mosf.cpp (MOSF simulation support).
 # All other files are always compiled with gcc.
@@ -168,6 +176,10 @@ endif
 # libbuddy.a always includes mtbddop.cxx. C-linked buddy binaries still need
 # the C++ runtime (operator new/delete, std::function, __gxx_personality_v0).
 CLIBS += -lstdc++
+
+# GMP builds have no __float128 leaves, so they must not depend on libquadmath
+# (absent on macOS) just because the default LEAF_FLOAT_TYPE is f128.
+CLIBS_GMP := $(filter-out -lquadmath,$(CLIBS))
 
 # ==============================================================================
 # buddy_doubles paths
@@ -351,7 +363,7 @@ sylvan_gmp: $(OBJS_SYLVAN_GMP) $(INTERFACE_OBJ_sylvan_gmp) \
 	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) -o $(BIN_DIR)/MEDUSA_sylvan_gmp \
 	    $(OBJS_SYLVAN_GMP) $(INTERFACE_OBJ_sylvan_gmp) \
 	    $(LEAF_OBJ_sylvan_mpz) $(LEAF_OBJ_sylvan_algebraic) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS_GMP)
 
 sylvan_doubles: $(OBJS_SYLVAN_DOUBLES) $(INTERFACE_OBJ_sylvan_doubles) \
                 $(LEAF_OBJ_sylvan_double) $(LEAF_OBJ_sylvan_reim) | $(BIN_DIR)
@@ -658,7 +670,7 @@ $(TEST_UNIT_GMP_BIN): $(TEST_UNIT_GMP_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_mpz.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_UNIT_GMP_SRC) $(TEST_STRESS_GMP_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_GMP)
 
 test-unit-gmp: buddy_gmp $(TEST_UNIT_GMP_BIN)
 	$(TEST_UNIT_GMP_BIN)
@@ -683,7 +695,7 @@ $(TEST_GROVER_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_mpz.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_GROVER_SRC) $(TEST_STRESS_GMP_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_GMP)
 
 # ------------------------------------------------------------------------------
 # The same Grover matrix on Sylvan.
@@ -716,7 +728,7 @@ $(TEST_GROVER_SYLVAN_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_SYLVA
 	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
 	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_GMP_CFLAGS) \
 	    -o $@ $(TEST_GROVER_SRC) $(TEST_SYLVAN_GMP_OBJS) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS_GMP)
 
 SYLVAN_GROVER_LEAF_TYPES ?= 0 1 2 3
 
@@ -864,7 +876,7 @@ $(TEST_STRESS_GMP_BIN): $(TEST_STRESS_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_mpz.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_STRESS_SRC) $(TEST_STRESS_GMP_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_GMP)
 
 # ==============================================================================
 # buddy_gmp target
@@ -873,7 +885,7 @@ $(TEST_STRESS_GMP_BIN): $(TEST_STRESS_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 buddy_gmp: $(OBJS_BUDDY_GMP) $(INTERFACE_OBJ_motobuddy) \
            $(LEAF_OBJ_mpz) $(LEAF_OBJ_algebraic) \
            $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a | $(BIN_DIR)
-	$(LINKER) $(INC_DIRS_BUDDY_GMP) $(CFLAGS) -o $(BIN_DIR)/MEDUSA_buddy_gmp $^ $(CLIBS)
+	$(LINKER) $(INC_DIRS_BUDDY_GMP) $(CFLAGS) -o $(BIN_DIR)/MEDUSA_buddy_gmp $^ $(CLIBS_GMP)
 
 # ==============================================================================
 # buddy_doubles target (parameterized by LEAF_FLOAT_TYPE)
