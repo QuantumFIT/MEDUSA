@@ -64,7 +64,7 @@ set(MEDUSA_STRESS_LEVEL 2 CACHE STRING "STRESS_LEVEL for the stress-test harness
 
 set(MEDUSA_MOTOBUDDY_REPO   "https://github.com/VeriFIT/MoToBuddy.git" CACHE STRING "")
 # Keep in sync with MOTOBUDDY_COMMIT in the Makefile while both builds exist.
-set(MEDUSA_MOTOBUDDY_COMMIT "acc4c2681b37ba1e694b63ed4cd7edaee78fef7b" CACHE STRING "")
+set(MEDUSA_MOTOBUDDY_COMMIT "3f9b6b412493be23b437ae82a596fdd198b161e4" CACHE STRING "")
 set(MEDUSA_SYLVAN_TAG       "v1.8.1" CACHE STRING "")
 
 if(MEDUSA_COVERAGE AND NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
