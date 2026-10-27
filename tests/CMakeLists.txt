@@ -172,7 +172,8 @@ foreach(_gp IN LISTS _gate_paths)
     NEEDS medusa_buddy_doubles_f128${sfx} ENV MEDUSA_BIN=${f128})
   # test_mosf.sh skips itself on a binary without MOSF, as under plain `make test`.
   medusa_sh_test(mosf${sfx} test_mosf.sh LABELS ${lbl}
-    NEEDS medusa_buddy_doubles_f128${sfx} ENV MEDUSA_BIN=${f128})
+    NEEDS medusa_buddy_doubles_f128${sfx}
+    ENV MEDUSA_BIN=${f128} MOTOBUDDY_SRC=${motobuddy_SOURCE_DIR})
 endforeach()
 
 # ------------------------------------------------------------------------------
