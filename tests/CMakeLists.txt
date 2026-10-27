@@ -167,23 +167,37 @@ medusa_c_test(stress_gmp test_stress_gmp LABELS memory TIMEOUT 1800)
 
 # test_leaks.sh's checks, one CTest test each: same valgrind flags, and the
 # stress binary at STRESS_LEVEL=1 as that script builds it.
+# Without valgrind the leak tests are still registered, but disabled: ctest then
+# lists them as "Not Run (Disabled)" instead of `-L memory` passing silently
+# with no leak coverage. (make test-leaks fails outright in that case.)
 find_program(VALGRIND valgrind)
-if(VALGRIND)
-  set(VG ${VALGRIND} --leak-check=full --show-leak-kinds=all
-      --errors-for-leak-kinds=definite,indirect,possible,reachable
-      --error-exitcode=42 --quiet)
-  medusa_harness(test_stress_f128_l1 test_stress.c buddy_doubles_f128 STRESS_LEVEL=1)
-  foreach(t test_unit_api test_stress_f128_l1 test_benchmark_semantics test_metamorphic)
-    medusa_c_test(leaks_${t} ${t} LABELS memory TIMEOUT 3600 WRAP ${VG})
+set(_vg ${VALGRIND})
+if(NOT VALGRIND)
+  message(WARNING "valgrind not found: the leak checks (label 'memory') are disabled")
+  set(_vg valgrind)
+endif()
+set(VG ${_vg} --leak-check=full --show-leak-kinds=all
+    --errors-for-leak-kinds=definite,indirect,possible,reachable
+    --error-exitcode=42 --quiet)
+medusa_harness(test_stress_f128_l1 test_stress.c buddy_doubles_f128 STRESS_LEVEL=1)
+foreach(t test_unit_api test_stress_f128_l1 test_benchmark_semantics test_metamorphic)
+  medusa_c_test(leaks_${t} ${t} LABELS memory TIMEOUT 3600 WRAP ${VG})
+endforeach()
+if(TARGET medusa_buddy_doubles_f128)
+  medusa_workdir(dir leaks_symbolic_grover05)
+  add_test(NAME leaks_symbolic_grover05
+           COMMAND ${VG} $<TARGET_FILE:medusa_buddy_doubles_f128> --symbolic
+                   --file ${CMAKE_SOURCE_DIR}/benchmarks/no-measure/LP-Grover/05.qasm
+           WORKING_DIRECTORY ${dir})
+  set_tests_properties(leaks_symbolic_grover05 PROPERTIES LABELS memory TIMEOUT 1800)
+endif()
+if(NOT VALGRIND)
+  foreach(t leaks_test_unit_api leaks_test_stress_f128_l1 leaks_test_benchmark_semantics
+            leaks_test_metamorphic leaks_symbolic_grover05)
+    if(TEST ${t})
+      set_tests_properties(${t} PROPERTIES DISABLED TRUE)
+    endif()
   endforeach()
-  if(TARGET medusa_buddy_doubles_f128)
-    medusa_workdir(dir leaks_symbolic_grover05)
-    add_test(NAME leaks_symbolic_grover05
-             COMMAND ${VG} $<TARGET_FILE:medusa_buddy_doubles_f128> --symbolic
-                     --file ${CMAKE_SOURCE_DIR}/benchmarks/no-measure/LP-Grover/05.qasm
-             WORKING_DIRECTORY ${dir})
-    set_tests_properties(leaks_symbolic_grover05 PROPERTIES LABELS memory TIMEOUT 1800)
-  endif()
 endif()
 
 # ------------------------------------------------------------------------------
