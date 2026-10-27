@@ -11,7 +11,7 @@ The state of an *n*-qubit circuit is a vector of 2<sup>*n*</sup> complex amplitu
 
 - **Symbolic loop summarization.** With `--symbolic`, MEDUSA runs the body of a `for` loop on symbolic amplitudes, repeating the pass over the body until the symbolic form stops changing (usually a handful of passes), and then evaluates that summary for the full number of iterations at once. The loop body must use gates that have a symbolic form, which covers the Clifford+T gates, `rx(pi/2)`, `ry(pi/2)` and the multi-controlled X ([details](usage#loops-and-symbolic-simulation)).
 - **Choice of number representation.** Amplitudes are complex numbers with a floating-point real and imaginary part: 32-, 64-, 80- or 128-bit (the default). An exact **algebraic** representation, (*a* + *b*ω + *c*ω² + *d*ω³) / √2<sup>*k*</sup> with integers *a*–*d*, *k* and ω = e<sup>iπ/4</sup>, computes Clifford+T circuits with no rounding at all. The representation is chosen when MEDUSA is built.
-- **Two decision diagram libraries.** [MoToBuddy](https://github.com/VeriFIT/MoToBuddy), the default, and optionally [Sylvan](https://github.com/trolando/sylvan), for comparison.
+- **Built on [MoToBuddy](https://github.com/VeriFIT/MoToBuddy)**, an MTBDD library derived from BuDDy.
 
 ## Quick example
 

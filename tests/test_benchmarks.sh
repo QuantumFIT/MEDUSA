@@ -8,7 +8,7 @@ cd "${ROOT}"
 source "${ROOT}/tests/test_summary.sh"
 summary_init
 
-# Default: preferred MoToBuddy f128 binary. Override with MEDUSA_BIN for Sylvan.
+# Default: the MoToBuddy f128 binary; MEDUSA_BIN overrides it.
 BIN="${MEDUSA_BIN:-${ROOT}/MEDUSA_buddy_doubles_f128}"
 if [[ "${BIN}" != /* ]]; then
     BIN="${ROOT}/${BIN#./}"
@@ -16,7 +16,7 @@ fi
 WORKDIR="${ROOT}/.test-work/bench_$$"
 mkdir -p "${WORKDIR}"
 trap 'rm -rf "${WORKDIR}"' EXIT
-# Optional per-circuit timeout (set by make test-sylvan). Unset = no timeout.
+# Optional per-circuit timeout. Unset = no timeout.
 TIMEOUT_SEC="${MEDUSA_TEST_TIMEOUT:-}"
 
 run_timeout() {
@@ -103,7 +103,6 @@ run_one() {
 
 if [[ ! -x "${BIN}" ]]; then
     echo "Binary ${BIN} not found - build with: make buddy_doubles_f128"
-    echo "(or MEDUSA_BIN=./MEDUSA_sylvan_doubles_f128 after make sylvan_doubles)"
     exit 1
 fi
 

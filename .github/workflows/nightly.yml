@@ -38,46 +38,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # The Sylvan metamorphic sweep: ~170s per leaf type, two leaf types.
-  #
-  # This is the cross-backend half of the metamorphic suite. The same 2317
-  # assertions run against MoToBuddy in tests.yml in about a second; on Sylvan
-  # each trial pays a full initPackage, which does lace_start() plus
-  # sylvan_set_limits(2 GB, ...) and sylvan_init_package(), and the suite calls
-  # setup_pkg() once per trial. The cost is package setup, not simulation.
-  #
-  # f80 is the leaf type that matters most here: issue #6 was an f80-specific
-  # fault in the leaf hash that no amount of f128 testing could have found.
-  sylvan-metamorphic:
-    name: Sylvan metamorphic sweep (slow)
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-              libgmp-dev cmake g++ python3
-
-      - name: Show toolchain
-        run: |
-          gcc --version | head -1
-          cmake --version | head -1
-
-      - name: Build MoToBuddy
-        run: make init
-
-      - name: Build Sylvan and Lace
-        run: make init-sylvan
-
-      # test_metamorphic relinked against interface_sylvan.h, across
-      # SYLVAN_META_LEAF_TYPES (f80 and f128 by default).
-      - name: Sylvan metamorphic sweep
-        run: make test-sylvan-metamorphic
-
   # The loop-program benchmarks under --symbolic: ~220 circuits, each capped at
   # 10 s of wall clock and 2 GB of address space, so a blow-up in the symbolic
   # path (src/symb_utils.c, src/gates_symb.c) fails one circuit instead of

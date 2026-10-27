@@ -47,15 +47,6 @@ jobs:
       - name: Run Grover matrix with coverage instrumentation
         run: make test-grover COVERAGE=1
 
-      - name: Build Sylvan and Lace
-        run: make init-sylvan
-
-      # Measured too, so src/interface_implementations/backends/interface_sylvan.c
-      # is not a blind spot. Sylvan's own sources live under lib/ and are
-      # excluded by codecov.yml, so only MEDUSA's Sylvan backend is counted.
-      - name: Run Sylvan suite with coverage instrumentation
-        run: make test-sylvan COVERAGE=1
-
       - name: Generate Cobertura report
         run: make coverage-report
 
@@ -88,8 +79,6 @@ jobs:
   # as the C build, so running both in one workspace would clobber the profiles.
   # The two reports instrument different line sets of the same sources, so they
   # are uploaded under separate flags (c / cxx) and Codecov unions them per line.
-  #
-  # Sylvan is absent by design - it has no C++ / MOSF path.
   coverage-cxx:
     name: gcov -> Codecov (C++ gates)
     runs-on: ubuntu-latest

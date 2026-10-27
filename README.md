@@ -8,18 +8,15 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![DOI](https://img.shields.io/badge/DOI-10.1145%2F3676536.3676711-blue.svg)](https://doi.org/10.1145/3676536.3676711)
 
-**MEDUSA** (**M**ulti-Terminal Binary Decision Diagram-based **Q**uantum **S**imulator) is an MTBDD-based quantum circuit simulator supporting `OpenQASM` circuits. It is written in C and supports multiple MTBDD backends.
+**MEDUSA** (**M**ulti-Terminal Binary Decision Diagram-based **Q**uantum **S**imulator) is an MTBDD-based quantum circuit simulator supporting `OpenQASM` circuits. It is written in C on top of the [MoToBuddy](https://github.com/VeriFIT/MoToBuddy) MTBDD library.
 
 **Documentation:** [quantum.fit.vut.cz/MEDUSA](http://quantum.fit.vut.cz/MEDUSA/), covering installation, usage and the command-line reference.
-
-**MoToBuddy is the preferred backend** (`make` / `./MEDUSA`). Sylvan is an optional C-only package for comparison with original MEDUSA; it does not support MOSF / `USE_CXX=1`.
 
 ## Build
 
 **Dependencies:**
 * `gmp` library (`libgmp-dev`)
 * [MoToBuddy](https://github.com/VeriFIT/MoToBuddy) (required)
-* [Sylvan](https://github.com/trolando/sylvan) v1.8.1 + Lace v1.4.1 (optional, `make init-sylvan`)
 
 Download and build MoToBuddy (requires `git`):
 ```
@@ -46,31 +43,23 @@ switching back is a relink, not a rebuild. `COVERAGE=1` is the debug build plus
 `MEDUSA_DEBUG=1` combine with either type and get their own trees
 (`obj/release-cxx`, `obj/debug-dbglog`, ...).
 
-Optional Sylvan backend (C gates only):
-```
-make init-sylvan
-make sylvan_doubles          # ./MEDUSA_sylvan_doubles_f128
-make sylvan_gmp              # ./MEDUSA_sylvan_gmp
-```
+## Leaf types
 
-## Backends
+MEDUSA runs on the MoToBuddy MTBDD library. The leaf type, i.e. how amplitudes
+are stored, is chosen at compile time:
 
-The default product is MoToBuddy, selectable at compile time by leaf type:
+| Target | Leaf type |
+|---|---|
+| `make` / `make buddy_doubles_f128` | Complex floating-point re+im (__float128), the default |
+| `make buddy_gmp` | Algebraic integers (exact, GMP) |
+| `make buddy_doubles_f32` | Complex floating-point re+im (float) |
+| `make buddy_doubles_f64` | Complex floating-point re+im (double) |
+| `make buddy_doubles_f80` | Complex floating-point re+im (long double) |
+| `make buddy_doubles_all` | All floating-point variants above |
 
-| Target | Backend | Leaf type |
-|---|---|---|
-| `make` / `make buddy_doubles_f128` | **MoToBuddy (preferred)** | Complex floating-point re+im (__float128) |
-| `make buddy_gmp` | MoToBuddy | Algebraic integers (exact, GMP) |
-| `make buddy_doubles_f32` | MoToBuddy | Complex floating-point re+im (float) |
-| `make buddy_doubles_f64` | MoToBuddy | Complex floating-point re+im (double) |
-| `make buddy_doubles_f80` | MoToBuddy | Complex floating-point re+im (long double) |
-| `make buddy_doubles_all` | MoToBuddy | All floating-point variants above |
-| `make sylvan_doubles` | Sylvan (optional) | Same float leaves as MoToBuddy (`LEAF_FLOAT_TYPE`) |
-| `make sylvan_gmp` | Sylvan (optional) | Algebraic integers (exact, GMP) |
+`buddy_mpfr` is not implemented.
 
-`buddy_mpfr` is not implemented. Sylvan has no C++ / MOSF path.
-
-To enable C++ gate traversal and MOSF simulation support (experimental, MoToBuddy only):
+To enable C++ gate traversal and MOSF simulation support (experimental):
 ```
 make buddy_doubles_f128 USE_CXX=1
 ```
@@ -78,9 +67,7 @@ make buddy_doubles_f128 USE_CXX=1
 ## Tests
 
 ```
-make test          # MoToBuddy unit + circuits + benchmarks + metamorphic
-make test-sylvan   # same circuit/benchmark smokes on Sylvan, plus harder Grover/CCX
-make test-all      # test + test-sylvan
+make test          # unit + circuits + benchmarks + metamorphic
 ```
 See `tests/README.md`.
 
@@ -90,12 +77,10 @@ See `tests/README.md`.
 gcov data. Reports are produced with [gcovr](https://gcovr.com/)
 (`apt install gcovr`) as a Cobertura `coverage.xml`:
 ```
-make coverage       # default product: make test + make test-grover
-make coverage-all   # adds the optional Sylvan backend (needs init-sylvan)
+make coverage       # make test + make test-grover
 ```
-`make coverage-all` is what CI measures, so its number is the one behind the
-Codecov badge; `make coverage` skips Sylvan and therefore reports slightly
-lower. `make coverage-cxx` measures the C++ gate implementations instead
+`make coverage` is what CI measures, so its number is the one behind the
+Codecov badge. `make coverage-cxx` measures the C++ gate implementations instead
 (`USE_CXX=1`); CI uploads it separately under the Codecov flag `cxx`, because
 the two builds instrument different line sets of the same sources.
 
@@ -165,6 +150,6 @@ MEDUSA is released under the [MIT License](LICENSE).
 
 It builds against third-party components under their own licenses - notably
 GMP (LGPL-3.0-or-later or GPL-2.0-or-later, linked dynamically), MoToBuddy /
-BuDDy (permissive, BSD-like), and optionally Sylvan and Lace (Apache-2.0).
+BuDDy (permissive, BSD-like).
 Their notices, which must be reproduced in redistributions including binaries,
 are collected in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).

@@ -4,7 +4,7 @@
  *
  * qBDD and leaf_primitive_t must already be defined. The Makefile does that
  * with -include of a leaf primitive header, then the backend header
- * (interface_motobuddy.h by default / preferred, or interface_sylvan.h).
+ * (interface_motobuddy.h).
  * Translation units still '#include "interface.h"' so the API is visible
  * without relying on compiler flags alone.
  */

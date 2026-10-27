@@ -1,6 +1,6 @@
 # ==============================================================================
 # MEDUSA Makefile
-# Default product is MoToBuddy (preferred). Sylvan is an optional C backend.
+# MEDUSA on the MoToBuddy MTBDD library.
 # ==============================================================================
 
 SRC_DIR     := src
@@ -13,7 +13,7 @@ BUDDY_DIR   := $(LIB_DIR)/MoToBuddy
 # mtbdd_findterminal skips internal nodes sharing a hash bucket (#34), the
 # bddcalc example no longer needs flex/bison to configure, and node and cache
 # hashing are cheaper (no divisions, fewer multiplications).
-# Pin like Sylvan's tag so `make init` does not silently keep an old clone.
+# Pinned so `make init` does not silently keep an old clone.
 MOTOBUDDY_REPO   := https://github.com/VeriFIT/MoToBuddy.git
 MOTOBUDDY_COMMIT := 3f9b6b412493be23b437ae82a596fdd198b161e4
 
@@ -236,9 +236,8 @@ BSCRIPT_PATH       := benchmark-utils/scripts
 .PHONY: all help clean clean-all clean-artifacts clean-deps clean-benchmark \
         plot benchmarks                                                     \
         init init-motobuddy make-motobuddy download-motobuddy               \
-        init-sylvan make-sylvan download-sylvan                             \
         make-sliqsim                                                        \
-        sylvan_gmp sylvan_doubles buddy_mpfr                                \
+        buddy_mpfr                                                         \
         buddy_gmp                                                           \
         buddy_doubles                                                      \
         buddy_doubles_f32 buddy_doubles_f64 buddy_doubles_f80              \
@@ -247,11 +246,7 @@ BSCRIPT_PATH       := benchmark-utils/scripts
         test-unit-leaf-types                                               \
         test-circuits                                                      \
         test-benchmarks test-metamorphic                                   \
-        coverage coverage-all coverage-cxx coverage-report                 \
-        test-sylvan test-all test-sylvan-leaf-types                        \
-        test-sylvan-metamorphic test-sylvan-all                            \
-        test-grover-sylvan run-sylvan-grover                                \
-        run-sylvan-sem run-sylvan-meta                                     \
+        coverage coverage-cxx coverage-report                              \
         test-stress test-stress-f64 test-stress-f128 test-stress-gmp       \
         test-leaks test-lp-symbolic                                                         \
         test-grover test-grover-all test-grover-f32 test-grover-f64        \
@@ -265,126 +260,23 @@ BSCRIPT_PATH       := benchmark-utils/scripts
 all: buddy_doubles_f128
 
 help:
-	@echo "MEDUSA (default / preferred: MoToBuddy)"
+	@echo "MEDUSA (on MoToBuddy)"
 	@echo "  make                  -> buddy_doubles_f128  (./MEDUSA -> ./MEDUSA_buddy_doubles_f128)"
 	@echo "  make buddy_gmp        algebraic GMP leaves (MoToBuddy)"
 	@echo "  make buddy_doubles_f32|f64|f80|f128|all"
-	@echo "  make USE_CXX=1 ...    C++ tree gates + MOSF (MoToBuddy only, experimental)"
+	@echo "  make USE_CXX=1 ...    C++ tree gates + MOSF (experimental)"
 	@echo "  make BUILD=debug ...  -O0 -g for gdb/valgrind/gcov (default: release, -O2 -g + LTO)"
 	@echo "  make LTO=0 ...        release without link-time optimisation"
 	@echo "  make init             clone/pin MoToBuddy @ $(MOTOBUDDY_COMMIT) and build"
-	@echo "  make init-sylvan      clone and build lib/sylvan (optional; Lace via CMake)"
-	@echo "  make sylvan_gmp       algebraic GMP leaves on Sylvan (C path, no MOSF)"
-	@echo "  make sylvan_doubles   float leaves on Sylvan (LEAF_FLOAT_TYPE, default f128)"
 	@echo "  make test             MoToBuddy unit + circuits + benchmarks + metamorphic"
-	@echo "  make test-sylvan      Sylvan circuit/benchmark replay + harder Grover/CCX"
-	@echo "  make test-sylvan-leaf-types  benchmark semantics on Sylvan, every leaf type"
-	@echo "  make test-sylvan-metamorphic Sylvan metamorphic sweep (slow; nightly)"
 	@echo "  make test-unit-htab   unit tests for the hash table"
 	@echo "  make test-unit-gmp    unit tests for the GMP leaf primitive"
 	@echo "  make test-cli         CLI, parser diagnostics, long-number output"
 	@echo "  make test-mosf        MOSF JSON input (needs USE_CXX=1, else skips)"
-	@echo "  make test-grover-sylvan  Grover matrix on Sylvan, every leaf type + GMP"
-	@echo "  make test-sylvan-all  test-sylvan + the slow metamorphic sweep"
-	@echo "  make test-all         test + test-sylvan"
 	@echo "  make test USE_CXX=1   the same suite against the C++ gate impls"
-	@echo "  make coverage         gcov/gcovr report (test + test-grover)"
-	@echo "  make coverage-all     as CI measures it (adds test-sylvan)"
+	@echo "  make coverage         gcov/gcovr report (test + test-grover), as CI measures it"
 	@echo "  make coverage-cxx     report for the C++ gate impls (USE_CXX=1)"
 	@echo "buddy_mpfr is not implemented."
-
-# ==============================================================================
-# Optional Sylvan backend (original MEDUSA MTBDD package).
-# C path only (USE_CXX=0); MoToBuddy remains the default product.
-# ==============================================================================
-
-SYLVAN_DIR   := $(LIB_DIR)/sylvan
-SYLVAN_BUILD := $(SYLVAN_DIR)/build
-LACE_DIR     := $(SYLVAN_BUILD)/_deps
-SYLVAN_COMPAT_DIR := $(BACKENDS_DIR)/sylvan_compat
-
-SYLVAN_LIB = $(firstword $(wildcard \
-	$(SYLVAN_BUILD)/src/lib/libsylvan.a \
-	$(SYLVAN_BUILD)/src/libsylvan.a \
-	$(SYLVAN_BUILD)/libsylvan.a))
-LACE_LIB = $(firstword $(wildcard \
-	$(LACE_DIR)/lace-build/lib/liblace.a \
-	$(LACE_DIR)/lace-build/liblace.a \
-	$(SYLVAN_BUILD)/lib/liblace.a))
-
-INC_DIRS_SYLVAN := -I $(SYLVAN_COMPAT_DIR)
-INC_DIRS_SYLVAN += -I $(SYLVAN_DIR)/src
-INC_DIRS_SYLVAN += -I $(SYLVAN_DIR)/deps/lace/src
-INC_DIRS_SYLVAN += -I $(LACE_DIR)/lace-src/src
-INC_DIRS_SYLVAN += -I $(LACE_DIR)/lace-build
-INC_DIRS_SYLVAN += -I $(LACE_DIR)/lace-build/src
-INC_DIRS_SYLVAN += -I $(SRC_DIR)
-INC_DIRS_SYLVAN += -I $(INC_DIR_INTERFACE)
-INC_DIRS_SYLVAN += -I $(BACKENDS_DIR) -I $(LEAF_PRIM_DIR) -I $(LEAF_ALG_DIR)
-
-SYLVAN_GMP_CFLAGS := -DSYLVAN_BACKEND -DLEAF_BACKEND_GMP \
-                     -include $(LEAF_PRIM_DIR)/leaf_primitive_mpz.h \
-                     -include $(BACKENDS_DIR)/interface_sylvan.h
-
-SYLVAN_DOUBLES_CFLAGS := -DSYLVAN_BACKEND -DLEAF_BACKEND_DOUBLES \
-                         -DLEAF_FLOAT_TYPE=$(LEAF_FLOAT_TYPE) \
-                         $(if $(LEAF_ABS_EPS),-DLEAF_ABS_EPS=$(LEAF_ABS_EPS)) \
-                         $(if $(LEAF_REL_EPS),-DLEAF_REL_EPS=$(LEAF_REL_EPS)) \
-                         -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
-                         -include $(BACKENDS_DIR)/interface_sylvan.h
-
-SYLVAN_GMP_OBJ_DIR     := $(OBJ_DIR)/sylvan_gmp
-SYLVAN_DOUBLES_OBJ_DIR := $(OBJ_DIR)/sylvan_doubles_$(FLOAT_SUFFIX)
-OBJS_SYLVAN_GMP        := $(patsubst $(SRC_DIR)/%.c, $(SYLVAN_GMP_OBJ_DIR)/%.o, $(SRCS))
-OBJS_SYLVAN_DOUBLES    := $(patsubst $(SRC_DIR)/%.c, $(SYLVAN_DOUBLES_OBJ_DIR)/%.o, $(SRCS))
-INTERFACE_OBJ_sylvan_gmp     := $(SYLVAN_GMP_OBJ_DIR)/interface_sylvan.o
-INTERFACE_OBJ_sylvan_doubles := $(SYLVAN_DOUBLES_OBJ_DIR)/interface_sylvan.o
-LEAF_OBJ_sylvan_mpz          := $(SYLVAN_GMP_OBJ_DIR)/leaf_primitive_mpz.o
-LEAF_OBJ_sylvan_algebraic    := $(SYLVAN_GMP_OBJ_DIR)/leaf_algebraic_mpz.o
-LEAF_OBJ_sylvan_double       := $(SYLVAN_DOUBLES_OBJ_DIR)/leaf_primitive_double.o
-LEAF_OBJ_sylvan_reim         := $(SYLVAN_DOUBLES_OBJ_DIR)/leaf_reim_double.o
-
-sylvan_gmp: $(OBJS_SYLVAN_GMP) $(INTERFACE_OBJ_sylvan_gmp) \
-            $(LEAF_OBJ_sylvan_mpz) $(LEAF_OBJ_sylvan_algebraic) | $(BIN_DIR)
-	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
-	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
-	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) -o $(BIN_DIR)/MEDUSA_sylvan_gmp \
-	    $(OBJS_SYLVAN_GMP) $(INTERFACE_OBJ_sylvan_gmp) \
-	    $(LEAF_OBJ_sylvan_mpz) $(LEAF_OBJ_sylvan_algebraic) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
-
-sylvan_doubles: $(OBJS_SYLVAN_DOUBLES) $(INTERFACE_OBJ_sylvan_doubles) \
-                $(LEAF_OBJ_sylvan_double) $(LEAF_OBJ_sylvan_reim) | $(BIN_DIR)
-	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
-	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
-	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) -o $(BIN_DIR)/MEDUSA_sylvan_doubles_$(FLOAT_SUFFIX) \
-	    $(OBJS_SYLVAN_DOUBLES) $(INTERFACE_OBJ_sylvan_doubles) \
-	    $(LEAF_OBJ_sylvan_double) $(LEAF_OBJ_sylvan_reim) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
-
-$(SYLVAN_GMP_OBJ_DIR)/interface_sylvan.o: $(BACKENDS_DIR)/interface_sylvan.c | $(SYLVAN_GMP_OBJ_DIR)
-	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) $(SYLVAN_GMP_CFLAGS) -MMD -MP -c $< -o $@
-
-$(SYLVAN_GMP_OBJ_DIR)/leaf_primitive_mpz.o: $(LEAF_PRIM_DIR)/leaf_primitive_mpz.c | $(SYLVAN_GMP_OBJ_DIR)
-	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) $(SYLVAN_GMP_CFLAGS) -MMD -MP -c $< -o $@
-
-$(SYLVAN_GMP_OBJ_DIR)/leaf_algebraic_mpz.o: $(LEAF_ALG_DIR)/leaf_algebraic_mpz.c | $(SYLVAN_GMP_OBJ_DIR)
-	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) $(SYLVAN_GMP_CFLAGS) -MMD -MP -c $< -o $@
-
-$(SYLVAN_GMP_OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(SYLVAN_GMP_OBJ_DIR)
-	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) $(SYLVAN_GMP_CFLAGS) -MMD -MP -c $< -o $@
-
-$(SYLVAN_DOUBLES_OBJ_DIR)/interface_sylvan.o: $(BACKENDS_DIR)/interface_sylvan.c | $(SYLVAN_DOUBLES_OBJ_DIR)
-	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) -MMD -MP -c $< -o $@
-
-$(SYLVAN_DOUBLES_OBJ_DIR)/leaf_primitive_double.o: $(LEAF_PRIM_DIR)/leaf_primitive_double.c | $(SYLVAN_DOUBLES_OBJ_DIR)
-	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) -MMD -MP -c $< -o $@
-
-$(SYLVAN_DOUBLES_OBJ_DIR)/leaf_reim_double.o: $(LEAF_ALG_DIR)/leaf_reim_double.c | $(SYLVAN_DOUBLES_OBJ_DIR)
-	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) -MMD -MP -c $< -o $@
-
-$(SYLVAN_DOUBLES_OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(SYLVAN_DOUBLES_OBJ_DIR)
-	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) -MMD -MP -c $< -o $@
 
 buddy_mpfr:
 	@echo >&2 "error: buddy_mpfr is not implemented (leaf_primitive_mpfr is missing)."
@@ -392,8 +284,7 @@ buddy_mpfr:
 	@false
 
 # ==============================================================================
-# Tests - MoToBuddy is the preferred suite (`make test`).
-# `make test-sylvan` is optional and needs `make init-sylvan`.
+# Tests (`make test`).
 # ==============================================================================
 
 TEST_DIR          := tests
@@ -410,28 +301,6 @@ TEST_SEM_SRC      := $(TEST_DIR)/test_benchmark_semantics.c
 TEST_META_BIN     := $(BIN_DIR)/test_metamorphic
 TEST_META_SRC     := $(TEST_DIR)/test_metamorphic.c
 
-# ------------------------------------------------------------------------------
-# Sylvan-linked variants of the two backend-agnostic C suites.
-#
-# test_circuits.sh / test_benchmarks.sh reach Sylvan for free because they exec
-# $MEDUSA_BIN. The C suites cannot: they bake the backend in at compile time via
-# -include, so running them on Sylvan needs a second link of the same sources.
-#
-# test_unit_api is deliberately absent. It includes mtbdd.h/kernel.h/terminal.h
-# and asserts on the MoToBuddy node and terminal tables themselves - dedup,
-# bddnodes[].refcou, table realloc. Sylvan's node table and GC model differ
-# enough that there is nothing to port it to.
-#
-# The binaries carry $(FLOAT_SUFFIX) so a leaf-type sweep cannot pick up a
-# stale build from the previous iteration.
-# ------------------------------------------------------------------------------
-TEST_SEM_SYLVAN_BIN  := $(BIN_DIR)/test_benchmark_semantics_sylvan_$(FLOAT_SUFFIX)
-TEST_META_SYLVAN_BIN := $(BIN_DIR)/test_metamorphic_sylvan_$(FLOAT_SUFFIX)
-
-TEST_SYLVAN_OBJS  := $(filter-out $(SYLVAN_DOUBLES_OBJ_DIR)/main.o, $(OBJS_SYLVAN_DOUBLES)) \
-                     $(INTERFACE_OBJ_sylvan_doubles) \
-                     $(LEAF_OBJ_sylvan_double) $(LEAF_OBJ_sylvan_reim)
-
 STRESS_LEVEL ?= 2
 TEST_STRESS_SRC      := $(TEST_DIR)/test_stress.c
 TEST_STRESS_DOUBLES_BIN := $(BIN_DIR)/test_stress_$(FLOAT_SUFFIX)
@@ -444,28 +313,6 @@ TEST_STRESS_GMP_OBJS := $(filter-out $(OBJ_DIR)/buddy_gmp/main.o, $(OBJS_BUDDY_G
 
 test: test-unit test-unit-htab test-unit-gmp test-cli test-mosf test-circuits \
       test-benchmarks test-metamorphic
-
-test-all: test test-sylvan
-
-# Replay the circuit + benchmark smokes on Sylvan, then harder Grover/CCX extras.
-# Requires: make init-sylvan && make sylvan_doubles (and sylvan_gmp for GMP cases).
-test-sylvan:
-	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
-	$(MAKE) buddy_gmp
-	$(MAKE) sylvan_doubles LEAF_FLOAT_TYPE=3
-	$(MAKE) sylvan_gmp
-	MEDUSA_BIN=$(CURDIR)/MEDUSA_sylvan_doubles_f128 \
-	    bash $(TEST_DIR)/test_circuits.sh
-	@chmod +x $(TEST_DIR)/test_rotation_cache.sh
-	MEDUSA_BIN=$(CURDIR)/MEDUSA_sylvan_doubles_f128 \
-	    bash $(TEST_DIR)/test_rotation_cache.sh
-	MEDUSA_BIN=$(CURDIR)/MEDUSA_sylvan_doubles_f128 \
-	    MEDUSA_TEST_TIMEOUT=$(or $(SYLVAN_TEST_TIMEOUT),90) \
-	    bash $(TEST_DIR)/test_benchmarks.sh
-	@chmod +x $(TEST_DIR)/test_sylvan.sh
-	bash $(TEST_DIR)/test_sylvan.sh
-	$(MAKE) test-sylvan-leaf-types
-	$(MAKE) test-grover-sylvan
 
 # MOSF, the JSON input path. Deliberately does not force USE_CXX=1: forcing it
 # here would build a second binary inside a plain `make test`. Instead it uses
@@ -528,64 +375,6 @@ $(TEST_SEM_BIN): $(TEST_SEM_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_SEM_SRC) $(TEST_UNIT_OBJS) \
 	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
-
-# ------------------------------------------------------------------------------
-# Float leaf representations swept on Sylvan.
-#
-# test-sylvan built only f128 (plus GMP), so f32/f64/f80 had no Sylvan testing
-# at all. Issue #6 was an f80-specific fault in the leaf hash that no amount of
-# f128 testing could have found - that is the case for sweeping.
-#
-# test_benchmark_semantics costs under a second per type and its tolerances are
-# floored per representation (SEM_EPS), so it runs on all four.
-#
-# test_metamorphic costs ~170s per type, and f32 cannot sustain it: deep random
-# circuits plus a 12000-angle rx flood put the worst basis amplitude 5e-3 off,
-# and a floor that loose would stop the assertions meaning anything (the
-# measured median is 1e-6, so most of it would pass - but not the tail). f64 is
-# left out as redundant with f128; f80 is the representation that produced #6
-# and is the reason the sweep exists. Both lists are overridable.
-# ------------------------------------------------------------------------------
-SYLVAN_SEM_LEAF_TYPES  ?= 0 1 2 3
-SYLVAN_META_LEAF_TYPES ?= 2 3
-
-# Cheap enough for every PR: under a second per leaf type.
-test-sylvan-leaf-types:
-	@for t in $(SYLVAN_SEM_LEAF_TYPES); do \
-	    echo "=== test_benchmark_semantics on Sylvan, LEAF_FLOAT_TYPE=$$t ==="; \
-	    $(MAKE) --no-print-directory run-sylvan-sem LEAF_FLOAT_TYPE=$$t || exit 1; \
-	done
-
-# ~170s per leaf type, so this is the nightly half of the sweep rather than
-# something every PR should wait on. See .github/workflows/nightly.yml.
-test-sylvan-metamorphic:
-	@for t in $(SYLVAN_META_LEAF_TYPES); do \
-	    echo "=== test_metamorphic on Sylvan, LEAF_FLOAT_TYPE=$$t ==="; \
-	    $(MAKE) --no-print-directory run-sylvan-meta LEAF_FLOAT_TYPE=$$t || exit 1; \
-	done
-
-# Everything test-sylvan runs, plus the slow metamorphic sweep.
-test-sylvan-all: test-sylvan test-sylvan-metamorphic
-
-run-sylvan-sem: $(TEST_SEM_SYLVAN_BIN)
-	$(TEST_SEM_SYLVAN_BIN)
-
-run-sylvan-meta: $(TEST_META_SYLVAN_BIN)
-	$(TEST_META_SYLVAN_BIN)
-
-$(TEST_SEM_SYLVAN_BIN): $(TEST_SEM_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_OBJS)
-	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
-	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
-	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) \
-	    -o $@ $(TEST_SEM_SRC) $(TEST_SYLVAN_OBJS) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
-
-$(TEST_META_SYLVAN_BIN): $(TEST_META_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_OBJS)
-	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
-	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
-	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) \
-	    -o $@ $(TEST_META_SRC) $(TEST_SYLVAN_OBJS) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
 
 test-circuits:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
@@ -685,64 +474,6 @@ $(TEST_GROVER_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 	    -o $@ $(TEST_GROVER_SRC) $(TEST_STRESS_GMP_OBJS) \
 	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
 
-# ------------------------------------------------------------------------------
-# The same Grover matrix on Sylvan.
-#
-# test_grover_matrix.c is backend-agnostic (test_harness.h, sim.h, interface.h,
-# symb_utils.h and nothing else), so it needs only a second link. This is what
-# gives Sylvan the representation breadth MoToBuddy already had from
-# test-grover: before this, the Sylvan binary was only ever exercised at f128
-# and GMP, so f32/f64/f80 had no Grover coverage on that backend at all.
-#
-# The float objects are shared with the Sylvan C suites above, so per leaf type
-# this costs a link and a run rather than a rebuild.
-# ------------------------------------------------------------------------------
-TEST_GROVER_SYLVAN_BIN     := $(BIN_DIR)/test_grover_sylvan_$(FLOAT_SUFFIX)
-TEST_GROVER_SYLVAN_GMP_BIN := $(BIN_DIR)/test_grover_sylvan_gmp
-
-TEST_SYLVAN_GMP_OBJS := $(filter-out $(SYLVAN_GMP_OBJ_DIR)/main.o, $(OBJS_SYLVAN_GMP)) \
-                        $(INTERFACE_OBJ_sylvan_gmp) \
-                        $(LEAF_OBJ_sylvan_mpz) $(LEAF_OBJ_sylvan_algebraic)
-
-$(TEST_GROVER_SYLVAN_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_OBJS)
-	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
-	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
-	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) \
-	    -o $@ $(TEST_GROVER_SRC) $(TEST_SYLVAN_OBJS) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
-
-$(TEST_GROVER_SYLVAN_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_GMP_OBJS)
-	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
-	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
-	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_GMP_CFLAGS) \
-	    -o $@ $(TEST_GROVER_SRC) $(TEST_SYLVAN_GMP_OBJS) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
-
-SYLVAN_GROVER_LEAF_TYPES ?= 0 1 2 3
-
-# The algebraic GMP case runs too. It was skipped while issue #11 was open -
-# symbolic simulation segfaulted on Sylvan with algebraic GMP leaves, because
-# interface_sylvan.c sized symbolic leaf payloads with a struct declared
-# locally carrying the re/im shell's two fields while the algebraic shell has
-# four, so reads of the last two ran off the end of the block. Adding this
-# target is what found it: nothing had ever run --symbolic on that combination.
-#
-# This case catches the crash but not a merely truncated copy of the same
-# payload - Grover's amplitudes are all in the first component, so losing the
-# others is invisible here. test_sylvan.sh compares terminal labels against
-# MoToBuddy+GMP on a T/H circuit for that.
-test-grover-sylvan:
-	@for t in $(SYLVAN_GROVER_LEAF_TYPES); do \
-	    echo "=== test_grover_matrix on Sylvan, LEAF_FLOAT_TYPE=$$t ==="; \
-	    $(MAKE) --no-print-directory run-sylvan-grover LEAF_FLOAT_TYPE=$$t || exit 1; \
-	done
-	@echo "=== test_grover_matrix on Sylvan, algebraic GMP ==="
-	$(MAKE) --no-print-directory $(TEST_GROVER_SYLVAN_GMP_BIN)
-	$(TEST_GROVER_SYLVAN_GMP_BIN)
-
-run-sylvan-grover: $(TEST_GROVER_SYLVAN_BIN)
-	$(TEST_GROVER_SYLVAN_BIN)
-
 test-grover: test-grover-all
 
 test-grover-all: test-grover-f32 test-grover-f64 test-grover-f80 \
@@ -811,7 +542,7 @@ test-mutation:
 
 # Instrumented build + full suite + Cobertura XML for Codecov.
 # clean-artifacts first so stale .gcda counts from an earlier run do not add in.
-# Default product (MoToBuddy, all leaf types). Needs no optional dependency.
+# All leaf types; this is what CI measures.
 coverage:
 	$(MAKE) clean-artifacts
 	$(MAKE) test COVERAGE=1
@@ -830,16 +561,6 @@ coverage-cxx:
 	$(MAKE) test USE_CXX=1 COVERAGE=1
 	$(MAKE) test-grover USE_CXX=1 COVERAGE=1
 	$(MAKE) coverage-report COVERAGE_XML=$(COVERAGE_XML_CXX)
-
-# Exactly what CI measures: adds the optional Sylvan backend, so the number
-# matches the Codecov badge. Requires init-sylvan.
-coverage-all:
-	$(MAKE) clean-artifacts
-	$(MAKE) test COVERAGE=1
-	$(MAKE) test-grover COVERAGE=1
-	$(MAKE) init-sylvan
-	$(MAKE) test-sylvan COVERAGE=1
-	$(MAKE) coverage-report
 
 # Turn the .gcda/.gcno files under $(OBJ_DIR) into a report over $(SRC_DIR).
 # Needs gcovr (pip install gcovr).
@@ -994,8 +715,7 @@ $(OBJ_DIR)/buddy_gmp/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)/buddy_gmp
 # Directory creation
 # ==============================================================================
 
-$(BIN_DIR) $(OBJ_DIR) $(OBJ_DIR)/buddy_gmp $(DOUBLES_OBJ_DIR) \
-$(SYLVAN_GMP_OBJ_DIR) $(SYLVAN_DOUBLES_OBJ_DIR):
+$(BIN_DIR) $(OBJ_DIR) $(OBJ_DIR)/buddy_gmp $(DOUBLES_OBJ_DIR):
 	mkdir -p $@
 
 # ==============================================================================
@@ -1009,8 +729,6 @@ $(SYLVAN_GMP_OBJ_DIR) $(SYLVAN_DOUBLES_OBJ_DIR):
 # in interface_motobuddy.h) leaves them stale and the link fails.
 -include $(LEAF_OBJ_double:.o=.d) $(LEAF_OBJ_reim:.o=.d)
 -include $(OBJ_DIR)/leaf_primitive_mpz.d $(OBJ_DIR)/leaf_algebraic_mpz.d
--include $(OBJS_SYLVAN_GMP:.o=.d)
--include $(OBJS_SYLVAN_DOUBLES:.o=.d)
 
 # ==============================================================================
 # Utility targets
@@ -1030,22 +748,6 @@ init: init-motobuddy
 
 init-motobuddy: make-motobuddy
 	mkdir -p $(LIB_DIR) && rm -rf $(LIB_DIR)/MoToBuddy && mv MoToBuddy $(LIB_DIR)
-
-init-sylvan: make-sylvan
-	mkdir -p $(LIB_DIR) && rm -rf $(LIB_DIR)/sylvan && mv sylvan $(LIB_DIR)
-
-make-sylvan: download-sylvan
-	cd sylvan && \
-	mkdir -p deps && \
-	if [ ! -d deps/lace ]; then git clone --branch v1.4.1 --depth 1 https://github.com/trolando/lace.git deps/lace; fi && \
-	mkdir -p build && \
-	cd build && \
-	cmake .. -DCMAKE_BUILD_TYPE=$(if $(filter debug,$(BUILD)),RelWithDebInfo,Release) \
-	         -DFETCHCONTENT_SOURCE_DIR_LACE="$(CURDIR)/sylvan/deps/lace" && \
-	$(MAKE) -j$(N_JOBS)
-
-download-sylvan:
-	@git clone --branch v1.8.1 --depth 1 https://github.com/trolando/sylvan.git || true
 
 make-motobuddy: download-motobuddy
 	cd MoToBuddy && \
@@ -1084,16 +786,10 @@ clean-artifacts:
 	       MEDUSA_buddy_doubles_f80 MEDUSA_buddy_doubles_f128 \
 	       MEDUSA_buddy_gmp \
 	       MEDUSA_buddy_mpfr_256 MEDUSA_buddy_mpfr_512 \
-	       MEDUSA_sylvan_gmp MEDUSA_sylvan_doubles MEDUSA_sylvan_doubles_f32 \
-	       MEDUSA_sylvan_doubles_f64 MEDUSA_sylvan_doubles_f80 \
-	       MEDUSA_sylvan_doubles_f128 \
 	       $(TEST_UNIT_BIN) $(TEST_UNIT_GMP_BIN) $(TEST_HTAB_BIN) \
 	       $(TEST_STRESS_F64_BIN) $(TEST_STRESS_F128_BIN) \
 	       $(TEST_STRESS_GMP_BIN) \
 	       $(TEST_SEM_BIN) $(TEST_META_BIN) \
-	       $(BIN_DIR)/test_benchmark_semantics_sylvan_* \
-	       $(BIN_DIR)/test_grover_sylvan_* \
-	       $(BIN_DIR)/test_metamorphic_sylvan_* \
 	       $(BIN_DIR)/test_grover_f32 $(BIN_DIR)/test_grover_f64 \
 	       $(BIN_DIR)/test_grover_f80 $(BIN_DIR)/test_grover_f128 \
 	       $(TEST_GROVER_GMP_BIN)

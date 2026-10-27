@@ -42,7 +42,7 @@ typedef struct LEAF_TYPE {
  * Hot wrappers. These run once per node visited by every apply, so a backend
  * may define them as static inline in its own header (included before this one)
  * and define QBDD_HOT_OPS_INLINED to suppress the out-of-line prototypes here.
- * MoToBuddy does; Sylvan keeps the out-of-line definitions in interface_sylvan.c.
+ * MoToBuddy does.
  */
 #ifndef QBDD_HOT_OPS_INLINED
 

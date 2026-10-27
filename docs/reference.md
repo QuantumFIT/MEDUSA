@@ -44,11 +44,9 @@ All are written to the current directory.
 | `make buddy_doubles_f32` / `_f64` / `_f80` / `_f128` | floating-point builds ([which one](installation#choosing-the-number-representation)) |
 | `make buddy_doubles_all` | all four floating-point builds |
 | `make buddy_gmp` | the exact algebraic build |
-| `make init-sylvan`, `make sylvan_doubles`, `make sylvan_gmp` | the optional Sylvan backend |
 | `make plot` | render `res.dot` as `res.pdf` (needs Graphviz) |
 | `make test` | the main test suites |
 | `make test-grover` | Grover's search across all number representations, with and without `--symbolic` |
-| `make test-sylvan` | the circuit tests on the Sylvan backend |
 | `make help` | all targets |
 
 | Variable | Effect |

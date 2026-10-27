@@ -51,20 +51,6 @@ binaries** — reproduce these notices in the supporting documentation:
 > AND THE AUTHORS AND DISTRIBUTORS HAVE NO OBLIGATION TO PROVIDE MAINTENANCE,
 > SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
 
-## Sylvan
-
-* Upstream: https://github.com/trolando/sylvan
-* License: Apache-2.0
-* Copyright: Tom van Dijk and others
-* Used by: the optional Sylvan backends (`make init-sylvan`), linked statically
-
-## Lace
-
-* Upstream: https://github.com/trolando/lace
-* License: Apache-2.0
-* Copyright: Tom van Dijk and others
-* Used by: pulled in with Sylvan as its work-stealing framework
-
 ## Components used only on the `flint-eval` branch
 
 * **FLINT** — https://github.com/flintlib/flint — LGPL-3.0

@@ -1,8 +1,7 @@
 /.vscode
 
-# Libraries (cloned by make init / init-sylvan)
+# Libraries (cloned by make init)
 /lib
-/sylvan
 
 # Build files
 MEDUSA
@@ -11,8 +10,6 @@ MEDUSA_*
 /test_unit_leaf_gmp
 /test_unit_htab
 /test_metamorphic
-/test_metamorphic_sylvan_*
-/test_grover_sylvan_*
 /test_stress_f64
 /test_stress_f128
 /test_stress_gmp
@@ -37,7 +34,6 @@ res-vars.txt
 gmon.out
 /logs
 /test_benchmark_semantics
-/test_benchmark_semantics_sylvan_*
 /test_grover_*
 .cursor/
 norm_track.csv

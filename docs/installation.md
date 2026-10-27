@@ -60,7 +60,6 @@ Both produce the same binary names, so a debug build replaces the release binary
 
 ## Optional components
 
-- **Sylvan.** A second decision diagram library, for comparison with the original MEDUSA. `make init-sylvan` fetches and builds it, then `make sylvan_doubles` and `make sylvan_gmp` build `MEDUSA_sylvan_*` binaries. It supports the same leaf representations, but not the C++ options below.
 - **C++ gate implementations and MOSF input** (experimental). `make USE_CXX=1` compiles an alternative, traversal-based implementation of some gates and enables the MOSF input format (`--tree-simulation`).
 
 ## Check the installation

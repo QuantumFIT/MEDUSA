@@ -1,5 +1,5 @@
 /**
- * Semantic checks on benchmark algorithms (float leaves, MoToBuddy or Sylvan).
+ * Semantic checks on benchmark algorithms (float leaves).
  * Verifies algorithm outcomes, not only unit-norm MTBDDs:
  *   - Bernstein–Vazirani recovers the secret bitstring
  *   - Grover amplifies the oracle-marked state
@@ -23,8 +23,6 @@
  * circuits: measured worst case here is a total probability of 1.00004, i.e.
  * 4e-5 out. That is what the type can represent, not a defect, so the
  * comparisons are floored per leaf type rather than loosened for every type.
- * Both backends produce identical values at f32, so this is precision and not
- * backend divergence.
  *
  * For double and wider the floor is zero and every literal applies unchanged.
  */

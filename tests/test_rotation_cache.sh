@@ -3,9 +3,8 @@
 #
 # Catches both:
 #   - MoToBuddy (int)param truncation (round doubles 0.0/0.5/1.0 collide)
-#   - Sylvan syl_op cache omitting param entirely
 #
-# Uses MEDUSA_BIN (default MoToBuddy f128). make test-sylvan re-runs with Sylvan.
+# Uses MEDUSA_BIN (default MoToBuddy f128).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -24,7 +23,6 @@ trap 'rm -rf "${WORKDIR}"' EXIT
 
 if [[ ! -x "${BIN}" ]]; then
     echo "Binary ${BIN} not found - build with: make buddy_doubles_f128"
-    echo "(or MEDUSA_BIN=./MEDUSA_sylvan_doubles_f128 after make sylvan_doubles)"
     exit 1
 fi
 
@@ -158,7 +156,7 @@ assert_differ "rz-round-vs-h"           h           h_rz0_rz1
 assert_same   "rz-round-vs-rz1"         h_rz0_rz1   h_rz1
 assert_same   "rz0-is-identity"         h           h_rz0
 
-# Sylvan-style consecutive small angles
+# Consecutive small angles
 assert_differ "rz-0-then-0.1-vs-h"      h           h_rz0_rz01
 assert_same   "rz-0-then-0.1-vs-0.1"    h_rz0_rz01  h_rz01
 
