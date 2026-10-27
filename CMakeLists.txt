@@ -56,11 +56,16 @@ foreach(_t IN LISTS MEDUSA_FLOAT_TYPES)
   endif()
 endforeach()
 list(REMOVE_DUPLICATES MEDUSA_FLOAT_TYPES)
+if(NOT MEDUSA_FLOAT_TYPES AND NOT MEDUSA_GMP)
+  message(FATAL_ERROR "Nothing to build: MEDUSA_FLOAT_TYPES is empty and MEDUSA_GMP is OFF")
+endif()
 option(MEDUSA_DEBUG_LOG  "Compile in the MEDUSA_DEBUG runtime event log"       OFF)
 option(MEDUSA_TESTS      "Build the test harnesses and register CTest tests"   ON)
 set(MEDUSA_LEAF_ABS_EPS "" CACHE STRING "Override LEAF_ABS_EPS (empty = per-type default)")
 set(MEDUSA_LEAF_REL_EPS "" CACHE STRING "Override LEAF_REL_EPS (empty = per-type default)")
 set(MEDUSA_STRESS_LEVEL 2 CACHE STRING "STRESS_LEVEL for the stress-test harnesses")
+set(MEDUSA_TEST_TIMEOUT_MAX 0 CACHE STRING
+    "Upper bound on every CTest timeout in seconds (0 = none); CI sets it below the job's own limit")
 
 set(MEDUSA_MOTOBUDDY_REPO   "https://github.com/VeriFIT/MoToBuddy.git" CACHE STRING "")
 # Keep in sync with MOTOBUDDY_COMMIT in the Makefile while both builds exist.
