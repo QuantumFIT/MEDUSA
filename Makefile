@@ -155,7 +155,7 @@ endif
 
 # ==============================================================================
 # Float type selection for buddy_doubles
-# 0 = float   1 = double   2 = long double   3 = __float128 (default)
+# 0 = float   1 = double   2 = long double   3 = IEEE binary128 (default)
 # ==============================================================================
 
 LEAF_FLOAT_TYPE ?= 3
@@ -168,7 +168,6 @@ else ifeq ($(LEAF_FLOAT_TYPE), 2)
   FLOAT_SUFFIX := f80
 else ifeq ($(LEAF_FLOAT_TYPE), 3)
   FLOAT_SUFFIX := f128
-  CLIBS        += -lquadmath
 else
   $(error Unknown LEAF_FLOAT_TYPE=$(LEAF_FLOAT_TYPE))
 endif
@@ -176,10 +175,6 @@ endif
 # libbuddy.a always includes mtbddop.cxx. C-linked buddy binaries still need
 # the C++ runtime (operator new/delete, std::function, __gxx_personality_v0).
 CLIBS += -lstdc++
-
-# GMP builds have no __float128 leaves, so they must not depend on libquadmath
-# (absent on macOS) just because the default LEAF_FLOAT_TYPE is f128.
-CLIBS_GMP := $(filter-out -lquadmath,$(CLIBS))
 
 # ==============================================================================
 # buddy_doubles paths
@@ -363,7 +358,7 @@ sylvan_gmp: $(OBJS_SYLVAN_GMP) $(INTERFACE_OBJ_sylvan_gmp) \
 	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) -o $(BIN_DIR)/MEDUSA_sylvan_gmp \
 	    $(OBJS_SYLVAN_GMP) $(INTERFACE_OBJ_sylvan_gmp) \
 	    $(LEAF_OBJ_sylvan_mpz) $(LEAF_OBJ_sylvan_algebraic) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS_GMP)
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
 
 sylvan_doubles: $(OBJS_SYLVAN_DOUBLES) $(INTERFACE_OBJ_sylvan_doubles) \
                 $(LEAF_OBJ_sylvan_double) $(LEAF_OBJ_sylvan_reim) | $(BIN_DIR)
@@ -670,7 +665,7 @@ $(TEST_UNIT_GMP_BIN): $(TEST_UNIT_GMP_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_mpz.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_UNIT_GMP_SRC) $(TEST_STRESS_GMP_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_GMP)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
 
 test-unit-gmp: buddy_gmp $(TEST_UNIT_GMP_BIN)
 	$(TEST_UNIT_GMP_BIN)
@@ -695,7 +690,7 @@ $(TEST_GROVER_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_mpz.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_GROVER_SRC) $(TEST_STRESS_GMP_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_GMP)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
 
 # ------------------------------------------------------------------------------
 # The same Grover matrix on Sylvan.
@@ -728,7 +723,7 @@ $(TEST_GROVER_SYLVAN_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_SYLVA
 	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
 	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_GMP_CFLAGS) \
 	    -o $@ $(TEST_GROVER_SRC) $(TEST_SYLVAN_GMP_OBJS) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS_GMP)
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
 
 SYLVAN_GROVER_LEAF_TYPES ?= 0 1 2 3
 
@@ -876,7 +871,7 @@ $(TEST_STRESS_GMP_BIN): $(TEST_STRESS_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_mpz.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_STRESS_SRC) $(TEST_STRESS_GMP_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_GMP)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
 
 # ==============================================================================
 # buddy_gmp target
@@ -885,7 +880,7 @@ $(TEST_STRESS_GMP_BIN): $(TEST_STRESS_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 buddy_gmp: $(OBJS_BUDDY_GMP) $(INTERFACE_OBJ_motobuddy) \
            $(LEAF_OBJ_mpz) $(LEAF_OBJ_algebraic) \
            $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a | $(BIN_DIR)
-	$(LINKER) $(INC_DIRS_BUDDY_GMP) $(CFLAGS) -o $(BIN_DIR)/MEDUSA_buddy_gmp $^ $(CLIBS_GMP)
+	$(LINKER) $(INC_DIRS_BUDDY_GMP) $(CFLAGS) -o $(BIN_DIR)/MEDUSA_buddy_gmp $^ $(CLIBS)
 
 # ==============================================================================
 # buddy_doubles target (parameterized by LEAF_FLOAT_TYPE)
