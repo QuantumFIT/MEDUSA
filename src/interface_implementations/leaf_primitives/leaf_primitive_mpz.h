@@ -4,6 +4,12 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+/* The GMP build force-includes this header (-include) ahead of every
+ * source file, so it decides what gmp.h declares. <stdio.h> must come
+ * first: gmp.h declares its FILE functions (mpz_out_str, gmp_fprintf, ...)
+ * only if stdio.h was already included. Without that, calls to them are
+ * implicit declarations, an error since GCC 14. */
+#include <stdio.h>
 #include <gmp.h>
 
 #ifndef LEAF_PRIMITIVE_DEFINED
