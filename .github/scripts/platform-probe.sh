@@ -76,6 +76,13 @@ fi
 
 {
     cc="${CC:-gcc}"
+    ldbl=$("${cc}" -dM -E -x c /dev/null 2>/dev/null | awk '$2 == "__LDBL_MANT_DIG__" { print $3 }')
+    case "${ldbl}" in
+        64)  f80_note="80-bit" ;;
+        53)  f80_note="= f64, long double is double" ;;
+        113) f80_note="128-bit, long double is binary128" ;;
+        *)   f80_note="long double with ${ldbl:-?}-bit mantissa" ;;
+    esac
     gmp=$(echo '#include <gmp.h>' | "${cc}" -dM -E -x c - 2>/dev/null | awk '
           $2 == "__GNU_MP_VERSION" { a = $3 } $2 == "__GNU_MP_VERSION_MINOR" { b = $3 }
           $2 == "__GNU_MP_VERSION_PATCHLEVEL" { c = $3 } END { if (a != "") print a "." b "." c }')
@@ -83,10 +90,17 @@ fi
     echo
     echo "$("${cc}" --version 2>/dev/null | head -1); $(cmake --version 2>/dev/null | head -1); GMP ${gmp:-?}; $(uname -m)"
     echo
+    if [ "${f80_note}" != "80-bit" ]; then
+        echo "f80 builds \`long double\`, which here is ${f80_note}: that row does not test 80-bit extended precision."
+        echo
+    fi
     echo "| leaf | build | unit | grover | circuits |"
     echo "|---|---|---|---|---|"
     for s in f32 f64 f80 f128 gmp; do
-        row="| ${s} "
+        row="| ${s}"
+        # f80 is whatever `long double` is: x87 80-bit extended only on x86.
+        [ "${s}" = f80 ] && row+=" (${f80_note})"
+        row+=" "
         for k in build unit grover circuits; do
             for i in "${!names[@]}"; do
                 [ "${names[$i]}" = "${k}-${s}" ] && row+="| ${results[$i]} "
