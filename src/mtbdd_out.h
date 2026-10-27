@@ -8,6 +8,11 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+/* <stdio.h> must come before <gmp.h>: gmp.h declares its FILE functions
+ * (mpz_out_str, gmp_fprintf, ...) only if stdio.h was already included.
+ * Without that, calls to them are implicit declarations, an error since
+ * GCC 14. */
+#include <stdio.h>
 #include <gmp.h>
 #include "mtbdd.h"
 
