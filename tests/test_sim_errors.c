@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/types.h>
 
 #define HDR "OPENQASM 3.0;\ninclude \"stdgates.inc\";\n"
 
@@ -76,6 +77,66 @@ static const error_case_t CASES[] = {
       SIM_ERR_SYNTAX, "missing '}'" },
     { "stray closing brace", false, HDR "qubit[2] q;\n}\n",
       SIM_ERR_SYNTAX, "unexpected end of a loop" },
+
+    /* Numbers and indices. */
+    { "end of file inside a number", false, HDR "qubit[2",
+      SIM_ERR_SYNTAX, "end of file when converting a number" },
+    { "empty number", false, HDR "qubit[] q;\n",
+      SIM_ERR_SYNTAX, "not a valid number." },
+    { "no index at all", false, HDR "qubit q;\n",
+      SIM_ERR_SYNTAX, "expected a qubit index" },
+    { "negative register size", false, HDR "qubit[-1] q;\n",
+      SIM_ERR_SYNTAX, "not a valid qubit identifier" },
+    { "register size over 32 bits", false, HDR "qubit[4294967296] q;\n",
+      SIM_ERR_SYNTAX, "not a valid qubit identifier" },
+    { "non-digit qubit index", false, HDR "qubit[2] q;\nh q[x];\n",
+      SIM_ERR_SYNTAX, "non-digit character 'x'" },
+    { "non-digit bit index", false, HDR "qubit[2] q;\nbit[2] c;\nc[x] = measure q[0];\n",
+      SIM_ERR_SYNTAX, "non-digit character 'x'" },
+
+    /* Commands and registers. */
+    { "end of file inside a command", false, HDR "qubit[2] q;\nh",
+      SIM_ERR_SYNTAX, "end of file when loading a command" },
+    { "command too long", false, HDR "qubit[2] q;\nabcdefghijklmnopqrstuvwxyzabcdef q[0];\n",
+      SIM_ERR_UNSUPPORTED, "command too long" },
+    { "missing ';'", false, HDR "qubit[2] q;\nh q[0]",
+      SIM_ERR_SYNTAX, "expected ';' to end the current line" },
+    { "non-digit bit register size", false, HDR "qubit[2] q;\nbit[x] c;\n",
+      SIM_ERR_SYNTAX, "non-digit character 'x'" },
+    { "end of file before the bit register name", false, HDR "qubit[2] q;\nbit[2]",
+      SIM_ERR_SYNTAX, "bit register name expected" },
+    { "bit register name too long", false,
+      HDR "qubit[2] q;\nbit[2] abcdefghijklmnopqrstuvwxyzabcdef;\n",
+      SIM_ERR_UNSUPPORTED, "identifier is too long, max supported length is 30" },
+    { "qubit register after a bigger bit register", false, HDR "bit[2] c;\nqubit[3] q;\n",
+      SIM_ERR_UNSUPPORTED, "different than the size" },
+    { "bad ry angle", false, HDR "qubit[2] q;\nry(pi/) q[0];\n",
+      SIM_ERR_SYNTAX, "Invalid ry angle" },
+    { "bad rz angle", false, HDR "qubit[2] q;\nrz(2*) q[0];\n",
+      SIM_ERR_SYNTAX, "Invalid rz angle" },
+
+    /* Loop headers. */
+    { "for without a range", false, HDR "qubit[2] q;\nfor int i in range;\n",
+      SIM_ERR_SYNTAX, "expected a number of loop iterations" },
+    { "bad loop start", false, HDR "qubit[2] q;\nfor int i in [a:2] {\nh q[0];\n}\n",
+      SIM_ERR_SYNTAX, "non-digit character 'a'" },
+    { "bad loop end", false, HDR "qubit[2] q;\nfor int i in [1:b] {\nh q[0];\n}\n",
+      SIM_ERR_SYNTAX, "non-digit character 'b'" },
+    { "bad loop step", false, HDR "qubit[2] q;\nfor int i in [1:1:c] {\nh q[0];\n}\n",
+      SIM_ERR_SYNTAX, "non-digit character 'c'" },
+    { "loop range overflow", false,
+      HDR "qubit[2] q;\nfor int i in [-9223372036854775808:9223372036854775807] {\nh q[0];\n}\n",
+      SIM_ERR_SYNTAX, "overflow detected" },
+    { "loop range overflow, counting down", false,
+      HDR "qubit[2] q;\nfor int i in [9223372036854775807:-1:-9223372036854775808] {\nh q[0];\n}\n",
+      SIM_ERR_SYNTAX, "overflow detected" },
+    { "loop counting down from below its end", false,
+      HDR "qubit[2] q;\nfor int i in [1:-1:4] {\nh q[0];\n}\n",
+      SIM_ERR_SYNTAX, "Invalid number of loop iterations." },
+    { "end of file before '{'", false, HDR "qubit[2] q;\nfor int i in [1:2]",
+      SIM_ERR_SYNTAX, "at the start of a loop" },
+    { "skipped loop never closed", false, HDR "qubit[2] q;\nfor int i in [1:-1:0] {\nh q[0];\n",
+      SIM_ERR_SYNTAX, "there is an unfinished loop" },
 
     /* Symbolic: each of these fails with symb_init's state live. */
     { "symbolic: unfinished loop", true, HDR "qubit[2] q;\nh q[0];\nfor int i in [1:3] {\nh q[1];\n",
@@ -144,6 +205,148 @@ static void test_error_cases(void)
     }
 }
 
+/** Probability of one basis state; bits[v] is qubit v. */
+static double basis_prob(qBDD t, const char *bits)
+{
+    while (!qBDD_isTerminal(t) && !qBDD_isFalse(t)) {
+        uint32_t v = (uint32_t)qBDD_getVar(t);
+        t = (bits[v] == '1') ? qBDD_getHigh(t) : qBDD_getLow(t);
+    }
+    return qBDD_isFalse(t) ? 0.0 : (double)qBDD_calculateProb(t);
+}
+
+/* Every gate checks each of its qubit operands. One case per operand
+ * position, since each is parsed (and checked) by its own call. */
+static void test_gate_operands(void)
+{
+    static const char *GATES[] = {
+        "x q[9];", "y q[9];", "z q[9];", "h q[9];", "s q[9];", "t q[9];",
+        "tdg q[9];", "rx(pi/2) q[9];", "ry(pi/2) q[9];",
+        "rx(0.3) q[9];", "ry(0.3) q[9];", "rz(0.3) q[9];",
+        "cx q[9], q[0];", "cx q[0], q[9];",
+        "cz q[9], q[0];", "cz q[0], q[9];",
+        "ccx q[9], q[0], q[1];", "ccx q[0], q[9], q[1];", "ccx q[0], q[1], q[9];",
+        "mcx q[9], q[0], q[1];", "mcx q[0], q[1], q[9];",
+    };
+    TEST_SECTION("every gate operand is range-checked");
+    for (size_t i = 0; i < sizeof(GATES) / sizeof(GATES[0]); i++) {
+        char qasm[256];
+        snprintf(qasm, sizeof(qasm), HDR "qubit[3] q;\nh q[0];\n%s\n", GATES[i]);
+        FILE *f = qasm_stream(qasm);
+        qBDD circ;
+        sim_info_t info;
+        sim_status_t got = run(f, false, &circ, &info);
+        fclose(f);
+        char what[512];
+        snprintf(what, sizeof(what), "%s: status %d, error \"%s\"", GATES[i], (int)got, info.error);
+        TEST_ASSERT_MSG(got == SIM_ERR_SYNTAX, what);
+        TEST_ASSERT_MSG(strstr(info.error, "q[9] is outside the declared register of 3") != NULL, what);
+        TEST_ASSERT_MSG(qBDD_isFalse(circ), what);
+        free_sim_info(&info);
+    }
+}
+
+/* Valid inputs at the edges of the paths above:
+ *   - a comment as the very last thing in the file, with no newline after it;
+ *   - a loop with zero iterations, whose body (comments included) is skipped
+ *     without being simulated - x q[0] in it must not happen;
+ *   - the bit register declared first, and with a space before its ';'. */
+static void test_valid_edges(void)
+{
+    static const char *QASM[] = {
+        HDR "qubit[2] q;\nx q[1];\n// done",
+        HDR "qubit[2] q;\nx q[1];\nfor int i in [1:-1:0] {\n// skipped\nx q[0];\n}\n",
+        HDR "bit[2] c ;\nqubit[2] q;\nx q[1];\n",
+    };
+    TEST_SECTION("valid edge inputs: trailing comment, empty loop, bit register first");
+    for (size_t i = 0; i < sizeof(QASM) / sizeof(QASM[0]); i++) {
+        FILE *f = qasm_stream(QASM[i]);
+        qBDD circ;
+        sim_info_t info;
+        sim_status_t got = run(f, false, &circ, &info);
+        fclose(f);
+        TEST_ASSERT_MSG(got == SIM_OK, info.error);
+        if (got == SIM_OK) {
+            TEST_ASSERT_NEAR(basis_prob(circ, "01"), 1.0, 1e-6);
+            deleteCircuit(&circ);
+        }
+        free_sim_info(&info);
+    }
+}
+
+#ifdef __GLIBC__
+/*
+ * A stream whose n-th seek fails, for the repositioning errors a pipe cannot
+ * reach: on a pipe the very first one (the fseek in get_iters) fails already.
+ * Each of fseek, fgetpos and fsetpos calls the seek function exactly once, so
+ * for a single loop the 1st seek is get_iters' fseek, the 2nd the fgetpos that
+ * marks the start of the body, and the 3rd the fsetpos that rewinds to it at
+ * the first '}'.
+ */
+typedef struct {
+    const char *buf;
+    size_t len, pos;
+    int seeks, fail_at;
+} flaky_t;
+
+static ssize_t flaky_read(void *cookie, char *out, size_t n)
+{
+    flaky_t *m = cookie;
+    size_t k = m->len - m->pos;
+    if (k > n)
+        k = n;
+    memcpy(out, m->buf + m->pos, k);
+    m->pos += k;
+    return (ssize_t)k;
+}
+
+static int flaky_seek(void *cookie, __off64_t *off, int whence)
+{
+    flaky_t *m = cookie;
+    if (++m->seeks == m->fail_at)
+        return -1;
+    __off64_t base = whence == SEEK_SET ? 0 : whence == SEEK_CUR ? (__off64_t)m->pos : (__off64_t)m->len;
+    if (base + *off < 0 || base + *off > (__off64_t)m->len)
+        return -1;
+    m->pos = (size_t)(base + *off);
+    *off = (__off64_t)m->pos;
+    return 0;
+}
+
+static void test_failing_seeks(void)
+{
+    static const struct {
+        int fail_at;
+        bool symbolic;
+        const char *msg;
+    } STEPS[] = {
+        { 2, false, "mark the start of a loop" },
+        { 3, false, "start the next iteration" },
+        { 3, true,  "during symbolic simulation" },
+    };
+    /* The body needs more than one symbolic pass (the h on q[1] makes the
+     * first refinement change the variable mapping), so the symbolic run
+     * rewinds too. */
+    const char *text = HDR "qubit[2] q;\nh q[0];\nfor int i in [1:3] {\nh q[1];\ncx q[1], q[0];\n}\n";
+    TEST_SECTION("stream repositioning fails: SIM_ERR_STREAM");
+    for (size_t i = 0; i < sizeof(STEPS) / sizeof(STEPS[0]); i++) {
+        flaky_t m = { text, strlen(text), 0, 0, STEPS[i].fail_at };
+        FILE *f = fopencookie(&m, "r", (cookie_io_functions_t){ .read = flaky_read, .seek = flaky_seek });
+        qBDD circ;
+        sim_info_t info;
+        sim_status_t got = run(f, STEPS[i].symbolic, &circ, &info);
+        fclose(f);
+        char what[512];
+        snprintf(what, sizeof(what), "seek %d fails%s: status %d, error \"%s\"", STEPS[i].fail_at,
+                 STEPS[i].symbolic ? " (symbolic)" : "", (int)got, info.error);
+        TEST_ASSERT_MSG(got == SIM_ERR_STREAM, what);
+        TEST_ASSERT_MSG(strstr(info.error, STEPS[i].msg) != NULL, what);
+        TEST_ASSERT_MSG(qBDD_isFalse(circ), what);
+        free_sim_info(&info);
+    }
+}
+#endif
+
 /* Loops rewind the stream, which a pipe cannot do. That is an error of its
  * own, distinct from a malformed circuit. */
 static void test_unseekable_stream(void)
@@ -170,16 +373,6 @@ static void test_unseekable_stream(void)
     TEST_ASSERT(strstr(info.error, "cannot be simulated from stdin") != NULL);
     TEST_ASSERT(qBDD_isFalse(circ));
     free_sim_info(&info);
-}
-
-/** Probability of one basis state; bits[v] is qubit v. */
-static double basis_prob(qBDD t, const char *bits)
-{
-    while (!qBDD_isTerminal(t) && !qBDD_isFalse(t)) {
-        uint32_t v = (uint32_t)qBDD_getVar(t);
-        t = (bits[v] == '1') ? qBDD_getHigh(t) : qBDD_getLow(t);
-    }
-    return qBDD_isFalse(t) ? 0.0 : (double)qBDD_calculateProb(t);
 }
 
 /* After all of the above, in the same package, valid circuits still simulate
@@ -225,6 +418,11 @@ int main(void)
 
     test_error_cases();
     test_unseekable_stream();
+    test_gate_operands();
+    test_valid_edges();
+#ifdef __GLIBC__
+    test_failing_seeks();
+#endif
     test_valid_after_errors();
 
     freePackage();

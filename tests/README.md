@@ -121,6 +121,9 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   one package, which then has to simulate valid circuits, classic and
   symbolic, correctly. That last part caught an aborted symbolic loop leaving
   the operation cache behind (`symb_abort` now clears it, as `symb_eval` does).
+  Every parser error path is reached, including a bad index in each gate
+  operand position and the three stream-repositioning errors, which use a
+  `fopencookie` stream whose n-th seek fails (glibc only; skipped elsewhere).
   `test-leaks` runs it under valgrind. `test-cli` covers the same errors as the
   CLI prints them
 - `make test-cli` - argument handling, parser diagnostics and the long-number
