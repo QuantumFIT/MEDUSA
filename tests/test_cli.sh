@@ -340,6 +340,21 @@ mcx_syntax|mcx
 rx_angle|Invalid rx angle
 CASES
 
+# A rejected circuit is not a run, so --info prints no statistics for it -
+# as when the parser still ended the process itself. The CLI catches the
+# error from sim_file and has to skip them explicitly.
+log="${WORKDIR}/parse-info.log"
+rc=0
+( cd "${WORKDIR}" && timeout 60 "${BIN}" --file "${WORKDIR}/bad/nested_loop.qasm" --info >"${log}" 2>&1 ) || rc=$?
+if [[ "${rc}" -eq 1 ]] && grep -q 'Nested loops' "${log}" && ! grep -q '^Time=' "${log}"; then
+    echo "OK   parse-error-with-info"
+    summary_record "parse-error-with-info" 0
+else
+    echo "FAIL parse-error-with-info: exit ${rc}, expected 1, the error and no Time= line"
+    tail -5 "${log}" || true
+    summary_record "parse-error-with-info" 1
+fi
+
 # A gate before any register declaration is caught earlier, by the `if (init)`
 # guard around gate parsing - which is why get_q_idx carries no such check.
 check "parse-gate-before-register" nonzero "Circuit not initialized" \

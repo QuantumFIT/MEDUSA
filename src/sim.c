@@ -79,18 +79,16 @@ static void sim_info_times_addsize(sim_info_t *i, int inc)
  * Records why the simulation failed and returns false, so that a parse helper
  * can report an error with `return sim_error(...)`.
  *
- * Only the first error is kept: it is the one that stopped the parse.
+ * Called once per run: every error stops the parse.
  */
 __attribute__((format(printf, 3, 4)))
 static bool sim_error(sim_info_t *info, sim_status_t status, const char *fmt, ...)
 {
-    if (info->status == SIM_OK) {
-        va_list args;
-        va_start(args, fmt);
-        vsnprintf(info->error, sizeof(info->error), fmt, args);
-        va_end(args);
-        info->status = status;
-    }
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(info->error, sizeof(info->error), fmt, args);
+    va_end(args);
+    info->status = status;
     return false;
 }
 
@@ -477,12 +475,11 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
                 FAIL(SIM_ERR_UNSUPPORTED, "Invalid command (command too long).");
             }
         } while (!isspace(c = fgetc(in)) && (c != '['));
+        /* The loop above ends only on whitespace or '[': an EOF is reported
+         * inside it, as an end of file while loading the command. */
         if (c == '[') {
             // get_q_num() needs to see '[' (needed because of OpenQASM 3 new syntax)
             ungetc(c, in);
-        }
-        else if (c == EOF) {
-            FAIL(SIM_ERR_SYNTAX, "Invalid format - reached an unexpected end of file immediately after a command.");
         }
 
         // Identify the command
