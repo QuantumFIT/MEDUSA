@@ -8,7 +8,7 @@ make test-sylvan      # same circuit/benchmark smokes on Sylvan + harder Grover/
 make test-all         # test + test-sylvan
 make test-sylvan-all  # test-sylvan + the slow metamorphic sweep (nightly in CI)
 make test-stress      # extreme GC/terminal stress for doubles f128 AND gmp
-make test-leaks       # valgrind definite+reachable (unit, stress, Grover/05, semantics, metamorphic)
+make test-leaks       # valgrind definite+reachable (unit, stress, Grover/05, semantics, metamorphic, sim errors)
 make test-grover      # LP-Grover n=5,6,7 × {loop, loop-symbolic, NL} × {f32,f64,f80,f128,gmp}
 make test-unit-leaf-types # the unit suite against each leaf representation
 make test USE_CXX=1   # same suite against the C++ gate implementations
@@ -122,6 +122,16 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   `#error` naming another leaf type; and the GMP link commands pass no
   `-lquadmath` (a Linux linker drops it with `--as-needed`, macOS has none) and
   the GMP binaries do not depend on it. Makefile-specific, so not in CTest
+- `make test-sim-errors` - `sim_file` on invalid input, called directly
+  (`tests/test_sim_errors.c`): it must return a `SIM_ERR_*` status with the
+  message in `info.error` instead of ending the process, leave no circuit in
+  `*circ`, and release whatever the failed run had set up - an open symbolic
+  loop, the symbolic expression table, a half-built `mcx` list. All cases run in
+  one package, which then has to simulate valid circuits, classic and
+  symbolic, correctly. That last part caught an aborted symbolic loop leaving
+  the operation cache behind (`symb_abort` now clears it, as `symb_eval` does).
+  `test-leaks` runs it under valgrind. `test-cli` covers the same errors as the
+  CLI prints them
 - `make test-cli` - argument handling, parser diagnostics and the long-number
   output file (`tests/test_cli.sh`). Before it, `main.c` sat at 55.7% branch
   coverage and `sim.c` at 66.4%, because every other suite feeds the simulator
