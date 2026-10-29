@@ -84,6 +84,13 @@ bool symb_refine(mtbdd_symb_t *symbc, rdata_t *rdata);
  */
 void symb_eval(qBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata);
 
+/**
+ * Releases a symbolic loop that will not be evaluated (the input turned out to be
+ * invalid partway through it): everything symb_init set up, and the operation
+ * cache, as symb_eval does.
+ */
+void symb_abort(mtbdd_symb_t *symbc);
+
 vars_t refine_var_check(vars_t var, symexp_list_t *data, rdata_t *rd);
 
 extern mpz_t globalSquareRootCoeffSymb;
