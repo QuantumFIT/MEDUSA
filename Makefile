@@ -246,7 +246,7 @@ BSCRIPT_PATH       := benchmark-utils/scripts
         test test-unit test-unit-htab test-unit-gmp test-cli test-mosf     \
         test-unit-leaf-types                                               \
         test-circuits                                                      \
-        test-benchmarks test-metamorphic                                   \
+        test-benchmarks test-metamorphic test-sim-errors                   \
         coverage coverage-all coverage-cxx coverage-report                 \
         test-sylvan test-all test-sylvan-leaf-types                        \
         test-sylvan-metamorphic test-sylvan-all                            \
@@ -283,6 +283,7 @@ help:
 	@echo "  make test-unit-htab   unit tests for the hash table"
 	@echo "  make test-unit-gmp    unit tests for the GMP leaf primitive"
 	@echo "  make test-cli         CLI, parser diagnostics, long-number output"
+	@echo "  make test-sim-errors  sim_file returns (no exit) on invalid input"
 	@echo "  make test-mosf        MOSF JSON input (needs USE_CXX=1, else skips)"
 	@echo "  make test-grover-sylvan  Grover matrix on Sylvan, every leaf type + GMP"
 	@echo "  make test-sylvan-all  test-sylvan + the slow metamorphic sweep"
@@ -410,6 +411,9 @@ TEST_SEM_SRC      := $(TEST_DIR)/test_benchmark_semantics.c
 TEST_META_BIN     := $(BIN_DIR)/test_metamorphic
 TEST_META_SRC     := $(TEST_DIR)/test_metamorphic.c
 
+TEST_SIMERR_BIN   := $(BIN_DIR)/test_sim_errors
+TEST_SIMERR_SRC   := $(TEST_DIR)/test_sim_errors.c
+
 # ------------------------------------------------------------------------------
 # Sylvan-linked variants of the two backend-agnostic C suites.
 #
@@ -442,8 +446,8 @@ TEST_STRESS_GMP_BIN  := $(BIN_DIR)/test_stress_gmp
 TEST_STRESS_GMP_OBJS := $(filter-out $(OBJ_DIR)/buddy_gmp/main.o, $(OBJS_BUDDY_GMP)) \
                         $(INTERFACE_OBJ_motobuddy) $(LEAF_OBJ_mpz) $(LEAF_OBJ_algebraic)
 
-test: test-unit test-unit-htab test-unit-gmp test-cli test-mosf test-circuits \
-      test-benchmarks test-metamorphic
+test: test-unit test-unit-htab test-unit-gmp test-cli test-sim-errors test-mosf \
+      test-circuits test-benchmarks test-metamorphic
 
 test-all: test test-sylvan
 
@@ -613,6 +617,21 @@ test-metamorphic:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
 	$(MAKE) $(TEST_META_BIN) LEAF_FLOAT_TYPE=3
 	$(TEST_META_BIN)
+
+# sim_file on invalid input returns an error and leaves the package usable,
+# rather than ending the process (the CLI side of the same errors is test-cli).
+$(TEST_SIMERR_BIN): $(TEST_SIMERR_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
+                    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
+	$(CC) $(INC_DIRS_BUDDY_DOUBLES) -I $(TEST_DIR) $(CFLAGS) \
+	    -DLEAF_BACKEND_DOUBLES -DLEAF_FLOAT_TYPE=$(LEAF_FLOAT_TYPE) \
+	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
+	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
+	    -o $@ $(TEST_SIMERR_SRC) $(TEST_UNIT_OBJS) \
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+
+test-sim-errors:
+	$(MAKE) $(TEST_SIMERR_BIN) LEAF_FLOAT_TYPE=3
+	$(TEST_SIMERR_BIN)
 
 # ------------------------------------------------------------------------------
 # Unit tests for the GMP leaf primitive.
@@ -1090,7 +1109,7 @@ clean-artifacts:
 	       $(TEST_UNIT_BIN) $(TEST_UNIT_GMP_BIN) $(TEST_HTAB_BIN) \
 	       $(TEST_STRESS_F64_BIN) $(TEST_STRESS_F128_BIN) \
 	       $(TEST_STRESS_GMP_BIN) \
-	       $(TEST_SEM_BIN) $(TEST_META_BIN) \
+	       $(TEST_SEM_BIN) $(TEST_META_BIN) $(TEST_SIMERR_BIN) \
 	       $(BIN_DIR)/test_benchmark_semantics_sylvan_* \
 	       $(BIN_DIR)/test_grover_sylvan_* \
 	       $(BIN_DIR)/test_metamorphic_sylvan_* \

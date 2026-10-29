@@ -16,6 +16,18 @@ typedef struct sim_flags {
     bool opt_info;   /// If true, time statistics will be collected for loop simulation
 } sim_flags_t;
 
+/// Outcome of sim_file
+typedef enum sim_status {
+    SIM_OK = 0,          /// The circuit was simulated
+    SIM_NO_CIRCUIT,      /// The input declares no qubit register, so there is nothing to simulate
+    SIM_ERR_SYNTAX,      /// The input is not a valid circuit
+    SIM_ERR_UNSUPPORTED, /// The input is valid, but uses something MEDUSA does not support
+    SIM_ERR_STREAM,      /// The input cannot be repositioned, which loops need (e.g. stdin)
+} sim_status_t;
+
+/// Max. length of the error message in sim_info (includes '\0')
+#define SIM_ERROR_LEN 256
+
 /// Additional simulation info (set during the simulation)
 typedef struct sim_info {
     int n_qubits;         /// Number of qubits in the circuit
@@ -25,6 +37,8 @@ typedef struct sim_info {
     size_t t_len;         /// Lenght of both time arrays
     double *t_el_loop;    /// Array for the total elapsed time for each loop
     double *t_el_eval;    /// Array for the eval time for each loop (for symbolic sim only)
+    sim_status_t status;  /// Outcome of sim_file, the same as its return value
+    char error[SIM_ERROR_LEN]; /// For a SIM_ERR_* status: what went wrong, one line without '\n'
 } sim_info_t;
 
 /**
@@ -49,7 +63,17 @@ void free_sim_info(sim_info_t *i);
  * @return true if the circuit has been properly initialized and simulated
  * 
  */
-bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info);
+/**
+ * Simulates the OpenQASM circuit read from in.
+ *
+ * Invalid input does not end the process: sim_file returns a SIM_ERR_* status
+ * and leaves the message in info->error. On any status other than SIM_OK, *circ
+ * holds no circuit and everything sim_file allocated for the run is released,
+ * except the arrays in info, which free_sim_info releases as on success.
+ *
+ * All four pointers must be non-NULL (asserted).
+ */
+sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info);
 
 /**
  * Measures all bits in the given array (compatible only with measurement at the end of the circuit)
