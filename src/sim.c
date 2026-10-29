@@ -435,6 +435,13 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
     struct timespec t_loop_start, t_loop_finish, t_eval_start;
     bool symexp_live = false; // symexp_htab_init has run and needs the clean-up
 
+    /* A NULL here is a bug in the caller, not bad input, so it is an assert
+     * rather than an error status. */
+    assert(in != NULL);
+    assert(circ != NULL);
+    assert(flags != NULL);
+    assert(info != NULL);
+
     info->status = SIM_OK;
     info->error[0] = '\0';
     while ((c = fgetc(in)) != EOF) {
