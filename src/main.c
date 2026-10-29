@@ -170,6 +170,7 @@ int main(int argc, char *argv[])
     double t_el;
     clock_gettime(CLOCK_MONOTONIC, &t_start); // Start the timer
     bool sim_successful = false;
+    bool sim_rejected = false; // sim_file refused the input (and has said why)
     if (use_tree_sim) {
     #ifdef USE_MOSF
             sim_successful = sim_mosf_file(input, &circ, &flags, &info);
@@ -179,7 +180,16 @@ int main(int argc, char *argv[])
     #endif
 
     } else {   
-        sim_successful = sim_file(input, &circ, &flags, &info);
+        sim_status_t status = sim_file(input, &circ, &flags, &info);
+        sim_successful = (status == SIM_OK);
+        if (status != SIM_OK && status != SIM_NO_CIRCUIT) {
+            /* What error_exit used to print before ending the process. The
+             * run still ends with exit status 1, but through the clean-up
+             * below, and without the --info statistics of a run that did
+             * not happen. */
+            fprintf(stderr, "ERROR: %s\n", info.error);
+            sim_rejected = true;
+        }
     }
     if (sim_successful && opt_measure && info.is_measure) {
         measure_all(samples, measure_output, circ, info.n_qubits, info.bits_to_measure);
@@ -215,7 +225,7 @@ int main(int argc, char *argv[])
     }
 
     t_el = get_time_el(t_start, t_finish);
-    if (flags.opt_info) {
+    if (flags.opt_info && !sim_rejected) {
         printf("Time=%.3gs\n", t_el);
         #if defined(__unix__) || defined(__APPLE__)
             printf("Peak Memory Usage=%ldkB\n", peak_mem);
