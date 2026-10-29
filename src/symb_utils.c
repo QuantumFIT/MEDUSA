@@ -298,4 +298,17 @@ void symb_eval(qBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata)
                .use_iters = 1, .iters = iters);
 }
 
+void symb_abort(mtbdd_symb_t *symbc)
+{
+    vmap_delete(symbc->vm);
+    symbc->vm = NULL;
+    qBDD_unprotect(symbc->map);
+    qBDD_unprotect(symbc->val);
+    clearInvSqrtCoeffSymb();
+    /* As at the end of symb_eval: the symbolic operations are cached under the
+     * vmap's address, which the next loop's vmap can get again. Without this,
+     * the next symbolic loop can be served results cached for this one. */
+    forceGC();
+}
+
 /* end of "symb_utils.c" */

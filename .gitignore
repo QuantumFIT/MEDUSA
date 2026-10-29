@@ -12,6 +12,7 @@ MEDUSA_*
 /test_unit_htab
 /test_metamorphic
 /test_metamorphic_sylvan_*
+/test_sim_errors
 /test_grover_sylvan_*
 /test_stress_f64
 /test_stress_f128

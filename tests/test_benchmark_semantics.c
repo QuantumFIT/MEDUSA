@@ -45,7 +45,7 @@ static bool sim_path(const char *path, qBDD *out, int *n_qubits)
     sim_flags_t flags = { .opt_symb = false, .opt_info = false };
     sim_info_t info;
     init_sim_info(&info);
-    bool ok = sim_file(f, out, &flags, &info);
+    bool ok = (sim_file(f, out, &flags, &info) == SIM_OK);
     fclose(f);
     if (ok) *n_qubits = info.n_qubits;
     /* sim_file allocates the loop-timing arrays (and bits_to_measure for

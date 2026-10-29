@@ -165,13 +165,13 @@ static int run_one(const char *label, const char *path, int n_search, int symbol
     sim_info_t info;
     init_sim_info(&info);
     qBDD circ;
-    bool ok = sim_file(f, &circ, &flags, &info);
+    bool ok = (sim_file(f, &circ, &flags, &info) == SIM_OK);
     fclose(f);
 
     TEST_SECTION(label);
 
     if (!ok) {
-        printf("  FAIL %-28s  sim_file failed\n", label);
+        printf("  FAIL %-28s  sim_file failed: %s\n", label, info.error);
         free_sim_info(&info);
         freePackage();
         TEST_ASSERT_MSG(0, label);
