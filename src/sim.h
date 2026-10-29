@@ -70,6 +70,8 @@ void free_sim_info(sim_info_t *i);
  * and leaves the message in info->error. On any status other than SIM_OK, *circ
  * holds no circuit and everything sim_file allocated for the run is released,
  * except the arrays in info, which free_sim_info releases as on success.
+ *
+ * All four pointers must be non-NULL (asserted).
  */
 sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info);
 
