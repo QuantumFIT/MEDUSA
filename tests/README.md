@@ -352,3 +352,26 @@ mapping list, `rdata->ref`, and `free_sim_info`.
 
 Terminal-table teardown (`bdd_done` union-aware free + `mtbdd_IndexStackFree`) and
 CUSTOM dedup free are in upstream MoToBuddy (`main`).
+
+### Code quality (`.github/workflows/code-quality.yml`)
+
+Four checks, each run on the change *and* on the commit it is based on:
+compiler warnings with `-Wall -Wextra` (GCC: every leaf type, GMP and
+`USE_CXX=1`; clang: f32/f64/f80 and GMP, as clang cannot build f128 on `devel`
+yet), cppcheck (`--enable=warning,portability,performance`, f128 and GMP
+builds), and shellcheck (`-S warning`, every tracked `*.sh`). A check fails
+only on findings the change adds; the existing ones are listed in the job
+summary. Findings are compared by file, kind and message, not by line, so
+unrelated edits that move code do not count as new.
+
+The same script runs locally (after `make init`; it rebuilds the object trees):
+
+```
+python3 .github/scripts/code_quality.py warnings --compiler gcc --out now.txt
+python3 .github/scripts/code_quality.py cppcheck --out now.txt
+python3 .github/scripts/code_quality.py shellcheck --out now.txt
+python3 .github/scripts/code_quality.py compare --name gcc before.txt now.txt
+```
+
+A cppcheck false positive can be silenced at the line with
+`// cppcheck-suppress <id>`.
