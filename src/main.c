@@ -188,6 +188,9 @@ int main(int argc, char *argv[])
     clock_gettime(CLOCK_MONOTONIC, &t_finish); // End the timer
     long peak_mem = get_peak_mem();
     // Output:
+#ifdef MEDUSA_DEBUG
+    /* A full walk over the diagram, for the log only: release builds skip it
+     * (it used to run after the timer, so it cost wall time but no Time=). */
     {
         double tp = sim_successful
             ? (double)qBDD_total_prob(circ, info.n_qubits) : 0.0;
@@ -199,6 +202,7 @@ int main(int argc, char *argv[])
                    .use_loop = 1, .loop_idx = (int)info.n_loops,
                    .note = sim_successful ? "ok" : "sim_failed");
     }
+#endif
     if (sim_successful) {
         lnum_map_init(LONG_NUMS_MAP_INIT_SIZE);
         q_fprintdot(out, circ);
@@ -225,7 +229,7 @@ int main(int argc, char *argv[])
         if (info.n_loops > 0) {
             printf("\nLoop time stats:\n");
             for (size_t i = 0; i < info.n_loops; i++) {
-                printf("  Loop[%ld] - Total time=%.3gs", i, info.t_el_loop[i]);
+                printf("  Loop[%zu] - Total time=%.3gs", i, info.t_el_loop[i]);
                 if (flags.opt_symb) {
                     printf(", Eval time=%.3gs", info.t_el_eval[i]);
                 }

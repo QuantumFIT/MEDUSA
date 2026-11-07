@@ -23,7 +23,7 @@ void symexp_list_first(symexp_list_t *l)
 void symexp_list_next(symexp_list_t *l)
 {
     if (l) {
-        l->active = (l->active)? l->active = l->active->next : NULL;
+        l->active = (l->active)? l->active->next : NULL;
     }
 }
 
@@ -161,7 +161,9 @@ symexp_list_t* symexp_list_mkcpy(symexp_list_t *l)
             symexp_list_next(l);
         }
     }
-    cpy->active = NULL;
+    if (cpy) {    // NULL for an empty list
+        cpy->active = NULL;
+    }
     return cpy;
 }
 

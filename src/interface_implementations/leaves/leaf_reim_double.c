@@ -1029,7 +1029,7 @@ qBDD mtbdd_map_to_symb_val_i(qBDD t, size_t raw_map) {
     // Partial function check not needed, 4 variables were assigned to every base vector
 
     if (qBDD_isTerminal(t)) {
-        leaf_primitive_t* map = (leaf_primitive_t*) raw_map;
+        (void)raw_map; /* only the reduced variant reads the values */
         LEAF_TYPE leaf = qBDD_getTerminalValue(t);
         sl_map_t *t_data = (sl_map_t*) leaf.pImpl;
         sl_val_t *new_data = (sl_val_t*)malloc(sizeof(sl_val_t));
@@ -1133,12 +1133,12 @@ bool can_be_reduced(mtbdd_symb_t *symbc, rdata_t *rdata)
 {
     bool is_correct = true;
     bool is_zero[rdata->vm->next_var];
-    for (int i = 0; i < rdata->vm->next_var; i++) {
+    for (vars_t i = 0; i < rdata->vm->next_var; i++) {
         is_zero[i] = false;
     }
 
     // The whole leaf behaves the same way, so checking every 2nd variable is sufficient
-    for (int i = 0; i < rdata->vm->next_var; i += 2) {
+    for (vars_t i = 0; i < rdata->vm->next_var; i += 2) {
         // If leaf is initially 0:
         if (rdata->vm->map[i][0] == LEAF_ZERO && rdata->vm->map[i+1][0] == LEAF_ZERO){
             is_zero[i] = true;
@@ -1155,7 +1155,7 @@ bool can_be_reduced(mtbdd_symb_t *symbc, rdata_t *rdata)
 
     // Check if swap with 0 leaf occurs 
     // (i.e., if these variables appear alone on some right side of update equation)
-    for(int i = 0; i < rdata->vm->next_var; i +=2) {
+    for(vars_t i = 0; i < rdata->vm->next_var; i +=2) {
         // Check for permutations as well, first variable of the leaf is sufficient
         // (we always swap the whole leaf)
         /* Unset (NULL) must not be treated as a list; only real exprs. */
@@ -1181,7 +1181,7 @@ bool can_be_reduced(mtbdd_symb_t *symbc, rdata_t *rdata)
 
 void circuit_init_interface(qBDD *c, const uint32_t n) {
     unsigned varNum = n;
-    if (bdd_varnum() < varNum)
+    if ((unsigned)bdd_varnum() < varNum)
         bdd_setvarnum(varNum);
 
     if (g_sqrt_coeff_normal_live) {

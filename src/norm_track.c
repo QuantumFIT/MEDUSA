@@ -34,7 +34,7 @@ static void write_header() {
 #else
     fprintf(s_csv, "# epsilon:unknown\n");
 #endif
-    fprintf(s_csv, "# backend:f%ld\n", sizeof(leaf_scalar_t) * 8);
+    fprintf(s_csv, "# backend:f%zu\n", sizeof(leaf_scalar_t) * 8);
     fprintf(s_csv, "gate_idx;gate_name;total_prob;norm_dev;within_epsilon\n");
 
 }

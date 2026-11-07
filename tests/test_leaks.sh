@@ -30,6 +30,8 @@ make ./test_benchmark_semantics ./test_metamorphic LEAF_FLOAT_TYPE=3 -j"${NPROC}
 rm -f test_stress_f128
 make ./test_stress_f128 STRESS_LEVEL=1 LEAF_FLOAT_TYPE=3 -j"${NPROC}"
 
+# The commas in --errors-for-leak-kinds are part of one argument.
+# shellcheck disable=SC2054
 VG=(valgrind --leak-check=full --show-leak-kinds=all
     --errors-for-leak-kinds=definite,indirect,possible,reachable
     --error-exitcode=42

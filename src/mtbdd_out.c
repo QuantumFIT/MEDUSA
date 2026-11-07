@@ -43,10 +43,10 @@ void lnum_map_print(FILE *f)
     mpz_t temp;
     mpz_init(temp);
     for (size_t i = 0; i < out_map.next_var; i++) {
-        fprintf(f,VAR_NAME_FMT " = ", i);
+        fprintf(f,VAR_NAME_FMT " = ", (uint64_t)i);
         mpz_fdiv_q_2exp(temp, *(out_map.map[i]), out_map.shifts[i]);
         if (mpz_out_str(f, 10, temp) == 0) {
-            error_exit("An error occurred when writing the value of " VAR_NAME_FMT " to the output file.\n", i);
+            error_exit("An error occurred when writing the value of " VAR_NAME_FMT " to the output file.\n", (uint64_t)i);
         }
         fprintf(f,"\n\n");
     }
