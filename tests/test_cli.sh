@@ -213,6 +213,13 @@ done
 # since #13 the exit status says so.
 check "parse-empty" nonzero "" "${BIN}" --file "${WORKDIR}/bad/empty.qasm"
 
+# A comment holding a 0xFF byte ("caf\xff", Latin-1 "café"). The comment
+# skipper kept fgetc's result in a char, so with a signed char that byte read
+# as EOF: parsing stopped there and the rest of the circuit was silently
+# dropped.
+printf 'OPENQASM 2.0;\n// caf\xff\nqreg q[1];\nx q[0];\n' >"${WORKDIR}/byte_ff_comment.qasm"
+check "comment-with-0xff-byte" 0 "" "${BIN}" --file "${WORKDIR}/byte_ff_comment.qasm"
+
 # ---------------------------------------------------------------------------
 # Parser error paths.
 #
