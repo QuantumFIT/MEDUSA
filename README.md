@@ -3,6 +3,7 @@
 <img src="docs/logo/medusa-logo-web.png" alt="MEDUSA logo" width="150" align="right">
 
 [![tests](https://github.com/QuantumFIT/MEDUSA/actions/workflows/tests.yml/badge.svg)](https://github.com/QuantumFIT/MEDUSA/actions/workflows/tests.yml)
+[![code quality](https://github.com/QuantumFIT/MEDUSA/actions/workflows/code-quality.yml/badge.svg)](https://github.com/QuantumFIT/MEDUSA/actions/workflows/code-quality.yml)
 [![tag](https://img.shields.io/github/v/tag/QuantumFIT/MEDUSA?sort=semver)](https://github.com/QuantumFIT/MEDUSA/tags)
 [![codecov](https://img.shields.io/codecov/c/github/QuantumFIT/MEDUSA/devel?logo=codecov)](https://codecov.io/gh/QuantumFIT/MEDUSA)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
