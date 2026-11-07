@@ -18,11 +18,11 @@ void vmap_init(vmap_t **vm, size_t size)
 void vmap_add(vmap_t *vm, vars_t old)
 {
     if (vm->next_var >= vm->msize) {
-        int old_msize = vm->msize;
+        size_t old_msize = vm->msize;
         vm->msize *= REALLOC_COEF;
         vm->map = my_realloc(vm->map, sizeof(coef_t) * vm->msize);
 
-        for (int i = old_msize; i < vm->msize; i++) {
+        for (size_t i = old_msize; i < vm->msize; i++) {
             init_generic(vm->map[i]);
         }
     }

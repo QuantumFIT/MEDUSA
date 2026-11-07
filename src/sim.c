@@ -311,7 +311,6 @@ static uint64_t get_iters(FILE *in)
     int c;
     long long start, end;
     long long step = 1;
-    fpos_t second_num_pos;
     uint64_t iters;
 
     while ((c = fgetc(in)) != '[') {
@@ -354,7 +353,7 @@ static uint64_t get_iters(FILE *in)
  * 
  * @return Returns 1 if comment has been skipped, -1 if EOF was reached, 0 if there is no comment
  */
-static int skip_one_line_comments(char c, FILE *in)
+static int skip_one_line_comments(int c, FILE *in)
 {
     if (c == '/') {
         if ((c = fgetc(in)) == '/') {
@@ -438,12 +437,12 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
 
             uint32_t n = get_q_num(in);
             n_bits = (int)n;
-            if (info->n_qubits != 0 && n != info->n_qubits) { // != 0 check because maybe it's not initialized yet
+            if (info->n_qubits != 0 && n != (uint32_t)info->n_qubits) { // != 0 check because maybe it's not initialized yet
                 error_exit("Bit register size is different than the size of the qubit register - currently not supported.\n");
             }
 
             info->bits_to_measure = my_malloc(n * sizeof(int));
-            for (int i=0; i < n; i++) {
+            for (uint32_t i=0; i < n; i++) {
                 (info->bits_to_measure)[i] =  Q_NOT_MEASURED;
             }
 
@@ -476,7 +475,7 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
             uint32_t n = get_q_num(in);
             info->n_qubits = (int)n;
             g_num_qubits = (int)n; // for norm tracking
-            if (n_bits != 0 && n != n_bits) { // != 0 check because maybe it's not initialized yet
+            if (n_bits != 0 && n != (uint32_t)n_bits) { // != 0 check because maybe it's not initialized yet
                 error_exit("Bit register size is different than the size of the qubit register - currently not supported.\n");
             }
 
@@ -555,6 +554,8 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                         info->t_el_loop[info->n_loops] = get_time_el(t_loop_start, t_loop_finish);
                         info->t_el_eval[info->n_loops] = get_time_el(t_eval_start, t_loop_finish);
 
+#ifdef MEDUSA_DEBUG
+                        /* A full walk over the diagram, for the log only. */
                         {
                             double tp = (double)qBDD_total_prob(*circ, info->n_qubits);
                             MEDUSA_DBG(.cat = MEDUSA_DBG_NORM, .evt = "loop_done", .where = "sim_file",
@@ -567,6 +568,7 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                                        .use_iters = 1, .iters = iters,
                                        .use_loop = 1, .loop_idx = (int)info->n_loops);
                         }
+#endif
 
                         info->n_loops++;
 
@@ -788,7 +790,7 @@ void measure_all(unsigned long samples, FILE *output, qBDD circ, int n, int *bit
             p_qt_is_one = measure(&circ, j, curr_state, n) * norm_coef * norm_coef;
             assert(p_qt_is_one <= (1 + EPSILON) && p_qt_is_one >= (0 - EPSILON));
             p_qt_is_one = (p_qt_is_one >= 1)? 1 : ((p_qt_is_one <= 0)? 0 : p_qt_is_one); // round
-            random = (prob_t)rand() / RAND_MAX;
+            random = (prob_t)((double)rand() / RAND_MAX);
             if (random <= p_qt_is_one) {
                 curr_state[curr_ct] = '1';
                 assert(p_qt_is_one != 0);

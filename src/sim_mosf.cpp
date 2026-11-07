@@ -22,21 +22,21 @@ extern "C" bool sim_mosf_file(FILE *in, qBDD *circ, const sim_flags_t *flags, si
         circuit_init_interface(circ, info->n_qubits);
         mosf::ExtensionRegistry reg;
 
-        reg.node_ops["neg"] = [](const mosf::json& j) -> NodeOp {
+        reg.node_ops["neg"] = [](const mosf::json&) -> NodeOp {
             return [](BDD node) -> BDD {
                 qBDD res = unary_apply(node, invertLeaf);
                 return res;
             };
         };
 
-        reg.node_ops["i_mul"] = [](const mosf::json& j) -> NodeOp {
+        reg.node_ops["i_mul"] = [](const mosf::json&) -> NodeOp {
             return [](BDD node) -> BDD {
                 qBDD res = unary_apply(node, rotateCoef2);
                 return res;
             };
         };
 
-        reg.node_ops["neg_i_mul"] = [](const mosf::json& j) -> NodeOp {
+        reg.node_ops["neg_i_mul"] = [](const mosf::json&) -> NodeOp {
             return [](BDD node) -> BDD {
                 qBDD res = unary_apply(node, negI_mul);
                 return res;
@@ -90,7 +90,7 @@ extern "C" bool sim_mosf_file(FILE *in, qBDD *circ, const sim_flags_t *flags, si
 
         reg.node_ops["rx"] = [](const mosf::json& j) -> NodeOp {
             const std::string angle_expr = j.at("angle").get<std::string>();
-            return [angle_expr](BDD node) -> BDD {
+            return [angle_expr](BDD /*node*/) -> BDD {
                 // TODO:
                 // Apply Rx(theta) at current node:
                 // new_low  = cos(theta/2) * low  - i sin(theta/2) * high
@@ -101,7 +101,7 @@ extern "C" bool sim_mosf_file(FILE *in, qBDD *circ, const sim_flags_t *flags, si
 
         reg.node_ops["ry"] = [](const mosf::json& j) -> NodeOp {
             const std::string angle_expr = j.at("angle").get<std::string>();
-            return [angle_expr](BDD node) -> BDD {
+            return [angle_expr](BDD /*node*/) -> BDD {
                 // TODO:
                 // Apply Ry(theta) at current node:
                 // new_low  = cos(theta/2) * low - sin(theta/2) * high
@@ -112,7 +112,7 @@ extern "C" bool sim_mosf_file(FILE *in, qBDD *circ, const sim_flags_t *flags, si
 
         reg.node_ops["rz"] = [](const mosf::json& j) -> NodeOp {
             const std::string angle_expr = j.at("angle").get<std::string>();
-            return [angle_expr](BDD node) -> BDD {
+            return [angle_expr](BDD /*node*/) -> BDD {
                 // TODO:
                 // Apply Rz(theta) at current node:
                 // new_low  = exp(-i theta/2) * low
@@ -121,14 +121,14 @@ extern "C" bool sim_mosf_file(FILE *in, qBDD *circ, const sim_flags_t *flags, si
             };
         };
 
-        reg.binary_ops["plus_mulsqrt2"] = [](const mosf::json& j) -> BinaryNodeOp {
+        reg.binary_ops["plus_mulsqrt2"] = [](const mosf::json&) -> BinaryNodeOp {
             return [](BDD low, BDD high) -> BDDPair {
                 BDD out = binary_apply(low, high, addLeafS);
                 return BDDPair{out, 0};
             };
         };
 
-        reg.binary_ops["minus_mulsqrt2"] = [](const mosf::json& j) -> BinaryNodeOp {
+        reg.binary_ops["minus_mulsqrt2"] = [](const mosf::json&) -> BinaryNodeOp {
             return [](BDD low, BDD high) -> BDDPair {
                 qBDD_protect(low);
                 qBDD_protect(high);

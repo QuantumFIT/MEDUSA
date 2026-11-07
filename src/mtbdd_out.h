@@ -7,6 +7,7 @@
  */
 
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdbool.h>
 /* <stdio.h> must come before <gmp.h>: gmp.h declares its FILE functions
  * (mpz_out_str, gmp_fprintf, ...) only if stdio.h was already included.
@@ -21,7 +22,7 @@
 
 
 /// Format string for the variable name
-#define VAR_NAME_FMT "large-number[%ld]"
+#define VAR_NAME_FMT "large-number[%" PRIu64 "]"
 typedef leaf_primitive_t coef_t;
 
 /// Type for saving and using the variable to value mapping for the separate output of large numbers

@@ -297,8 +297,14 @@ qBDD unary_apply(qBDD l, LEAF_TYPE (*op)(LEAF_TYPE)) {
     else if (op == mtbdd_symb_coef_rot2_i) return mtbdd_apply_unary(l, convertedApplyOperationRot2I);
     else                                   return mtbdd_apply_unary(l, convertedApplyOperationUnary);
 }
+/* The function-pointer casts below go through void (*)(void), the documented
+ * way to say the conversion is deliberate (-Wcast-function-type). MoToBuddy
+ * calls the callback with its own parameter types, so this relies on size_t
+ * and void *, and on LEAF_TYPE (a struct holding one pointer) and void *,
+ * being passed and returned the same way - true on the x86-64 and arm64 ABIs
+ * MEDUSA builds for, but not something C guarantees. */
 qBDD unary_apply_guarded(qBDD l, qBDD(*op)(qBDD, size_t), size_t arg) {
-    return mtbdd_apply_unary_guarded(l, (BDD(*)(BDD, void*))op, arg);
+    return mtbdd_apply_unary_guarded(l, (BDD(*)(BDD, void*))(void (*)(void))op, arg);
 }
 
 qBDD unary_apply_param(qBDD l, LEAF_TYPE(*op)(LEAF_TYPE, size_t), size_t arg) {
@@ -306,7 +312,7 @@ qBDD unary_apply_param(qBDD l, LEAF_TYPE(*op)(LEAF_TYPE, size_t), size_t arg) {
     if      (op == mulPhaseLeaf)  return mtbdd_apply_unary_param(l, convertedApplyOperationMulPhase, arg);
     else if (op == rz_low_leaf)   return mtbdd_apply_unary_param(l, convertedApplyOperationRzLow,   arg);
     else if (op == rz_high_leaf)  return mtbdd_apply_unary_param(l, convertedApplyOperationRzHigh,  arg);
-    else                          return mtbdd_apply_unary_param(l, (void*(*)(void*, size_t))op, arg);
+    else                          return mtbdd_apply_unary_param(l, (void*(*)(void*, size_t))(void (*)(void))op, arg);
 }
 
 void validateApplyResult() {
