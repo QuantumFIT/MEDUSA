@@ -10,8 +10,9 @@ name: Code quality
 # push there added findings.
 
 on:
+  # Every pull request, whatever its base, so that stacked PRs are checked
+  # against the PR below them.
   pull_request:
-    branches: [main, devel]
   push:
     branches: [main, devel]
   workflow_dispatch:
