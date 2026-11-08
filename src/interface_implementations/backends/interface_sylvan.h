@@ -30,7 +30,13 @@ typedef uint32_t mtbdd_terminal_type;
 #include "interface_symb.h"
 #include "interface_lifecycle.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 extern LEAF_TYPE clonePimpl(LEAF_TYPE src);
+#ifdef __cplusplus
+}
+#endif
 
 extern mtbdd_terminal_type lt_classic, lt_symb_map, lt_symb_val;
 

@@ -108,6 +108,14 @@ static inline qBDD qBDD_unprotect(qBDD toUnprotect) {
 #include "interface_symb.h"
 #include "interface_lifecycle.h"
 
+/* After the includes because LEAF_TYPE comes from interface_bdd_core.h; C
+ * linkage like the rest, so C++ leaves and callers match the C ones. */
+#ifdef __cplusplus
+extern "C" {
+#endif
 extern LEAF_TYPE clonePimpl(LEAF_TYPE src);
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* INTERFACE_MOTOBUDDY_H */
