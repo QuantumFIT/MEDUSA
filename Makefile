@@ -17,6 +17,13 @@ BUDDY_DIR   := $(LIB_DIR)/MoToBuddy
 MOTOBUDDY_REPO   := https://github.com/VeriFIT/MoToBuddy.git
 MOTOBUDDY_COMMIT := 3f9b6b412493be23b437ae82a596fdd198b161e4
 
+# acn (algebraic complex numbers): header-only C++20 library behind the
+# buddy_acn leaves. `make init-acn` clones it at the
+# pinned commit.
+ACN_REPO   := https://github.com/MichalHe/algebraic-complex-numbers.git
+ACN_COMMIT := 501d7a8e19fcf4b53de9ec5acc7d2428198a1afd
+ACN_DIR    := $(LIB_DIR)/algebraic-complex-numbers
+
 # ==============================================================================
 # Source and object file lists
 # ==============================================================================
@@ -216,6 +223,32 @@ BUDDY_DOUBLES_CFLAGS := -DLEAF_BACKEND_DOUBLES \
                         -include $(BACKENDS_DIR)/interface_motobuddy.h
 
 # ==============================================================================
+# buddy_acn: exact algebraic leaves from the acn library (MoToBuddy)
+#
+# ACN_N is acn's precision: amplitudes live in Z[omega, 1/sqrt2] with
+# omega = e^(i*pi/ACN_N). 4 covers Clifford+T; larger powers of two make
+# rotations by multiples of 2*pi/ACN_N exact too, at a cost per leaf.
+# ==============================================================================
+
+ACN_N ?= 4
+ifeq ($(filter $(ACN_N),4 8 16 32 64),)
+  $(error ACN_N=$(ACN_N) is not supported; use a power of two from 4 to 64)
+endif
+
+ACN_OBJ_DIR    := $(OBJ_DIR)/buddy_acn_n$(ACN_N)
+OBJS_BUDDY_ACN := $(patsubst $(SRC_DIR)/%.c, $(ACN_OBJ_DIR)/%.o, $(SRCS))
+
+INTERFACE_OBJ_buddy_acn      := $(ACN_OBJ_DIR)/interface_motobuddy.o
+LEAF_OBJ_buddy_acn_mpz       := $(ACN_OBJ_DIR)/leaf_primitive_mpz.o
+LEAF_OBJ_buddy_acn_algebraic := $(ACN_OBJ_DIR)/leaf_algebraic_acn.o
+
+BUDDY_ACN_CFLAGS := -DLEAF_BACKEND_GMP -DLEAF_BACKEND_ACN -DACN_N=$(ACN_N) \
+                    -include $(LEAF_PRIM_DIR)/leaf_primitive_mpz.h \
+                    -include $(BACKENDS_DIR)/interface_motobuddy.h
+
+ACN_CXXFLAGS := -std=c++20 -DACN_WITH_GMP=1 -I $(ACN_DIR)/include
+
+# ==============================================================================
 # Misc config
 # ==============================================================================
 
@@ -237,6 +270,7 @@ BSCRIPT_PATH       := benchmark-utils/scripts
         plot benchmarks                                                     \
         init init-motobuddy make-motobuddy download-motobuddy               \
         init-sylvan make-sylvan download-sylvan                             \
+        init-acn buddy_acn                                                  \
         make-sliqsim                                                        \
         sylvan_gmp sylvan_doubles buddy_mpfr                                \
         buddy_gmp                                                           \
@@ -268,12 +302,14 @@ help:
 	@echo "MEDUSA (default / preferred: MoToBuddy)"
 	@echo "  make                  -> buddy_doubles_f128  (./MEDUSA -> ./MEDUSA_buddy_doubles_f128)"
 	@echo "  make buddy_gmp        algebraic GMP leaves (MoToBuddy)"
+	@echo "  make buddy_acn        exact acn leaves (MoToBuddy; ACN_N=4|8|...|64, default 4)"
 	@echo "  make buddy_doubles_f32|f64|f80|f128|all"
 	@echo "  make USE_CXX=1 ...    C++ tree gates + MOSF (MoToBuddy only, experimental)"
 	@echo "  make BUILD=debug ...  -O0 -g for gdb/valgrind/gcov (default: release, -O2 -g + LTO)"
 	@echo "  make LTO=0 ...        release without link-time optimisation"
 	@echo "  make init             clone/pin MoToBuddy @ $(MOTOBUDDY_COMMIT) and build"
 	@echo "  make init-sylvan      clone and build lib/sylvan (optional; Lace via CMake)"
+	@echo "  make init-acn         clone/pin acn @ $(ACN_COMMIT) (optional, header-only)"
 	@echo "  make sylvan_gmp       algebraic GMP leaves on Sylvan (C path, no MOSF)"
 	@echo "  make sylvan_doubles   float leaves on Sylvan (LEAF_FLOAT_TYPE, default f128)"
 	@echo "  make test             MoToBuddy unit + circuits + benchmarks + metamorphic"
@@ -918,6 +954,17 @@ buddy_doubles_all:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
 
 # ==============================================================================
+# buddy_acn target (parameterized by ACN_N)
+# Always linked with g++: the leaf is C++ and pulls in libstdc++ symbols.
+# ==============================================================================
+
+buddy_acn: $(OBJS_BUDDY_ACN) $(INTERFACE_OBJ_buddy_acn) \
+           $(LEAF_OBJ_buddy_acn_mpz) $(LEAF_OBJ_buddy_acn_algebraic) \
+           $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a | $(BIN_DIR)
+	$(CXX) $(INC_DIRS_BUDDY_GMP) $(CFLAGS) \
+	    -o $(BIN_DIR)/MEDUSA_buddy_acn_n$(ACN_N) $^ $(CLIBS)
+
+# ==============================================================================
 # Object rules - buddy_doubles
 # gates.o and gates_symb.o use GATES_CC/GATES_FLAGS (g++ -x c++ when USE_CXX=1).
 # main.o gets USE_MOSF_FLAG to conditionally expose sim_mosf_file.
@@ -991,10 +1038,41 @@ $(OBJ_DIR)/buddy_gmp/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)/buddy_gmp
 	    -MMD -MP -c $< -o $@
 
 # ==============================================================================
+# Object rules - buddy_acn
+# Everything but the leaf is the buddy_gmp build compiled into its own tree
+# (the ACN_N / LEAF_BACKEND_ACN defines must not leak into obj/.../buddy_gmp).
+# ==============================================================================
+
+$(ACN_OBJ_DIR)/gates.o: $(SRC_DIR)/gates.c | $(ACN_OBJ_DIR)
+	$(GATES_CC) $(INC_DIRS_BUDDY_GMP) $(CFLAGS) $(GATES_FLAGS) \
+	    $(BUDDY_ACN_CFLAGS) -MMD -MP -c $< -o $@
+
+$(ACN_OBJ_DIR)/gates_symb.o: $(SRC_DIR)/gates_symb.c | $(ACN_OBJ_DIR)
+	$(GATES_CC) $(INC_DIRS_BUDDY_GMP) $(CFLAGS) $(GATES_FLAGS) \
+	    $(BUDDY_ACN_CFLAGS) -MMD -MP -c $< -o $@
+
+$(ACN_OBJ_DIR)/interface_motobuddy.o: $(BACKENDS_DIR)/interface_motobuddy.c | $(ACN_OBJ_DIR)
+	$(CC) $(INC_DIRS_BUDDY_GMP) $(CFLAGS) $(BUDDY_ACN_CFLAGS) \
+	    -MMD -MP -c $< -o $@
+
+$(ACN_OBJ_DIR)/leaf_primitive_mpz.o: $(LEAF_PRIM_DIR)/leaf_primitive_mpz.c | $(ACN_OBJ_DIR)
+	$(CC) $(INC_DIRS_BUDDY_GMP) $(CFLAGS) $(BUDDY_ACN_CFLAGS) \
+	    -MMD -MP -c $< -o $@
+
+$(ACN_OBJ_DIR)/leaf_algebraic_acn.o: $(LEAF_ALG_DIR)/leaf_algebraic_acn.cpp \
+                                     | $(ACN_OBJ_DIR)
+	$(CXX) $(INC_DIRS_BUDDY_GMP) $(CFLAGS) $(ACN_CXXFLAGS) \
+	    $(BUDDY_ACN_CFLAGS) -MMD -MP -c $< -o $@
+
+$(ACN_OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(ACN_OBJ_DIR)
+	$(CC) $(INC_DIRS_BUDDY_GMP) $(CFLAGS) $(BUDDY_ACN_CFLAGS) \
+	    -MMD -MP -c $< -o $@
+
+# ==============================================================================
 # Directory creation
 # ==============================================================================
 
-$(BIN_DIR) $(OBJ_DIR) $(OBJ_DIR)/buddy_gmp $(DOUBLES_OBJ_DIR) \
+$(BIN_DIR) $(OBJ_DIR) $(OBJ_DIR)/buddy_gmp $(DOUBLES_OBJ_DIR) $(ACN_OBJ_DIR) \
 $(SYLVAN_GMP_OBJ_DIR) $(SYLVAN_DOUBLES_OBJ_DIR):
 	mkdir -p $@
 
@@ -1009,6 +1087,8 @@ $(SYLVAN_GMP_OBJ_DIR) $(SYLVAN_DOUBLES_OBJ_DIR):
 # in interface_motobuddy.h) leaves them stale and the link fails.
 -include $(LEAF_OBJ_double:.o=.d) $(LEAF_OBJ_reim:.o=.d)
 -include $(OBJ_DIR)/leaf_primitive_mpz.d $(OBJ_DIR)/leaf_algebraic_mpz.d
+-include $(OBJS_BUDDY_ACN:.o=.d) $(INTERFACE_OBJ_buddy_acn:.o=.d)
+-include $(LEAF_OBJ_buddy_acn_mpz:.o=.d) $(LEAF_OBJ_buddy_acn_algebraic:.o=.d)
 -include $(OBJS_SYLVAN_GMP:.o=.d)
 -include $(OBJS_SYLVAN_DOUBLES:.o=.d)
 
@@ -1033,6 +1113,17 @@ init-motobuddy: make-motobuddy
 
 init-sylvan: make-sylvan
 	mkdir -p $(LIB_DIR) && rm -rf $(LIB_DIR)/sylvan && mv sylvan $(LIB_DIR)
+
+# Header-only, so there is nothing to build: clone (once) and pin. An existing
+# checkout is fetched and moved to ACN_COMMIT; uncommitted changes there that
+# conflict with the checkout make git refuse rather than lose them.
+init-acn:
+	@mkdir -p "$(dir $(ACN_DIR))"
+	@if [ ! -d "$(ACN_DIR)/.git" ]; then \
+		rm -rf "$(ACN_DIR)" && \
+		git clone "$(ACN_REPO)" "$(ACN_DIR)"; \
+	fi
+	@cd "$(ACN_DIR)" && git fetch --quiet origin && git checkout --quiet "$(ACN_COMMIT)"
 
 make-sylvan: download-sylvan
 	cd sylvan && \
@@ -1082,7 +1173,7 @@ clean-artifacts:
 	       $(LONG_NUMS_OUT_FILE) $(OBJ_ROOT) \
 	       MEDUSA_buddy_doubles_f32 MEDUSA_buddy_doubles_f64 \
 	       MEDUSA_buddy_doubles_f80 MEDUSA_buddy_doubles_f128 \
-	       MEDUSA_buddy_gmp \
+	       MEDUSA_buddy_gmp MEDUSA_buddy_acn_n* \
 	       MEDUSA_buddy_mpfr_256 MEDUSA_buddy_mpfr_512 \
 	       MEDUSA_sylvan_gmp MEDUSA_sylvan_doubles MEDUSA_sylvan_doubles_f32 \
 	       MEDUSA_sylvan_doubles_f64 MEDUSA_sylvan_doubles_f80 \
