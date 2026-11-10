@@ -190,14 +190,6 @@ def collect_shellcheck(out):
     write(findings, out)
 
 
-# cppcheck findings that mean a file was not analysed at all (it stops at the
-# first syntax error). If the base has one that this change fixes, every finding
-# behind it shows up as new - that is the base becoming analysable, not this
-# change adding problems.
-ANALYSIS_ABORTED = {"error:syntaxError", "error:preprocessorErrorDirective",
-                    "error:internalAstError", "error:unknownMacro"}
-
-
 def read(path):
     with open(path, encoding="utf-8") as f:
         return {tuple(line.rstrip("\n").split("\t")) for line in f if line.strip()}
@@ -206,20 +198,12 @@ def read(path):
 def compare(name, base_path, head_path):
     base, head = read(base_path), read(head_path)
     new, fixed = sorted(head - base), sorted(base - head)
-    unblocked = sorted(f for f in fixed if f[1] in ANALYSIS_ABORTED)
     lines = [f"### {name}", "",
              "| | findings |", "|---|---|",
              f"| base | {len(base)} |", f"| this change | {len(head)} |",
              f"| **new** | **{len(new)}** |", f"| fixed | {len(fixed)} |", ""]
-    if new and unblocked:
-        lines += ["This change fixes a file the analyser could not parse on the base,",
-                  "so the base was only partly analysed and the comparison cannot tell",
-                  "new findings from ones that were hidden. They are listed but do not",
-                  "fail the check:", "", "```"]
-        lines += ["  ".join(item) for item in unblocked]
-        lines += ["```", ""]
     if new:
-        lines += ["New findings" + ("" if unblocked else " (they fail the check)") + ":", "", "```"]
+        lines += ["New findings (they fail the check):", "", "```"]
         lines += ["  ".join(item) for item in new]
         lines += ["```", ""]
     if fixed:
@@ -236,11 +220,10 @@ def compare(name, base_path, head_path):
     if summary:
         with open(summary, "a", encoding="utf-8") as f:
             f.write(text + "\n")
-    level = "warning" if unblocked else "error"
     for file, kind, msg in new:
         # GitHub annotation on the file (no line: findings are line-free).
-        print(f"::{level} file={file},title={name}: new {kind}::{msg}")
-    return 1 if new and not unblocked else 0
+        print(f"::error file={file},title={name}: new {kind}::{msg}")
+    return 1 if new else 0
 
 
 def main():
