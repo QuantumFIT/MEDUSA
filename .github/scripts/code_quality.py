@@ -101,7 +101,14 @@ def collect_warnings(compiler, out):
                 findings.append((norm_path(m["file"]), m["flag"] or "-W", norm_msg(m["msg"])))
         if res.returncode != 0:
             # A build that stops early would just report fewer warnings and so
-            # look like an improvement.
+            # look like an improvement. The errors come first: with make -k
+            # they can be anywhere in the output, not just at its end.
+            lines = res.stdout.splitlines()
+            errors = [i for i, line in enumerate(lines)
+                      if re.search(r"\berror\b|undefined reference|\*\*\*", line)]
+            for i in errors[:40]:
+                print("\n".join(lines[max(0, i - 2):i + 3]))
+                print("--")
             print(res.stdout[-4000:])
             sys.exit(f"build failed: {' '.join(targets)}")
     write(findings, out)
