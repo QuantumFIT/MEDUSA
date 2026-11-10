@@ -15,10 +15,9 @@
 #
 # C harnesses run in their own directory under test-work/, with benchmarks/ and
 # tests/ linked in (they open inputs relative to the repository root), so they
-# can run in parallel. The shell suites cd into the source tree and write
-# res.dot there, so they run one at a time: a CTest resource lock within one
-# ctest run, and a file lock in the source tree (cmake/run_locked.cmake) across
-# build trees and concurrent ctest runs on one checkout.
+# can run in parallel. The shell suites each run the simulator in a directory
+# of their own (.test-work/<suite>_<pid> in the source tree), so they run in
+# parallel too - also across build trees and concurrent ctest runs.
 #
 # The configure_* tests configure MEDUSA again in a scratch tree and check that
 # bad variant lists are refused and that tests a configuration cannot run are
@@ -104,21 +103,11 @@ function(medusa_sh_test name script)
     endif()
   endforeach()
   medusa_timeout(T_TIMEOUT "${T_TIMEOUT}")
-  # The suites write res.dot into the source tree. RESOURCE_LOCK serialises
-  # them within this ctest run; run_locked.cmake also across build trees and
-  # concurrent ctest runs on the same checkout. The wrapper enforces both the
-  # wait for the lock (up to one other suite's run) and the run itself, each
-  # with its own message; CTest's TIMEOUT, their sum plus a minute for cmake
-  # itself, is only the backstop.
-  math(EXPR _ctest_timeout "2 * ${T_TIMEOUT} + 60")
-  add_test(NAME ${name}
-           COMMAND ${CMAKE_COMMAND} -DLOCK=${CMAKE_SOURCE_DIR}/.medusa-tests.lock
-                   -DLOCK_TIMEOUT=${T_TIMEOUT} -DRUN_TIMEOUT=${T_TIMEOUT}
-                   -P ${PROJECT_SOURCE_DIR}/cmake/run_locked.cmake
-                   bash ${TEST_SRC}/${script}
+  # No lock: each suite runs the simulator in its own .test-work/ directory.
+  add_test(NAME ${name} COMMAND bash ${TEST_SRC}/${script}
            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-  set_tests_properties(${name} PROPERTIES LABELS "${T_LABELS}" TIMEOUT ${_ctest_timeout}
-                       RESOURCE_LOCK medusa_source_tree ENVIRONMENT "${T_ENV}")
+  set_tests_properties(${name} PROPERTIES LABELS "${T_LABELS}" TIMEOUT ${T_TIMEOUT}
+                       ENVIRONMENT "${T_ENV}")
 endfunction()
 
 set(BIN ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})

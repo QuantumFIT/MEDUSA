@@ -13,17 +13,28 @@ if [[ "${BIN}" != /* ]]; then
     BIN="${ROOT}/${BIN#./}"
 fi
 
+# The simulator writes res.dot into its working directory, so it runs in a
+# directory of this run's own - like the other suites - rather than in the
+# repository: concurrent runs (two build trees, or make and ctest at once)
+# would otherwise read each other's res.dot.
+WORKDIR="${ROOT}/.test-work/circuits_$$"
+mkdir -p "${WORKDIR}"
+trap 'rm -rf "${WORKDIR}"' EXIT
+cd "${WORKDIR}"
+OUT="${WORKDIR}/out.txt"
+
 run_one() {
     local label="$1"
     local file="$2"
     local extra="${3:-}"
-    if ! "${BIN}" --file "${file}" ${extra} >/tmp/medusa_test_out.txt 2>&1; then
+    rm -f res.dot
+    if ! "${BIN}" --file "${file}" ${extra} >"${OUT}" 2>&1; then
         echo "FAIL ${label}: simulator exited non-zero"
-        cat /tmp/medusa_test_out.txt
+        cat "${OUT}"
         summary_record "${label}" 1
         return
     fi
-    if [[ ! -s "${ROOT}/res.dot" ]]; then
+    if [[ ! -s res.dot ]]; then
         echo "FAIL ${label}: missing/empty res.dot"
         summary_record "${label}" 1
         return
@@ -40,7 +51,7 @@ fi
 
 echo "MEDUSA circuit integration tests (${BIN})"
 
-help_out="$(mktemp)"
+help_out="${WORKDIR}/help.txt"
 if ! "${BIN}" --help >"${help_out}" 2>&1; then
     echo "FAIL help: --help exited non-zero"
     cat "${help_out}"
@@ -57,7 +68,6 @@ else
     echo "OK   help"
     summary_record "help" 0
 fi
-rm -f "${help_out}"
 
 run_one "BV-01"          "${ROOT}/benchmarks/no-measure/BernsteinVazirani/01.qasm"
 run_one "BV-02"          "${ROOT}/benchmarks/no-measure/BernsteinVazirani/02.qasm"
@@ -68,27 +78,30 @@ else
 fi
 run_one "MCToffoli-12"   "${ROOT}/benchmarks/no-measure/MCToffoli/12.qasm"
 
-# Bell-like tiny circuit via stdin
-cat > /tmp/medusa_bell.qasm <<'EOF'
+# Bell-like tiny circuit
+BELL="${WORKDIR}/bell.qasm"
+cat > "${BELL}" <<'EOF'
 OPENQASM 2.0;
 include "qelib1.inc";
 qreg q[2];
 h q[0];
 cx q[0],q[1];
 EOF
-if "${BIN}" --file /tmp/medusa_bell.qasm >/tmp/medusa_test_out.txt 2>&1 \
-   && [[ -s "${ROOT}/res.dot" ]]; then
+rm -f res.dot
+if "${BIN}" --file "${BELL}" >"${OUT}" 2>&1 \
+   && [[ -s res.dot ]]; then
     echo "OK   bell-stdin"
     summary_record "bell-stdin" 0
 else
     echo "FAIL bell-stdin"
-    cat /tmp/medusa_test_out.txt || true
+    cat "${OUT}" || true
     summary_record "bell-stdin" 1
 fi
 
-if "${BIN}" --file /tmp/medusa_bell.qasm --probability >/tmp/medusa_test_out.txt 2>&1 \
-   && [[ -s "${ROOT}/res.dot" ]] \
-   && python3 - "${ROOT}/res.dot" <<'PY'
+rm -f res.dot
+if "${BIN}" --file "${BELL}" --probability >"${OUT}" 2>&1 \
+   && [[ -s res.dot ]] \
+   && python3 - res.dot <<'PY'
 import re, sys
 text = open(sys.argv[1], encoding="utf-8").read()
 ok = False
@@ -112,22 +125,21 @@ then
     summary_record "bell-probability" 0
 else
     echo "FAIL bell-probability: expected |amp|^2 floats on res.dot terminals"
-    cat /tmp/medusa_test_out.txt || true
+    cat "${OUT}" || true
     summary_record "bell-probability" 1
 fi
 
-meas_out="$(mktemp)"
+meas_out="${WORKDIR}/measure.txt"
 if "${BIN}" --file "${ROOT}/benchmarks/measure/BernsteinVazirani/01.qasm" \
-        --measure "${meas_out}" --nsamples 8 >/tmp/medusa_test_out.txt 2>&1 \
+        --measure "${meas_out}" --nsamples 8 >"${OUT}" 2>&1 \
         && [[ -s "${meas_out}" ]]; then
     echo "OK   BV-01-measure"
     summary_record "BV-01-measure" 0
 else
     echo "FAIL BV-01-measure: expected non-empty measure file"
-    cat /tmp/medusa_test_out.txt || true
+    cat "${OUT}" || true
     summary_record "BV-01-measure" 1
 fi
-rm -f "${meas_out}"
 
 summary_print "test_circuits"
 exit $?
