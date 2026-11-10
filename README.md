@@ -71,7 +71,10 @@ Binaries land in `build/<preset>/bin/` under the Makefile's names
 the C++ gate path. Presets: `release`, `debug` (`-O0 -g`), `coverage` (debug +
 gcov) and `sylvan` (adds the Sylvan variants). Options: `MEDUSA_FLOAT_TYPES`,
 `MEDUSA_GMP`, `MEDUSA_CXX_GATES`, `MEDUSA_SYLVAN`, `MEDUSA_LTO`,
-`MEDUSA_DEBUG_LOG`, `MEDUSA_LEAF_ABS_EPS` / `MEDUSA_LEAF_REL_EPS`. Test labels:
+`MEDUSA_DEBUG_LOG`, `MEDUSA_LEAF_ABS_EPS` / `MEDUSA_LEAF_REL_EPS`. Tests a
+configuration cannot run (a variant left out, or no valgrind; `-DVALGRIND=OFF`
+skips the leak checks on purpose) stay registered as disabled, and configuring
+warns about them. Test labels:
 `pr`, `cxx`, `memory`, `sylvan`, `nightly`. Mutation testing (`make
 test-mutation`) is Makefile-only for now.
 

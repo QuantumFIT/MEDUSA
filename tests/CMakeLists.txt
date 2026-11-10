@@ -16,7 +16,13 @@
 # C harnesses run in their own directory under test-work/, with benchmarks/ and
 # tests/ linked in (they open inputs relative to the repository root), so they
 # can run in parallel. The shell suites cd into the source tree and write
-# res.dot there, so they share a resource lock and run one at a time.
+# res.dot there, so they run one at a time: a CTest resource lock within one
+# ctest run, and a file lock in the source tree (cmake/run_locked.cmake) across
+# build trees and concurrent ctest runs on one checkout.
+#
+# The configure_* tests configure MEDUSA again in a scratch tree and check that
+# bad variant lists are refused and that tests a configuration cannot run are
+# registered as disabled (tests/check_configure.cmake).
 # ==============================================================================
 
 set(TEST_SRC ${CMAKE_SOURCE_DIR}/tests)
@@ -90,9 +96,15 @@ function(medusa_sh_test name script)
       return()
     endif()
   endforeach()
-  add_test(NAME ${name} COMMAND bash ${TEST_SRC}/${script}
-           WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   medusa_timeout(T_TIMEOUT "${T_TIMEOUT}")
+  # The suites write res.dot into the source tree. RESOURCE_LOCK serialises
+  # them within this ctest run; run_locked.cmake also across build trees and
+  # concurrent ctest runs on the same checkout.
+  add_test(NAME ${name}
+           COMMAND ${CMAKE_COMMAND} -DLOCK=${CMAKE_SOURCE_DIR}/.medusa-tests.lock
+                   -DLOCK_TIMEOUT=${T_TIMEOUT} -P ${PROJECT_SOURCE_DIR}/cmake/run_locked.cmake
+                   bash ${TEST_SRC}/${script}
+           WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   set_tests_properties(${name} PROPERTIES LABELS "${T_LABELS}" TIMEOUT ${T_TIMEOUT}
                        RESOURCE_LOCK medusa_source_tree ENVIRONMENT "${T_ENV}")
 endfunction()
@@ -261,6 +273,48 @@ if(MEDUSA_SYLVAN)
     medusa_c_test(sylvan_grover_${l} test_grover_sylvan_${l} LABELS sylvan)
   endforeach()
 endif()
+
+# ------------------------------------------------------------------------------
+# The configuration itself: each test configures MEDUSA again, in a scratch
+# tree under this build directory, and checks what comes out.
+# ------------------------------------------------------------------------------
+# medusa_configure_test(<name> [EXPECT_FAIL] [ARGS ...] [EXPECT ...] [DISABLED ...])
+function(medusa_configure_test name)
+  cmake_parse_arguments(T "EXPECT_FAIL" "" "ARGS;EXPECT;DISABLED" ${ARGN})
+  foreach(v ARGS EXPECT DISABLED)
+    string(REPLACE ";" "|" T_${v} "${T_${v}}")
+  endforeach()
+  add_test(NAME ${name}
+           COMMAND ${CMAKE_COMMAND}
+                   -DSRC=${PROJECT_SOURCE_DIR} -DBUILD=${CMAKE_CURRENT_BINARY_DIR}/configure/${name}
+                   -DGENERATOR=${CMAKE_GENERATOR} -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+                   -DC_COMPILER=${CMAKE_C_COMPILER} -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
+                   "-DARGS=${T_ARGS}" "-DEXPECT=${T_EXPECT}" "-DEXPECT_DISABLED=${T_DISABLED}"
+                   -DEXPECT_FAIL=${T_EXPECT_FAIL}
+                   -P ${TEST_SRC}/check_configure.cmake)
+  medusa_timeout(_t 300)
+  set_tests_properties(${name} PROPERTIES LABELS pr TIMEOUT ${_t})
+endfunction()
+
+# The checks on the variant list run before any dependency is fetched, so
+# these two need neither the network nor a MoToBuddy checkout.
+medusa_configure_test(configure_rejects_unknown_leaf_type EXPECT_FAIL
+  ARGS -DMEDUSA_FLOAT_TYPES=f99
+  EXPECT "unknown float leaf type 'f99'")
+medusa_configure_test(configure_rejects_empty_build EXPECT_FAIL
+  ARGS -DMEDUSA_FLOAT_TYPES= -DMEDUSA_GMP=OFF
+  EXPECT "Nothing to build")
+
+# A narrow configuration (f64 only, no GMP, no C++ gates) without valgrind
+# (VALGRIND=OFF stops find_program from looking). The tests it cannot run are
+# still registered, disabled, and the configure step says so. MoToBuddy comes
+# from this build's own checkout, so nothing is downloaded.
+medusa_configure_test(configure_reports_disabled_tests
+  ARGS -DMEDUSA_FLOAT_TYPES=f64 -DMEDUSA_GMP=OFF -DMEDUSA_CXX_GATES=OFF -DMEDUSA_SYLVAN=OFF
+       -DVALGRIND=OFF -DFETCHCONTENT_SOURCE_DIR_MOTOBUDDY=${motobuddy_SOURCE_DIR}
+  EXPECT "valgrind not found: the leak checks"
+         "test\\(s\\) disabled because their variant is not configured"
+  DISABLED unit_leaf_gmp circuits leaks_test_unit_api)
 
 get_property(_disabled GLOBAL PROPERTY MEDUSA_DISABLED_TESTS)
 if(_disabled)
