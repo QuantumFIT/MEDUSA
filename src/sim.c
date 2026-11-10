@@ -87,7 +87,9 @@ static bool sim_error(sim_info_t *info, sim_status_t status, const char *fmt, ..
 {
     va_list args;
     va_start(args, fmt);
-    vsnprintf(info->error, sizeof(info->error), fmt, args);
+    /* fmt is always a string literal at the call site, and the format
+     * attribute above has the compiler check it against the arguments. */
+    vsnprintf(info->error, sizeof(info->error), fmt, args); // Flawfinder: ignore
     va_end(args);
     info->status = status;
     return false;
