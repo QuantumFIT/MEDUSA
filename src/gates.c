@@ -3,6 +3,12 @@
 #include "norm_track.h"
 #include "mtbddop.h"
 #include <string.h>
+#ifdef __cplusplus
+// Used by the C++ gate_mcx. Include them here rather than relying on other
+// headers: GCC 15's libstdc++ no longer brings in <algorithm> on the side.
+#include <algorithm>
+#include <vector>
+#endif
 prob_t measure(qBDD *a, uint32_t xt, char *curr_state, int n)
 {
     uint32_t var_t;

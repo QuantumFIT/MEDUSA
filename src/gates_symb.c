@@ -2,6 +2,12 @@
 #include "gates.h"
 #include "mtbddop.h"
 #include "medusa_debug.h"
+#ifdef __cplusplus
+// Used by the C++ gate_mcx. Include them here rather than relying on other
+// headers: GCC 15's libstdc++ no longer brings in <algorithm> on the side.
+#include <algorithm>
+#include <vector>
+#endif
 
 void gate_symb_x(qBDD *p_t, uint32_t xt) {
     qBDD res;
