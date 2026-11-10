@@ -23,7 +23,6 @@ import argparse
 import os
 import re
 import shlex
-# Running the build and analysis tools is what this script is for; see run().
 import subprocess  # nosec B404
 import sys
 import tempfile
