@@ -72,7 +72,9 @@ ifeq ($(COVERAGE), 1)
   # CFLAGS is used for both compiling and linking, so --coverage in it
   # instruments the objects and pulls in libgcov at link time. -O0 keeps the
   # line attribution honest; optimised builds fold lines together.
-  CFLAGS  += --coverage
+  # MEDUSA_COVERAGE lets a test flush the counters itself before an expected
+  # abort (test_sim_errors.c), which libgcov's exit handler never sees.
+  CFLAGS  += --coverage -DMEDUSA_COVERAGE
   OBJ_TAG := coverage
 endif
 
