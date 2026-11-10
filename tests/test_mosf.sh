@@ -181,6 +181,8 @@ expect_error bad_no_x_levels      "x_levels"
 expect_error bad_unknown_op       "Unknown NodeOp type"
 expect_error bad_malformed        "parse error"
 expect_error bad_rx_unimplemented "rx not implemented"
+expect_error bad_ry_unimplemented "ry not implemented"
+expect_error bad_rz_unimplemented "rz not implemented"
 
 # Gate-definition files from the MoToBuddy examples are not circuits: no
 # x_levels, and they use plus_s/minus_s which MEDUSA does not register.
