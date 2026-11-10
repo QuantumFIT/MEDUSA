@@ -345,6 +345,13 @@ CASES
 check "parse-error-names-line" nonzero "line 4: Multiple qubit register" \
     "${BIN}" --file "${WORKDIR}/bad/two_qregs.qasm"
 
+# --info on a circuit that does run: the totals, the per-loop times, and in
+# symbolic mode the evaluation time of each loop.
+check "info-stats" 0 "Total time=" \
+    "${BIN}" --file "${ROOT}/benchmarks/no-measure/LP-Grover/05.qasm" --info
+check "info-stats-symbolic" 0 "Eval time=" \
+    "${BIN}" --file "${ROOT}/benchmarks/no-measure/LP-Grover/05.qasm" --info --symbolic
+
 # A rejected circuit is not a run, so --info prints no statistics for it -
 # as when the parser still ended the process itself. The CLI catches the
 # error from sim_file and has to skip them explicitly.

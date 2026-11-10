@@ -33,6 +33,7 @@ make ./test_stress_f128 STRESS_LEVEL=1 LEAF_FLOAT_TYPE=3 -j"${NPROC}"
 VG=(valgrind --leak-check=full --show-leak-kinds=all
     --errors-for-leak-kinds=definite,indirect,possible,reachable
     --error-exitcode=42
+    --child-silent-after-fork=yes
     --quiet)
 
 echo "=== valgrind test_unit_api ==="

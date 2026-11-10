@@ -21,6 +21,9 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <sys/wait.h>
+#include <signal.h>
+#include <sys/resource.h>
 
 #define HDR "OPENQASM 3.0;\ninclude \"stdgates.inc\";\n"
 
@@ -49,6 +52,12 @@ static const error_case_t CASES[] = {
       SIM_ERR_SYNTAX, "q[5] is outside the declared register of 2 qubit(s)" },
     { "bit index out of range", false, HDR "qubit[2] q;\nbit[2] c;\nc[7] = measure q[0];\n",
       SIM_ERR_SYNTAX, "c[7] is outside the declared register of 2 bit(s)" },
+    { "measure: bad qubit index (arrow form)", false,
+      HDR "qubit[2] q;\nbit[2] c;\nmeasure q[9] -> c[0];\n",
+      SIM_ERR_SYNTAX, "q[9] is outside" },
+    { "measure: bad qubit index (assignment form)", false,
+      HDR "qubit[2] q;\nbit[2] c;\nc[0] = measure q[9];\n",
+      SIM_ERR_SYNTAX, "q[9] is outside" },
     { "measure without a bit register", false, HDR "qubit[2] q;\nmeasure q[0] -> c[0];\n",
       SIM_ERR_SYNTAX, "uninitialized bit register" },
     { "unknown gate", false, HDR "qubit[2] q;\nh q[0];\nswap q[0], q[1];\n",
@@ -255,6 +264,59 @@ static void test_error_lines(void)
     }
 }
 
+/* In a coverage build, libgcov writes the counters at exit, which abort()
+ * skips, so the death tests below would count for nothing. The Makefile
+ * defines MEDUSA_COVERAGE there; elsewhere the handler only re-raises. */
+#ifdef MEDUSA_COVERAGE
+extern void __gcov_dump(void);
+#endif
+
+static void dump_coverage_and_abort(int sig)
+{
+#ifdef MEDUSA_COVERAGE
+    __gcov_dump();
+#endif
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+/* A NULL argument is a bug in the caller, so sim_file asserts rather than
+ * returning an error. Each case runs in a child process, which must die of
+ * SIGABRT; the parent only checks how it ended. */
+static void test_null_arguments(void)
+{
+    TEST_SECTION("NULL arguments abort (asserts)");
+    for (int which = 0; which < 4; which++) {
+        fflush(NULL);
+        pid_t pid = fork();
+        if (pid < 0) {
+            perror("fork");
+            exit(2);
+        }
+        if (pid == 0) {
+            /* No core files or assert messages from the expected aborts. */
+            struct rlimit no_core = { 0, 0 };
+            setrlimit(RLIMIT_CORE, &no_core);
+            if (!freopen("/dev/null", "w", stderr))
+                _exit(3);
+            signal(SIGABRT, dump_coverage_and_abort);
+            FILE *f = qasm_stream(HDR "qubit[1] q;\n");
+            qBDD circ = qBDD_false();
+            sim_flags_t flags = { .opt_symb = false, .opt_info = false };
+            sim_info_t info;
+            init_sim_info(&info);
+            sim_file(which == 0 ? NULL : f, which == 1 ? NULL : &circ,
+                     which == 2 ? NULL : &flags, which == 3 ? NULL : &info);
+            _exit(0); /* reached only if the assert did not fire */
+        }
+        int status = 0;
+        waitpid(pid, &status, 0);
+        char what[64];
+        snprintf(what, sizeof(what), "NULL argument %d: wait status %d", which + 1, status);
+        TEST_ASSERT_MSG(WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT, what);
+    }
+}
+
 /* Every gate checks each of its qubit operands. One case per operand
  * position, since each is parsed (and checked) by its own call. */
 static void test_gate_operands(void)
@@ -290,13 +352,15 @@ static void test_gate_operands(void)
  *   - a comment as the very last thing in the file, with no newline after it;
  *   - a loop with zero iterations, whose body (comments included) is skipped
  *     without being simulated - x q[0] in it must not happen;
- *   - the bit register declared first, and with a space before its ';'. */
+ *   - the bit register declared first, and with a space before its ';';
+ *   - whitespace inside the brackets of a number. */
 static void test_valid_edges(void)
 {
     static const char *QASM[] = {
         HDR "qubit[2] q;\nx q[1];\n// done",
         HDR "qubit[2] q;\nx q[1];\nfor int i in [1:-1:0] {\n// skipped\nx q[0];\n}\n",
         HDR "bit[2] c ;\nqubit[2] q;\nx q[1];\n",
+        HDR "qubit[ 2 ] q;\nx q[ 1 ];\n",
     };
     TEST_SECTION("valid edge inputs: trailing comment, empty loop, bit register first");
     for (size_t i = 0; i < sizeof(QASM) / sizeof(QASM[0]); i++) {
@@ -460,6 +524,7 @@ int main(void)
     test_error_cases();
     test_unseekable_stream();
     test_error_lines();
+    test_null_arguments();
     test_gate_operands();
     test_valid_edges();
 #ifdef __GLIBC__
