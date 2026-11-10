@@ -213,6 +213,12 @@ done
 # since #13 the exit status says so.
 check "parse-empty" nonzero "" "${BIN}" --file "${WORKDIR}/bad/empty.qasm"
 
+# The bit register may come first: both size checks then run with the other
+# register already declared.
+printf 'OPENQASM 3.0;\ninclude "stdgates.inc";\nbit[2] c;\nqubit[2] q;\nx q[1];\nc[1] = measure q[1];\n' \
+    >"${WORKDIR}/bit_register_first.qasm"
+check "bit-register-first" 0 "" "${BIN}" --file "${WORKDIR}/bit_register_first.qasm"
+
 # A comment holding a 0xFF byte ("caf\xff", Latin-1 "café"). The comment
 # skipper kept fgetc's result in a char, so with a signed char that byte read
 # as EOF: parsing stopped there and the rest of the circuit was silently
