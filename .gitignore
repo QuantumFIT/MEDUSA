@@ -56,4 +56,3 @@ __pycache__/
 docs/_site/
 docs/.sass-cache/
 docs/.jekyll-cache/
-/.medusa-tests.lock

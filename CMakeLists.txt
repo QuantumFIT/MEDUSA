@@ -216,6 +216,9 @@ function(medusa_variant name)
     set(_iface_src ${BACKENDS}/interface_motobuddy.c)
     # MoToBuddy's headers (bdd.h, mtbdd.h) must come before src/: src/mtbdd.h
     # would otherwise shadow lib's mtbdd.h for files outside src/.
+    # ${CMAKE_BINARY_DIR}/include is where MoToBuddy, built as part of this
+    # project, puts the headers it downloads (nlohmann/json): the CMake
+    # counterpart of the Makefile's lib/MoToBuddy/build/include.
     target_include_directories(${cfg} INTERFACE
       ${motobuddy_SOURCE_DIR}/src ${motobuddy_BINARY_DIR}/src ${CMAKE_BINARY_DIR}/include)
     target_link_libraries(${cfg} INTERFACE buddy)
