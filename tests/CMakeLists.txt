@@ -148,6 +148,10 @@ foreach(_gp IN LISTS _gate_paths)
   medusa_harness(test_metamorphic${sfx} test_metamorphic.c buddy_doubles_f128${sfx})
   medusa_c_test(metamorphic${sfx} test_metamorphic${sfx} LABELS ${lbl})
 
+  # make test-sim-errors
+  medusa_harness(test_sim_errors${sfx} test_sim_errors.c buddy_doubles_f128${sfx})
+  medusa_c_test(sim_errors${sfx} test_sim_errors${sfx} LABELS ${lbl})
+
   medusa_harness(test_unit_leaf_gmp${sfx} test_unit_leaf_gmp.c buddy_gmp${sfx})
   medusa_c_test(unit_leaf_gmp${sfx} test_unit_leaf_gmp${sfx} LABELS ${lbl})
 
@@ -211,9 +215,10 @@ if(NOT VALGRIND)
 endif()
 set(VG ${_vg} --leak-check=full --show-leak-kinds=all
     --errors-for-leak-kinds=definite,indirect,possible,reachable
-    --error-exitcode=42 --quiet)
+    --error-exitcode=42 --child-silent-after-fork=yes --quiet)
 medusa_harness(test_stress_f128_l1 test_stress.c buddy_doubles_f128 STRESS_LEVEL=1)
-foreach(t test_unit_api test_stress_f128_l1 test_benchmark_semantics test_metamorphic)
+foreach(t test_unit_api test_stress_f128_l1 test_benchmark_semantics test_metamorphic
+          test_sim_errors)
   medusa_c_test(leaks_${t} ${t} LABELS memory TIMEOUT 3600 WRAP ${VG})
 endforeach()
 if(TARGET medusa_buddy_doubles_f128)
@@ -229,7 +234,7 @@ else()
 endif()
 if(NOT VALGRIND)
   foreach(t leaks_test_unit_api leaks_test_stress_f128_l1 leaks_test_benchmark_semantics
-            leaks_test_metamorphic leaks_symbolic_grover05)
+            leaks_test_metamorphic leaks_test_sim_errors leaks_symbolic_grover05)
     if(TEST ${t})
       set_tests_properties(${t} PROPERTIES DISABLED TRUE)
     endif()
