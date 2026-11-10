@@ -93,7 +93,7 @@ def collect_warnings(compiler, out):
         # --output-sync keeps each compiler's output in one piece: with -j,
         # interleaved diagnostics turn into lines no pattern can parse.
         cmd = ["make", "-k", f"-j{os.cpu_count() or 2}", "--output-sync=target", "LTO=0",
-               f"CC={cc}", f"CXX={cxx}", f"CFLAGS={WARN_CFLAGS}"] + targets
+               f"CC={cc}", f"CXX={cxx}", f"CFLAGS={WARN_CFLAGS}", *targets]
         res = run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         for line in res.stdout.splitlines():
             m = GCC_WARNING.match(line)
@@ -113,7 +113,7 @@ def compile_commands(target):
     units = []
     for line in res.stdout.replace("\\\n", " ").splitlines():
         args = shlex.split(line) if " -c " in line else []
-        if not args or args[0] not in ("gcc", "cc", "clang") and not args[0].endswith("gcc"):
+        if not args or (args[0] not in ("gcc", "cc", "clang") and not args[0].endswith("gcc")):
             continue
         src = args[args.index("-c") + 1]
         if not src.endswith(".c"):
@@ -149,8 +149,14 @@ def collect_cppcheck(out):
                        # cppcheck does not know the compiler's predefined macros.
                        "-D__SIZEOF_FLOAT128__=16", "-D__GNUC__=13",
                        f"--include={prelude}",
-                       "--template={file}:{line}:{severity}:{id}:{message}"] + flags + [src]
+                       "--template={file}:{line}:{severity}:{id}:{message}", *flags, src]
                 res = run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+                # Without --error-exitcode, cppcheck exits 0 whatever it finds
+                # (an analysis stopped by a syntax error included), so anything
+                # else means it did not run to the end - and a partial report
+                # would make the comparison pass on findings it never saw.
+                if res.returncode != 0:
+                    sys.exit(f"cppcheck failed on {src} ({res.returncode}):\n{res.stderr}")
                 for line in res.stderr.splitlines():
                     m = CPPCHECK_LINE.match(line)
                     if m:
@@ -159,10 +165,16 @@ def collect_cppcheck(out):
 
 
 def collect_shellcheck(out):
-    files = run(["git", "ls-files", "*.sh"], check=True, stdout=subprocess.PIPE,
-                text=True).stdout.split()
-    res = run(["shellcheck", "-S", "warning", "-f", "gcc"] + files,
+    # NUL-separated, so a path with a space stays one argument.
+    out_z = run(["git", "ls-files", "-z", "*.sh"], check=True, stdout=subprocess.PIPE,
+                text=True).stdout
+    files = [f for f in out_z.split("\0") if f]
+    res = run(["shellcheck", "-S", "warning", "-f", "gcc", *files],
               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    # 1 means findings; anything else (2: a file could not be read, ...) means
+    # the scan itself failed, and its report would be incomplete.
+    if res.returncode not in (0, 1):
+        sys.exit(f"shellcheck failed ({res.returncode}):\n{res.stdout}")
     findings = []
     for line in res.stdout.splitlines():
         m = SHELLCHECK_LINE.match(line)
