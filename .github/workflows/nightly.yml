@@ -67,16 +67,17 @@ jobs:
           gcc --version | head -1
           cmake --version | head -1
 
-      - name: Build MoToBuddy
-        run: make init
+      # Fetches Sylvan v1.8.1 and Lace v1.4.1 as well.
+      - name: Configure
+        run: cmake --preset sylvan -DMEDUSA_CXX_GATES=OFF -DMEDUSA_TEST_TIMEOUT_MAX=2400
 
-      - name: Build Sylvan and Lace
-        run: make init-sylvan
+      - name: Build
+        run: cmake --build --preset sylvan -j "$(nproc)"
 
-      # test_metamorphic relinked against interface_sylvan.h, across
-      # SYLVAN_META_LEAF_TYPES (f80 and f128 by default).
+      # test_metamorphic linked against the Sylvan backend, on f80 and f128
+      # (the tests labelled both nightly and sylvan).
       - name: Sylvan metamorphic sweep
-        run: make test-sylvan-metamorphic
+        run: ctest --test-dir build/sylvan -L nightly -L sylvan -j 2 --output-on-failure
 
   # The loop-program benchmarks under --symbolic: ~220 circuits, each capped at
   # 10 s of wall clock and 2 GB of address space, so a blow-up in the symbolic
@@ -99,11 +100,14 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
               libgmp-dev cmake g++ python3
 
-      - name: Build MoToBuddy
-        run: make init
+      - name: Configure
+        run: cmake --preset release -DMEDUSA_CXX_GATES=OFF -DMEDUSA_TEST_TIMEOUT_MAX=2100
+
+      - name: Build
+        run: cmake --build --preset release -j "$(nproc)" --target medusa_buddy_doubles_f128
 
       - name: Symbolic LP sweep
-        run: make test-lp-symbolic
+        run: ctest --test-dir build/release -R '^lp_symbolic$' --output-on-failure
 
 
   # Targeted mutation testing: five known past bugs re-injected into the
@@ -125,6 +129,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
               libgmp-dev cmake g++ python3
 
+      # Still on the Makefile: test_mutation.sh rebuilds each mutant with make.
+      # It moves to CMake before the Makefile is removed.
       - name: Build MoToBuddy
         run: make init
 
