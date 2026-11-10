@@ -39,6 +39,7 @@ typedef struct sim_info {
     double *t_el_eval;    /// Array for the eval time for each loop (for symbolic sim only)
     sim_status_t status;  /// Outcome of sim_file, the same as its return value
     char error[SIM_ERROR_LEN]; /// For a SIM_ERR_* status: what went wrong, one line without '\n'
+    size_t line;          /// For a SIM_ERR_* status: the input line (from 1) the error was found on
 } sim_info_t;
 
 /**
