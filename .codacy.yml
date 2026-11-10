@@ -1,0 +1,9 @@
+---
+# Codacy configuration (https://docs.codacy.com/repositories-configure/codacy-configuration-file/).
+#
+# The test sources are left out: Flawfinder flags every strlen, memcpy and
+# snprintf by name, and in the tests those run on string literals and on
+# buffers whose size is checked right next to them. The shell scripts in
+# tests/ are still linted by shellcheck in the code-quality workflow.
+exclude_paths:
+  - "tests/**"
