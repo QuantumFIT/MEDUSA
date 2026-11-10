@@ -32,6 +32,13 @@ function(medusa_workdir out name)
   set(dir ${WORK_ROOT}/${name})
   file(MAKE_DIRECTORY ${dir})
   foreach(link benchmarks tests)
+    # Recreated on every configure: if the checkout has moved, the old link
+    # dangles and EXISTS (which follows links) is false while the path is
+    # still taken. CMake 3.28's CREATE_LINK replaces it anyway; removing it
+    # first does not depend on that.
+    if(IS_SYMLINK ${dir}/${link})
+      file(REMOVE ${dir}/${link})
+    endif()
     if(NOT EXISTS ${dir}/${link})
       file(CREATE_LINK ${CMAKE_SOURCE_DIR}/${link} ${dir}/${link} SYMBOLIC)
     endif()
@@ -99,13 +106,18 @@ function(medusa_sh_test name script)
   medusa_timeout(T_TIMEOUT "${T_TIMEOUT}")
   # The suites write res.dot into the source tree. RESOURCE_LOCK serialises
   # them within this ctest run; run_locked.cmake also across build trees and
-  # concurrent ctest runs on the same checkout.
+  # concurrent ctest runs on the same checkout. The wrapper enforces both the
+  # wait for the lock (up to one other suite's run) and the run itself, each
+  # with its own message; CTest's TIMEOUT, their sum plus a minute for cmake
+  # itself, is only the backstop.
+  math(EXPR _ctest_timeout "2 * ${T_TIMEOUT} + 60")
   add_test(NAME ${name}
            COMMAND ${CMAKE_COMMAND} -DLOCK=${CMAKE_SOURCE_DIR}/.medusa-tests.lock
-                   -DLOCK_TIMEOUT=${T_TIMEOUT} -P ${PROJECT_SOURCE_DIR}/cmake/run_locked.cmake
+                   -DLOCK_TIMEOUT=${T_TIMEOUT} -DRUN_TIMEOUT=${T_TIMEOUT}
+                   -P ${PROJECT_SOURCE_DIR}/cmake/run_locked.cmake
                    bash ${TEST_SRC}/${script}
            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-  set_tests_properties(${name} PROPERTIES LABELS "${T_LABELS}" TIMEOUT ${T_TIMEOUT}
+  set_tests_properties(${name} PROPERTIES LABELS "${T_LABELS}" TIMEOUT ${_ctest_timeout}
                        RESOURCE_LOCK medusa_source_tree ENVIRONMENT "${T_ENV}")
 endfunction()
 
@@ -115,10 +127,11 @@ set(BIN ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 # MoToBuddy C harnesses, C and C++ gate paths
 # ------------------------------------------------------------------------------
 set(_gate_paths "")
-list(APPEND _gate_paths "|pr")
-if(MEDUSA_CXX_GATES)
-  list(APPEND _gate_paths "_cxx|cxx")
-endif()
+# The whole matrix is registered whatever is configured: the helpers disable a
+# test whose variant is not built, so `ctest -L cxx` on a tree configured with
+# MEDUSA_CXX_GATES=OFF lists the C++ tests as disabled instead of finding none.
+set(_all_float_types f32 f64 f80 f128)
+list(APPEND _gate_paths "|pr" "_cxx|cxx")
 
 foreach(_gp IN LISTS _gate_paths)
   string(REPLACE "|" ";" _gp "${_gp}")
@@ -127,7 +140,7 @@ foreach(_gp IN LISTS _gate_paths)
 
   # test_unit_api for every float leaf type (make test-unit-leaf-types); the f128
   # binary keeps the Makefile's name. The C++ job only ever ran it on f128.
-  foreach(ft IN LISTS MEDUSA_FLOAT_TYPES)
+  foreach(ft IN LISTS _all_float_types)
     if(sfx STREQUAL "_cxx" AND NOT ft STREQUAL "f128")
       continue()
     endif()
@@ -150,7 +163,7 @@ foreach(_gp IN LISTS _gate_paths)
   medusa_c_test(unit_leaf_gmp${sfx} test_unit_leaf_gmp${sfx} LABELS ${lbl})
 
   # Grover matrix: every float type and GMP (make test-grover).
-  foreach(l IN LISTS MEDUSA_FLOAT_TYPES ITEMS gmp)
+  foreach(l IN LISTS _all_float_types ITEMS gmp)
     if(l STREQUAL "gmp")
       set(v buddy_gmp${sfx})
     else()
@@ -256,7 +269,7 @@ if(MEDUSA_SYLVAN)
     NEEDS medusa_sylvan_doubles_f128 medusa_sylvan_gmp medusa_buddy_doubles_f128 medusa_buddy_gmp
     ENV MEDUSA_SYLVAN_F128=${syl} MEDUSA_SYLVAN_GMP=${BIN}/MEDUSA_sylvan_gmp
         MEDUSA_BUDDY_F128=${BIN}/MEDUSA_buddy_doubles_f128 MEDUSA_BUDDY_GMP=${BIN}/MEDUSA_buddy_gmp)
-  foreach(l IN LISTS MEDUSA_FLOAT_TYPES ITEMS gmp)
+  foreach(l IN LISTS _all_float_types ITEMS gmp)
     if(l STREQUAL "gmp")
       set(v sylvan_gmp)
     else()
@@ -306,15 +319,17 @@ medusa_configure_test(configure_rejects_empty_build EXPECT_FAIL
   EXPECT "Nothing to build")
 
 # A narrow configuration (f64 only, no GMP, no C++ gates) without valgrind
-# (VALGRIND=OFF stops find_program from looking). The tests it cannot run are
-# still registered, disabled, and the configure step says so. MoToBuddy comes
+# (VALGRIND=OFF stops find_program from looking). The tests it cannot run -
+# other leaf types, GMP, the C++ gate path, the leak checks - are still
+# registered, disabled, and the configure step says so. MoToBuddy comes
 # from this build's own checkout, so nothing is downloaded.
 medusa_configure_test(configure_reports_disabled_tests
   ARGS -DMEDUSA_FLOAT_TYPES=f64 -DMEDUSA_GMP=OFF -DMEDUSA_CXX_GATES=OFF -DMEDUSA_SYLVAN=OFF
        -DVALGRIND=OFF -DFETCHCONTENT_SOURCE_DIR_MOTOBUDDY=${motobuddy_SOURCE_DIR}
   EXPECT "valgrind not found: the leak checks"
          "test\\(s\\) disabled because their variant is not configured"
-  DISABLED unit_leaf_gmp circuits leaks_test_unit_api)
+  DISABLED unit_leaf_gmp circuits leaks_test_unit_api
+           unit_api_f32 grover_f80 unit_api_f128_cxx cli_cxx)
 
 get_property(_disabled GLOBAL PROPERTY MEDUSA_DISABLED_TESTS)
 if(_disabled)
