@@ -23,7 +23,8 @@ import argparse
 import os
 import re
 import shlex
-import subprocess
+# Running the build and analysis tools is what this script is for; see run().
+import subprocess  # nosec B404
 import sys
 import tempfile
 
@@ -67,15 +68,22 @@ def norm_msg(msg):
 
 
 def write(findings, out):
-    with open(out, "w") as f:
-        for item in sorted(set(findings)):
-            f.write("\t".join(item) + "\n")
+    with open(out, "w", encoding="utf-8") as f:
+        f.writelines("\t".join(item) + "\n" for item in sorted(set(findings)))
     print(f"{len(set(findings))} distinct finding(s) -> {out}")
 
 
-def run(cmd, **kw):
+def run(cmd, check=False, **kw):
+    """Run cmd (a list, no shell) and echo it, as `set -x` would.
+
+    The only place this script starts a process. The commands are fixed tool
+    names (make, cppcheck, shellcheck, git) with arguments taken from the
+    repository itself (`make -n`, `git ls-files`), run in CI on the
+    repository's own checkout. Most callers read the exit status themselves,
+    hence check=False by default.
+    """
     print("+ " + " ".join(shlex.quote(c) for c in cmd), flush=True)
-    return subprocess.run(cmd, **kw)
+    return subprocess.run(cmd, check=check, **kw)  # nosec B603 # nosemgrep
 
 
 def collect_warnings(compiler, out):
@@ -135,9 +143,8 @@ def collect_cppcheck(out):
                 # cppcheck honours only one --include, so the force-included
                 # headers go through one prelude.
                 prelude = os.path.join(tmp, "prelude.h")
-                with open(prelude, "w") as f:
-                    for inc in includes:
-                        f.write(f'#include "{os.path.abspath(inc)}"\n')
+                with open(prelude, "w", encoding="utf-8") as f:
+                    f.writelines(f'#include "{os.path.abspath(inc)}"\n' for inc in includes)
                 cmd = ["cppcheck", "-q", "--std=c11", "--enable=warning,portability,performance",
                        "--inline-suppr", "--suppress=missingIncludeSystem",
                        # cppcheck does not know the compiler's predefined macros.
@@ -153,8 +160,8 @@ def collect_cppcheck(out):
 
 
 def collect_shellcheck(out):
-    files = subprocess.run(["git", "ls-files", "*.sh"], stdout=subprocess.PIPE, text=True,
-                           check=True).stdout.split()
+    files = run(["git", "ls-files", "*.sh"], check=True, stdout=subprocess.PIPE,
+                text=True).stdout.split()
     res = run(["shellcheck", "-S", "warning", "-f", "gcc"] + files,
               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     findings = []
@@ -174,7 +181,7 @@ ANALYSIS_ABORTED = {"error:syntaxError", "error:preprocessorErrorDirective",
 
 
 def read(path):
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return {tuple(line.rstrip("\n").split("\t")) for line in f if line.strip()}
 
 
@@ -209,7 +216,7 @@ def compare(name, base_path, head_path):
     print(text)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
-        with open(summary, "a") as f:
+        with open(summary, "a", encoding="utf-8") as f:
             f.write(text + "\n")
     level = "warning" if unblocked else "error"
     for file, kind, msg in new:
