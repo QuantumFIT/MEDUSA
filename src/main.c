@@ -183,11 +183,11 @@ int main(int argc, char *argv[])
         sim_status_t status = sim_file(input, &circ, &flags, &info);
         sim_successful = (status == SIM_OK);
         if (status != SIM_OK && status != SIM_NO_CIRCUIT) {
-            /* What error_exit used to print before ending the process. The
-             * run still ends with exit status 1, but through the clean-up
-             * below, and without the --info statistics of a run that did
-             * not happen. */
-            fprintf(stderr, "ERROR: %s\n", info.error);
+            /* What error_exit used to print before ending the process, now
+             * with the input line. The run still ends with exit status 1,
+             * but through the clean-up below, and without the --info
+             * statistics of a run that did not happen. */
+            fprintf(stderr, "ERROR: line %zu: %s\n", info.line, info.error);
             sim_rejected = true;
         }
     }

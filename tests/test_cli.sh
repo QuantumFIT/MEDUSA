@@ -340,6 +340,11 @@ mcx_syntax|mcx
 rx_angle|Invalid rx angle
 CASES
 
+# The message names the input line: two_qregs declares its second register on
+# line 4.
+check "parse-error-names-line" nonzero "line 4: Multiple qubit register" \
+    "${BIN}" --file "${WORKDIR}/bad/two_qregs.qasm"
+
 # A rejected circuit is not a run, so --info prints no statistics for it -
 # as when the parser still ended the process itself. The CLI catches the
 # error from sim_file and has to skip them explicitly.

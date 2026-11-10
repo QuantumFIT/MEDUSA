@@ -215,6 +215,46 @@ static double basis_prob(qBDD t, const char *bits)
     return qBDD_isFalse(t) ? 0.0 : (double)qBDD_calculateProb(t);
 }
 
+/* info.line names the input line the error is on (from 1; HDR is lines 1-2).
+ * The loop cases matter most: a loop is read again for every iteration (and
+ * for every symbolic refinement pass), so the count has to go back with the
+ * stream each time, or an error after the loop would report a line past the
+ * end of the file. */
+static void test_error_lines(void)
+{
+    static const struct {
+        const char *name;
+        bool symbolic;
+        const char *qasm;
+        size_t line;
+    } LINES[] = {
+        { "unknown gate", false, HDR "qubit[2] q;\nh q[0];\nswap q[0], q[1];\n", 5 },
+        { "after comments and blank lines", false,
+          HDR "// one\n\n// two\nqubit[2] q;\nh q[9];\n", 7 },
+        { "missing ';' at end of file", false, HDR "qubit[2] q;\nh q[0]", 4 },
+        { "inside a loop body", false, HDR "qubit[2] q;\nfor int i in [1:3] {\nh q[0];\nx q[4];\n}\n", 6 },
+        { "after a classic loop of 3 iterations", false,
+          HDR "qubit[2] q;\nfor int i in [1:3] {\nh q[0];\n}\nswap q[0], q[1];\n", 7 },
+        { "after a symbolic loop", true,
+          HDR "qubit[2] q;\nh q[0];\nfor int i in [1:3] {\nh q[1];\ncx q[1], q[0];\n}\nswap q[0], q[1];\n", 9 },
+        { "loop never closed", false, HDR "qubit[2] q;\nfor int i in [1:3] {\nh q[0];\n", 6 },
+    };
+    TEST_SECTION("errors name their input line");
+    for (size_t i = 0; i < sizeof(LINES) / sizeof(LINES[0]); i++) {
+        FILE *f = qasm_stream(LINES[i].qasm);
+        qBDD circ;
+        sim_info_t info;
+        sim_status_t got = run(f, LINES[i].symbolic, &circ, &info);
+        fclose(f);
+        char what[512];
+        snprintf(what, sizeof(what), "%s: status %d, line %zu (want %zu), error \"%s\"",
+                 LINES[i].name, (int)got, info.line, LINES[i].line, info.error);
+        TEST_ASSERT_MSG(got != SIM_OK && got != SIM_NO_CIRCUIT, what);
+        TEST_ASSERT_MSG(info.line == LINES[i].line, what);
+        free_sim_info(&info);
+    }
+}
+
 /* Every gate checks each of its qubit operands. One case per operand
  * position, since each is parsed (and checked) by its own call. */
 static void test_gate_operands(void)
@@ -371,6 +411,7 @@ static void test_unseekable_stream(void)
     fclose(f);
     TEST_ASSERT_MSG(got == SIM_ERR_STREAM, info.error);
     TEST_ASSERT(strstr(info.error, "cannot be simulated from stdin") != NULL);
+    TEST_ASSERT(info.line == 4); /* counted while reading, so a pipe has lines too */
     TEST_ASSERT(qBDD_isFalse(circ));
     free_sim_info(&info);
 }
@@ -418,6 +459,7 @@ int main(void)
 
     test_error_cases();
     test_unseekable_stream();
+    test_error_lines();
     test_gate_operands();
     test_valid_edges();
 #ifdef __GLIBC__

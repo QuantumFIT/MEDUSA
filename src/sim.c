@@ -42,6 +42,7 @@ void init_sim_info(sim_info_t *i)
     i->t_el_eval = NULL;
     i->status = SIM_OK;
     i->error[0] = '\0';
+    i->line = 0;
 }
 
 void free_sim_info(sim_info_t *i)
@@ -93,17 +94,33 @@ static bool sim_error(sim_info_t *info, sim_status_t status, const char *fmt, ..
 }
 
 /**
+ * Reads the next character of the circuit, keeping info->line up to date.
+ *
+ * Every read in the parser goes through here, so that an error can say on
+ * which line of the input it was found. Counting as we read (rather than
+ * seeking back and counting afterwards) also works on stdin.
+ */
+static int next_char(FILE *in, sim_info_t *info)
+{
+    int c = fgetc(in);
+    if (c == '\n') {
+        info->line++;
+    }
+    return c;
+}
+
+/**
  * Function for number parsing from the input file (reads the number from the input until the end character is encountered)
  * Checks for two possible end characters. If only one character should be checked agains, set alt_end to NO_ALT_END.
  */
 static bool parse_num(FILE *in, char end, char alt_end, sim_info_t *info, long long *out)
 {
-    int c = fgetc(in);
+    int c = next_char(in, info);
     char num[NUM_MAX_LEN] = {0};
 
     // Skip leading whitespace
     while (isspace(c)) {
-        c = fgetc(in);
+        c = next_char(in, info);
     }
 
     // Load number to string
@@ -114,7 +131,7 @@ static bool parse_num(FILE *in, char end, char alt_end, sim_info_t *info, long l
         else if (!isdigit(c) && c != '-') {
             // Check if isn't just trailing whitespace
             while (isspace(c)) {
-                c = fgetc(in);
+                c = next_char(in, info);
             }
             if (c == end || c == alt_end) {
                 break;
@@ -130,7 +147,7 @@ static bool parse_num(FILE *in, char end, char alt_end, sim_info_t *info, long l
         else {
             return sim_error(info, SIM_ERR_SYNTAX, "Invalid format - not a valid number (too many digits).");
         }
-        c = fgetc(in);
+        c = next_char(in, info);
     }
 
     // Convert to integer value
@@ -260,7 +277,7 @@ static bool get_q_num(FILE *in, sim_info_t *info, uint32_t *out)
     int c;
     long long n;
 
-    while ((c = fgetc(in)) != '[') {
+    while ((c = next_char(in, info)) != '[') {
         if (c == EOF) {
             return sim_error(info, SIM_ERR_SYNTAX, "Invalid format - reached an unexpected end of file (expected a qubit index).");
         }
@@ -344,7 +361,7 @@ static bool get_iters(FILE *in, sim_info_t *info, uint64_t *iters)
     long long start, end;
     long long step = 1;
 
-    while ((c = fgetc(in)) != '[') {
+    while ((c = next_char(in, info)) != '[') {
         if (c == EOF) {
             return sim_error(info, SIM_ERR_SYNTAX, "Invalid format - reached an unexpected end of file (expected a number of loop iterations).");
         }
@@ -357,7 +374,7 @@ static bool get_iters(FILE *in, sim_info_t *info, uint64_t *iters)
     if (fseek(in, -1, SEEK_CUR) != 0) {
         return sim_error(info, SIM_ERR_STREAM, "Error has occured when parsing loop parameters (fseek error). Circuits with loops cannot be simulated from stdin.");
     }
-    if ((c = fgetc(in)) == ':') {
+    if ((c = next_char(in, info)) == ':') {
         step = end;
         if (!parse_num(in, ']', NO_ALT_END, info, &end)) {
             return false;
@@ -399,8 +416,8 @@ static bool get_iters(FILE *in, sim_info_t *info, uint64_t *iters)
 static int skip_one_line_comments(char c, FILE *in, sim_info_t *info)
 {
     if (c == '/') {
-        if ((c = fgetc(in)) == '/') {
-            while ((c = fgetc(in)) != '\n') {
+        if ((c = next_char(in, info)) == '/') {
+            while ((c = next_char(in, info)) != '\n') {
                 if (c == EOF) {
                     return COMMENT_EOF;
                 }
@@ -430,6 +447,7 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
 
     bool is_loop = false;
     fpos_t loop_start;
+    size_t loop_start_line = 0; // info->line at loop_start, restored on each rewind
     mtbdd_symb_t symbc;
     uint64_t iters;
     struct timespec t_loop_start, t_loop_finish, t_eval_start;
@@ -444,13 +462,14 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
 
     info->status = SIM_OK;
     info->error[0] = '\0';
-    while ((c = fgetc(in)) != EOF) {
+    info->line = 1;
+    while ((c = next_char(in, info)) != EOF) {
         for (int i=0; i < CMD_MAX_LEN; i++) {
             cmd[i] = '\0';
         }
 
         while (isspace(c)) {
-            c = fgetc(in);
+            c = next_char(in, info);
         }
 
         if (c == EOF) {
@@ -481,7 +500,7 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
             else {
                 FAIL(SIM_ERR_UNSUPPORTED, "Invalid command (command too long).");
             }
-        } while (!isspace(c = fgetc(in)) && (c != '['));
+        } while (!isspace(c = next_char(in, info)) && (c != '['));
         /* The loop above ends only on whitespace or '[': an EOF is reported
          * inside it, as an end of file while loading the command. */
         if (c == '[') {
@@ -509,7 +528,7 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
                 (info->bits_to_measure)[i] =  Q_NOT_MEASURED;
             }
 
-            while (isspace(c = fgetc(in))) { }
+            while (isspace(c = next_char(in, info))) { }
             // Save the register name to detect measurements
             do {
                 if (c == ';') {
@@ -525,7 +544,7 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
                 else {
                     FAIL(SIM_ERR_UNSUPPORTED, "Invalid bit register identifier (identifier is too long, max supported length is %d).", BIT_REG_ID_MAX_LEN-1);
                 }
-            } while (!isspace(c = fgetc(in)));
+            } while (!isspace(c = next_char(in, info)));
             if (c == ';') {
                 continue; // end of command
             }
@@ -554,7 +573,7 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
                 TRY(get_iters(in, info, &iters));
                 if (iters == 0) {
                     // skip symbolic
-                    while ((c = fgetc(in)) != '}') {
+                    while ((c = next_char(in, info)) != '}') {
                         int skipped = (c == EOF)? COMMENT_EOF : skip_one_line_comments(c, in, info);
                         if (skipped == COMMENT_INVALID) {
                             goto fail;
@@ -565,7 +584,7 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
                     }
                     continue;
                 }
-                while ((c = fgetc(in)) != '{') {
+                while ((c = next_char(in, info)) != '{') {
                     if (c == EOF) {
                         FAIL(SIM_ERR_SYNTAX, "Invalid format - reached an unexpected end of file at the start of a loop.");
                     }
@@ -584,6 +603,7 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
                                .use_iters = 1, .iters = iters,
                                .use_loop = 1, .loop_idx = (int)info->n_loops);
                 }
+                loop_start_line = info->line;
                 if (fgetpos(in, &loop_start) != 0) {
                     FAIL(SIM_ERR_STREAM, "Could not get the current position of the stream to mark the start of a loop.");
                 }
@@ -610,6 +630,7 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
                         if (fsetpos(in, &loop_start) != 0) {
                             FAIL(SIM_ERR_STREAM, "Could not set a new position of the stream to start the next iteration.");
                         }
+                        info->line = loop_start_line;
                     }
                 }
                 else {
@@ -649,6 +670,7 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
                             rdata_delete(rdata);
                             FAIL(SIM_ERR_STREAM, "Could not set a new position of the stream during symbolic simulation.");
                         }
+                        info->line = loop_start_line;
                     }
                     rdata_delete(rdata);
                 }
@@ -803,9 +825,9 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
                         goto fail;
                     }
                     qparam_list_insert_first(qparams, q);
-                    c = fgetc(in);
+                    c = next_char(in, info);
                     while (isspace(c)) {
-                        c = fgetc(in);
+                        c = next_char(in, info);
                     }
 
                     if (c == ',') {
@@ -834,7 +856,7 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
         }
 
         // Skip all remaining characters on the currently read line
-        while ((c = fgetc(in)) != ';') {
+        while ((c = next_char(in, info)) != ';') {
             if (c == EOF) {
                 FAIL(SIM_ERR_SYNTAX, "Invalid format - reached an unexpected end of file (expected ';' to end the current line).");
             }
