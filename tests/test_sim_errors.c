@@ -387,6 +387,9 @@ static void test_valid_edges(void)
 
 #ifdef __GLIBC__
 /*
+ * fopencookie needs _GNU_SOURCE on glibc before 2.39 (it was __USE_GNU, now
+ * __USE_MISC); both builds define it for this file.
+ *
  * A stream whose n-th seek fails, for the repositioning errors a pipe cannot
  * reach: on a pipe the very first one (the fseek in get_iters) fails already.
  * Each of fseek, fgetpos and fsetpos calls the seek function exactly once, so
