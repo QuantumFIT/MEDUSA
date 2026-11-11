@@ -76,6 +76,22 @@ void free_sim_info(sim_info_t *i);
  */
 sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info);
 
+/// Outcome of sim_loop_count
+typedef enum sim_loop_count_result {
+    SIM_LOOP_OK = 0,     /// *iters holds the count (0 for an empty range)
+    SIM_LOOP_STEP_ZERO,  /// the step is 0
+    SIM_LOOP_OVERFLOW,   /// end - start does not fit in a long long
+} sim_loop_count_t;
+
+/**
+ * Number of iterations of the OpenQASM 3 range [start:step:end], which
+ * includes both ends: (end - start) / step + 1 when step points from start
+ * towards end (or start == end), 0 for a range that runs away from its end.
+ * Exact for every representable range; the largest count is 2^63 + 1.
+ * *iters is set only for SIM_LOOP_OK.
+ */
+sim_loop_count_t sim_loop_count(long long start, long long step, long long end, uint64_t *iters);
+
 /**
  * Measures all bits in the given array (compatible only with measurement at the end of the circuit)
  * 
