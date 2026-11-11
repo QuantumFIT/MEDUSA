@@ -74,6 +74,8 @@ static const error_case_t CASES[] = {
       SIM_ERR_SYNTAX, "q[9] is outside" },
     { "slash that is not a comment", false, HDR "qubit[2] q;\n/ h q[0];\n",
       SIM_ERR_SYNTAX, "expected a one-line comment" },
+    { "lone slash at end of file", false, HDR "qubit[2] q;\n/",
+      SIM_ERR_SYNTAX, "expected a one-line comment" },
     { "slash inside a skipped loop", false,
       HDR "qubit[2] q;\nfor int i in [1:-1:0] {\n/ h q[0];\n}\n",
       SIM_ERR_SYNTAX, "expected a one-line comment" },
@@ -138,6 +140,11 @@ static const error_case_t CASES[] = {
       SIM_ERR_SYNTAX, "overflow detected" },
     { "loop range overflow, counting down", false,
       HDR "qubit[2] q;\nfor int i in [9223372036854775807:-1:-9223372036854775808] {\nh q[0];\n}\n",
+      SIM_ERR_SYNTAX, "overflow detected" },
+    /* Only end + 1 overflows here; the old check caught just the exact
+     * LLONG_MIN/LLONG_MAX pair. */
+    { "loop range overflow at the end only", false,
+      HDR "qubit[2] q;\nfor int i in [0:9223372036854775807] {\nh q[0];\n}\n",
       SIM_ERR_SYNTAX, "overflow detected" },
     { "loop counting down from below its end", false,
       HDR "qubit[2] q;\nfor int i in [1:-1:4] {\nh q[0];\n}\n",
