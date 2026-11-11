@@ -116,7 +116,11 @@ def collect_warnings(compiler, out):
 
 def compile_commands(target):
     """(source, -I/-D flags, -include headers) for every C file `make target` compiles."""
-    res = run(["make", "-Bn", target], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    res = run(["make", "-Bn", target], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    # make can print some commands and then fail; analysing that partial list
+    # would let the check pass on code it never saw.
+    if res.returncode != 0:
+        sys.exit(f"make -Bn {target} failed ({res.returncode}):\n{res.stderr}")
     units = []
     for line in res.stdout.replace("\\\n", " ").splitlines():
         args = shlex.split(line) if " -c " in line else []
