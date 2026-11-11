@@ -310,6 +310,24 @@ static void test_mul_mpz_and_scaling(void)
     clear_generic(e);
 }
 
+/* A second, smaller circuit in a package that already has the variables: the
+ * package must not be resized, and the new circuit is still |0..0> with total
+ * probability 1. */
+static void test_second_circuit_same_package(void)
+{
+    TEST_SECTION("second circuit in one package (no variable growth)");
+    initPackage(0, 0, 0);
+    test_silence_gbc();
+    qBDD c;
+    circuit_init_interface(&c, 3);
+    TEST_ASSERT_NEAR(qBDD_total_prob(c, 3), 1.0, 1e-12);
+    deleteCircuit(&c);
+    circuit_init_interface(&c, 2);
+    TEST_ASSERT_NEAR(qBDD_total_prob(c, 2), 1.0, 1e-12);
+    deleteCircuit(&c);
+    freePackage();
+}
+
 int main(void)
 {
     printf("MEDUSA GMP leaf primitive unit tests\n");
@@ -322,6 +340,7 @@ int main(void)
     test_hash_equality_contract();
     test_inv_sqrt2_pow_stores_exponent();
     test_mul_mpz_and_scaling();
+    test_second_circuit_same_package();
 
     return test_report("test_unit_leaf_gmp");
 }
