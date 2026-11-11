@@ -281,7 +281,11 @@ h q[0];
 }
 QASM
 
-write_bad loop_not_integer <<'QASM'
+# OpenQASM 3 ranges include both ends and need not be divisible by the step:
+# [1:2:5] is 1, 3, 5. A range whose step points away from its end ([4:1]) is
+# empty: the loop runs zero times. Both used to be refused ("not an integer",
+# "Invalid number of loop iterations").
+write_bad loop_step_two <<'QASM'
 OPENQASM 3.0;
 include "stdgates.inc";
 qubit[2] q;
@@ -290,7 +294,7 @@ h q[0];
 }
 QASM
 
-write_bad loop_backwards <<'QASM'
+write_bad loop_empty_range <<'QASM'
 OPENQASM 3.0;
 include "stdgates.inc";
 qubit[2] q;
@@ -298,6 +302,8 @@ for int i in [4:1] {
 h q[0];
 }
 QASM
+check "loop-step-two" 0 "" "${BIN}" --file "${WORKDIR}/bad/loop_step_two.qasm"
+check "loop-empty-range" 0 "" "${BIN}" --file "${WORKDIR}/bad/loop_empty_range.qasm"
 
 write_bad measure_no_breg <<'QASM'
 OPENQASM 3.0;
@@ -333,8 +339,6 @@ two_bregs|Multiple bit register
 reg_mismatch|different than the size
 nested_loop|Nested loops
 loop_step_zero|step must be non-zero
-loop_not_integer|not an integer
-loop_backwards|Invalid number of loop iterations
 measure_no_breg|uninitialized bit register
 mcx_syntax|mcx
 rx_angle|Invalid rx angle
