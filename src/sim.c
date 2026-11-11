@@ -358,6 +358,37 @@ static bool get_c_idx(FILE *in, sim_info_t *info, int n_bits, uint32_t *out)
     return true;
 }
 
+sim_loop_count_t sim_loop_count(long long start, long long step, long long end, uint64_t *iters)
+{
+    /* OpenQASM 3 ranges include both ends: [start:step:end] runs start,
+     * start + step, ... while the value has not passed end. That is
+     * (end - start) / step + 1 iterations when step points from start towards
+     * end (or start == end), and none otherwise - an empty range, not an
+     * error. The loop variable itself is not used by the body.
+     *
+     * end - start is checked for overflow. From there diff and step have the
+     * same sign (or diff is 0), so diff / step is the non-negative count minus
+     * one - except that LLONG_MIN / -1 overflows, so a step of -1 counts
+     * |diff| + 1 directly. Either way the count is at most 2^63 + 1. */
+    long long diff;
+    if (step == 0) {
+        return SIM_LOOP_STEP_ZERO;
+    }
+    if (__builtin_sub_overflow(end, start, &diff)) {
+        return SIM_LOOP_OVERFLOW;
+    }
+    if ((diff > 0 && step < 0) || (diff < 0 && step > 0)) {
+        *iters = 0;
+    }
+    else if (step == -1) {
+        *iters = (uint64_t)(-(diff + 1)) + 2; /* |diff| + 1, diff <= 0 */
+    }
+    else {
+        *iters = (uint64_t)(diff / step) + 1;
+    }
+    return SIM_LOOP_OK;
+}
+
 /**
  * Reads the number of iterations into *iters, should be called when a for loop is encountered
  */
@@ -387,34 +418,14 @@ static bool get_iters(FILE *in, sim_info_t *info, uint64_t *iters)
         }
     }
     
-    /* OpenQASM 3 ranges include both ends: [start:step:end] runs start,
-     * start + step, ... while the value has not passed end. That is
-     * (end - start) / step + 1 iterations when step points from start towards
-     * end (or start == end), and none otherwise - an empty range, not an
-     * error. The loop variable itself is not used by the body.
-     *
-     * end - start is checked for overflow. From there diff and step have the
-     * same sign (or diff is 0), so diff / step is the non-negative count minus
-     * one - except that LLONG_MIN / -1 overflows, so a step of -1 counts
-     * |diff| + 1 directly. Either way the count is at most 2^63 + 1. */
-    long long diff;
-    if (step == 0) {
+    switch (sim_loop_count(start, step, end, iters)) {
+    case SIM_LOOP_STEP_ZERO:
         return sim_error(info, SIM_ERR_SYNTAX, "Invalid number of loop iterations - step must be non-zero.");
-    }
-    if (__builtin_sub_overflow(end, start, &diff)) {
+    case SIM_LOOP_OVERFLOW:
         return sim_error(info, SIM_ERR_SYNTAX, "Invalid number of loop iterations - overflow detected.");
-    }
-    if ((diff > 0 && step < 0) || (diff < 0 && step > 0)) {
-        *iters = 0;
+    default:
         return true;
     }
-    if (step == -1) {
-        *iters = (uint64_t)(-(diff + 1)) + 2; /* |diff| + 1, diff <= 0 */
-    }
-    else {
-        *iters = (uint64_t)(diff / step) + 1;
-    }
-    return true;
 }
 
 /// skip_one_line_comments: there was a comment and it has been skipped

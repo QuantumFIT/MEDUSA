@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <limits.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <signal.h>
@@ -362,6 +363,53 @@ static void test_loop_counts(void)
     }
 }
 
+/* The count itself at the edges of long long, where the circuits above
+ * cannot go (a loop of 2^63 iterations does not finish): sim_loop_count must
+ * give the exact count, with no overflow, up to the largest one, 2^63 + 1. */
+static void test_loop_count_limits(void)
+{
+    const uint64_t P63 = (uint64_t)1 << 63;
+    static const struct {
+        long long start, step, end;
+        sim_loop_count_t want;
+        uint64_t count; /* for SIM_LOOP_OK; P63 below is added at run time */
+        int plus_p63;
+    } CASES[] = {
+        { 0, 1, LLONG_MAX,          SIM_LOOP_OK, 0, 1 },          /* 2^63 */
+        { LLONG_MIN, 1, -1,         SIM_LOOP_OK, 0, 1 },          /* 2^63 */
+        { LLONG_MAX, -1, 0,         SIM_LOOP_OK, 0, 1 },          /* 2^63, step -1 */
+        { 0, -1, LLONG_MIN,         SIM_LOOP_OK, 1, 1 },          /* 2^63 + 1, the largest */
+        { -1, -1, LLONG_MIN,        SIM_LOOP_OK, 0, 1 },          /* 2^63 */
+        { 0, 2, LLONG_MAX,          SIM_LOOP_OK, ((uint64_t)LLONG_MAX) / 2 + 1, 0 },
+        { 0, LLONG_MAX, LLONG_MAX,  SIM_LOOP_OK, 2, 0 },          /* 0, MAX */
+        { 0, LLONG_MIN, LLONG_MIN,  SIM_LOOP_OK, 2, 0 },          /* 0, MIN */
+        { LLONG_MAX, LLONG_MIN, -1, SIM_LOOP_OK, 2, 0 },          /* MAX, -1 */
+        { LLONG_MAX, 1, LLONG_MAX,  SIM_LOOP_OK, 1, 0 },
+        { LLONG_MIN, -1, LLONG_MIN, SIM_LOOP_OK, 1, 0 },
+        { LLONG_MAX, 1, LLONG_MIN,  SIM_LOOP_OVERFLOW, 0, 0 },    /* end - start */
+        { -1, 1, LLONG_MAX,         SIM_LOOP_OVERFLOW, 0, 0 },    /* by one */
+        { 1, -1, LLONG_MIN,         SIM_LOOP_OVERFLOW, 0, 0 },    /* by one, downwards */
+        { 0, 0, 0,                  SIM_LOOP_STEP_ZERO, 0, 0 },
+        { 0, 1, LLONG_MIN,          SIM_LOOP_OK, 0, 0 },          /* empty */
+        { 0, -1, LLONG_MAX,         SIM_LOOP_OK, 0, 0 },          /* empty */
+    };
+    TEST_SECTION("loop count at the limits of long long");
+    for (size_t i = 0; i < sizeof(CASES) / sizeof(CASES[0]); i++) {
+        uint64_t iters = 12345;
+        sim_loop_count_t got = sim_loop_count(CASES[i].start, CASES[i].step, CASES[i].end, &iters);
+        uint64_t want = CASES[i].count + (CASES[i].plus_p63 ? P63 : 0);
+        char what[160];
+        snprintf(what, sizeof(what), "[%lld:%lld:%lld]: result %d, count %llu (want %d, %llu)",
+                 CASES[i].start, CASES[i].step, CASES[i].end, (int)got,
+                 (unsigned long long)iters, (int)CASES[i].want, (unsigned long long)want);
+        TEST_ASSERT_MSG(got == CASES[i].want, what);
+        if (CASES[i].want == SIM_LOOP_OK)
+            TEST_ASSERT_MSG(iters == want, what);
+        else
+            TEST_ASSERT_MSG(iters == 12345, what); /* left untouched */
+    }
+}
+
 /* Every gate checks each of its qubit operands. One case per operand
  * position, since each is parsed (and checked) by its own call. */
 static void test_gate_operands(void)
@@ -575,6 +623,7 @@ int main(void)
     test_unseekable_stream();
     test_error_lines();
     test_loop_counts();
+    test_loop_count_limits();
     test_null_arguments();
     test_gate_operands();
     test_valid_edges();
