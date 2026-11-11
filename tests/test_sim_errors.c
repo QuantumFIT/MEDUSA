@@ -77,7 +77,7 @@ static const error_case_t CASES[] = {
     { "lone slash at end of file", false, HDR "qubit[2] q;\n/",
       SIM_ERR_SYNTAX, "expected a one-line comment" },
     { "slash inside a skipped loop", false,
-      HDR "qubit[2] q;\nfor int i in [1:-1:0] {\n/ h q[0];\n}\n",
+      HDR "qubit[2] q;\nfor int i in [1:1:0] {\n/ h q[0];\n}\n",
       SIM_ERR_SYNTAX, "expected a one-line comment" },
     { "loop step zero", false, HDR "qubit[2] q;\nfor int i in [1:0:4] {\nh q[0];\n}\n",
       SIM_ERR_SYNTAX, "step must be non-zero" },
@@ -141,17 +141,14 @@ static const error_case_t CASES[] = {
     { "loop range overflow, counting down", false,
       HDR "qubit[2] q;\nfor int i in [9223372036854775807:-1:-9223372036854775808] {\nh q[0];\n}\n",
       SIM_ERR_SYNTAX, "overflow detected" },
-    /* Only end + 1 overflows here; the old check caught just the exact
+    /* end - start overflows by one; the old check caught just the exact
      * LLONG_MIN/LLONG_MAX pair. */
-    { "loop range overflow at the end only", false,
-      HDR "qubit[2] q;\nfor int i in [0:9223372036854775807] {\nh q[0];\n}\n",
+    { "loop range overflow by one", false,
+      HDR "qubit[2] q;\nfor int i in [-1:9223372036854775807] {\nh q[0];\n}\n",
       SIM_ERR_SYNTAX, "overflow detected" },
-    { "loop counting down from below its end", false,
-      HDR "qubit[2] q;\nfor int i in [1:-1:4] {\nh q[0];\n}\n",
-      SIM_ERR_SYNTAX, "Invalid number of loop iterations." },
     { "end of file before '{'", false, HDR "qubit[2] q;\nfor int i in [1:2]",
       SIM_ERR_SYNTAX, "at the start of a loop" },
-    { "skipped loop never closed", false, HDR "qubit[2] q;\nfor int i in [1:-1:0] {\nh q[0];\n",
+    { "skipped loop never closed", false, HDR "qubit[2] q;\nfor int i in [1:1:0] {\nh q[0];\n",
       SIM_ERR_SYNTAX, "there is an unfinished loop" },
 
     /* Symbolic: each of these fails with symb_init's state live. */
@@ -324,6 +321,47 @@ static void test_null_arguments(void)
     }
 }
 
+/* The iteration count of [start:step:end], which includes both ends. The
+ * body is a 2-qubit counter - carry into q[1], then flip q[0] - so the final
+ * state is the count modulo 4, as the basis state "q0 q1" (q0 the low bit).
+ * Classic and symbolic simulation must agree on it. */
+static void test_loop_counts(void)
+{
+    static const struct {
+        const char *range;
+        unsigned count;
+    } RANGES[] = {
+        { "1:5", 5 },     { "0:0", 1 },     { "5:1", 0 },     /* step 1 */
+        { "1:2:5", 3 },   { "0:2:4", 3 },   { "0:3:7", 3 },   /* 0, 3, 6 */
+        { "1:-1:0", 2 },  { "5:-1:5", 1 },  { "10:-3:1", 4 }, /* 10, 7, 4, 1 */
+        { "1:-1:4", 0 },  { "-3:2:2", 3 },                    /* -3, -1, 1 */
+    };
+    static const char *STATE[4] = { "00", "10", "01", "11" };
+    TEST_SECTION("loop ranges: inclusive counts, any step");
+    for (size_t i = 0; i < sizeof(RANGES) / sizeof(RANGES[0]); i++) {
+        for (int symbolic = 0; symbolic <= 1; symbolic++) {
+            char qasm[256];
+            snprintf(qasm, sizeof(qasm),
+                     HDR "qubit[2] q;\nfor int i in [%s] {\ncx q[0], q[1];\nx q[0];\n}\n",
+                     RANGES[i].range);
+            FILE *f = qasm_stream(qasm);
+            qBDD circ;
+            sim_info_t info;
+            sim_status_t got = run(f, symbolic, &circ, &info);
+            fclose(f);
+            char what[512];
+            snprintf(what, sizeof(what), "[%s]%s: status %d, error \"%s\"", RANGES[i].range,
+                     symbolic ? " (symbolic)" : "", (int)got, info.error);
+            TEST_ASSERT_MSG(got == SIM_OK, what);
+            if (got == SIM_OK) {
+                TEST_ASSERT_NEAR_MSG(basis_prob(circ, STATE[RANGES[i].count % 4]), 1.0, 1e-9, what);
+                deleteCircuit(&circ);
+            }
+            free_sim_info(&info);
+        }
+    }
+}
+
 /* Every gate checks each of its qubit operands. One case per operand
  * position, since each is parsed (and checked) by its own call. */
 static void test_gate_operands(void)
@@ -357,15 +395,17 @@ static void test_gate_operands(void)
 
 /* Valid inputs at the edges of the paths above:
  *   - a comment as the very last thing in the file, with no newline after it;
- *   - a loop with zero iterations, whose body (comments included) is skipped
- *     without being simulated - x q[0] in it must not happen;
+ *   - loops with zero iterations (an empty range, either way round), whose
+ *     body (comments included) is skipped without being simulated - x q[0]
+ *     in it must not happen;
  *   - the bit register declared first, and with a space before its ';';
  *   - whitespace inside the brackets of a number. */
 static void test_valid_edges(void)
 {
     static const char *QASM[] = {
         HDR "qubit[2] q;\nx q[1];\n// done",
-        HDR "qubit[2] q;\nx q[1];\nfor int i in [1:-1:0] {\n// skipped\nx q[0];\n}\n",
+        HDR "qubit[2] q;\nx q[1];\nfor int i in [1:1:0] {\n// skipped\nx q[0];\n}\n",
+        HDR "qubit[2] q;\nx q[1];\nfor int i in [1:-1:4] {\nx q[0];\n}\n",
         HDR "bit[2] c ;\nqubit[2] q;\nx q[1];\n",
         HDR "qubit[ 2 ] q;\nx q[ 1 ];\n",
     };
@@ -534,6 +574,7 @@ int main(void)
     test_error_cases();
     test_unseekable_stream();
     test_error_lines();
+    test_loop_counts();
     test_null_arguments();
     test_gate_operands();
     test_valid_edges();
