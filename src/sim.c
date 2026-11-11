@@ -393,9 +393,10 @@ static bool get_iters(FILE *in, sim_info_t *info, uint64_t *iters)
      * end (or start == end), and none otherwise - an empty range, not an
      * error. The loop variable itself is not used by the body.
      *
-     * The count is taken on magnitudes, in unsigned arithmetic: end - start
-     * is checked for overflow (the one result that cannot be represented),
-     * and from there |end - start| / |step| + 1 <= 2^63 + 1 fits in 64 bits. */
+     * end - start is checked for overflow. From there diff and step have the
+     * same sign (or diff is 0), so diff / step is the non-negative count minus
+     * one - except that LLONG_MIN / -1 overflows, so a step of -1 counts
+     * |diff| + 1 directly. Either way the count is at most 2^63 + 1. */
     long long diff;
     if (step == 0) {
         return sim_error(info, SIM_ERR_SYNTAX, "Invalid number of loop iterations - step must be non-zero.");
@@ -407,9 +408,12 @@ static bool get_iters(FILE *in, sim_info_t *info, uint64_t *iters)
         *iters = 0;
         return true;
     }
-    uint64_t span = (diff < 0) ? (uint64_t)(-(diff + 1)) + 1 : (uint64_t)diff;
-    uint64_t stride = (step < 0) ? (uint64_t)(-(step + 1)) + 1 : (uint64_t)step;
-    *iters = span / stride + 1;
+    if (step == -1) {
+        *iters = (uint64_t)(-(diff + 1)) + 2; /* |diff| + 1, diff <= 0 */
+    }
+    else {
+        *iters = (uint64_t)(diff / step) + 1;
+    }
     return true;
 }
 
