@@ -40,7 +40,7 @@ The `benchmarks/` directory has several hundred circuits to try, in two variants
 
 ## Loops and symbolic simulation
 
-A `for` loop repeats its body. The range is inclusive, `[start:end]` or `[start:step:end]`; the loop variable cannot be used in the body. Loops cannot be nested, and a circuit with loops must be read from a file, not from standard input.
+A `for` loop repeats its body. The range is inclusive, `[start:end]` or `[start:step:end]`: `[1:2:5]` runs three times (1, 3, 5), and the step can be negative (`[10:-3:1]` is 10, 7, 4, 1). A range that runs away from its end, such as `[4:1]`, is empty and the body is skipped. The loop variable cannot be used in the body. Loops cannot be nested, and a circuit with loops must be read from a file, not from standard input.
 
 ```
 for int i in [1:4549] {

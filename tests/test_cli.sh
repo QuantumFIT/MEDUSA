@@ -281,7 +281,11 @@ h q[0];
 }
 QASM
 
-write_bad loop_not_integer <<'QASM'
+# OpenQASM 3 ranges include both ends and need not be divisible by the step:
+# [1:2:5] is 1, 3, 5. A range whose step points away from its end ([4:1]) is
+# empty: the loop runs zero times. Both used to be refused ("not an integer",
+# "Invalid number of loop iterations").
+write_bad loop_step_two <<'QASM'
 OPENQASM 3.0;
 include "stdgates.inc";
 qubit[2] q;
@@ -290,7 +294,7 @@ h q[0];
 }
 QASM
 
-write_bad loop_backwards <<'QASM'
+write_bad loop_empty_range <<'QASM'
 OPENQASM 3.0;
 include "stdgates.inc";
 qubit[2] q;
@@ -298,6 +302,8 @@ for int i in [4:1] {
 h q[0];
 }
 QASM
+check "loop-step-two" 0 "" "${BIN}" --file "${WORKDIR}/bad/loop_step_two.qasm"
+check "loop-empty-range" 0 "" "${BIN}" --file "${WORKDIR}/bad/loop_empty_range.qasm"
 
 write_bad measure_no_breg <<'QASM'
 OPENQASM 3.0;
@@ -333,12 +339,37 @@ two_bregs|Multiple bit register
 reg_mismatch|different than the size
 nested_loop|Nested loops
 loop_step_zero|step must be non-zero
-loop_not_integer|not an integer
-loop_backwards|Invalid number of loop iterations
 measure_no_breg|uninitialized bit register
 mcx_syntax|mcx
 rx_angle|Invalid rx angle
 CASES
+
+# The message names the input line: two_qregs declares its second register on
+# line 4.
+check "parse-error-names-line" nonzero "line 4: Multiple qubit register" \
+    "${BIN}" --file "${WORKDIR}/bad/two_qregs.qasm"
+
+# --info on a circuit that does run: the totals, the per-loop times, and in
+# symbolic mode the evaluation time of each loop.
+check "info-stats" 0 "Total time=" \
+    "${BIN}" --file "${ROOT}/benchmarks/no-measure/LP-Grover/05.qasm" --info
+check "info-stats-symbolic" 0 "Eval time=" \
+    "${BIN}" --file "${ROOT}/benchmarks/no-measure/LP-Grover/05.qasm" --info --symbolic
+
+# A rejected circuit is not a run, so --info prints no statistics for it -
+# as when the parser still ended the process itself. The CLI catches the
+# error from sim_file and has to skip them explicitly.
+log="${WORKDIR}/parse-info.log"
+rc=0
+( cd "${WORKDIR}" && timeout 60 "${BIN}" --file "${WORKDIR}/bad/nested_loop.qasm" --info >"${log}" 2>&1 ) || rc=$?
+if [[ "${rc}" -eq 1 ]] && grep -q 'Nested loops' "${log}" && ! grep -q '^Time=' "${log}"; then
+    echo "OK   parse-error-with-info"
+    summary_record "parse-error-with-info" 0
+else
+    echo "FAIL parse-error-with-info: exit ${rc}, expected 1, the error and no Time= line"
+    tail -5 "${log}" || true
+    summary_record "parse-error-with-info" 1
+fi
 
 # A gate before any register declaration is caught earlier, by the `if (init)`
 # guard around gate parsing - which is why get_q_idx carries no such check.

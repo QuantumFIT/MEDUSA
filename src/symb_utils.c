@@ -220,6 +220,25 @@ bool symb_refine(mtbdd_symb_t *symbc, rdata_t *rdata)
     return is_finished;
 }
 
+/**
+ * Releases what symb_init set up for a symbolic loop - at the end of the loop
+ * (symb_eval) or when it is abandoned (symb_abort).
+ *
+ * The forced GC empties the operation and node caches: the symbolic
+ * operations are cached under the vmap's address, which the next loop's vmap
+ * can get again, so without it the next loop could be served this one's
+ * results.
+ */
+static void symb_release(mtbdd_symb_t *symbc)
+{
+    vmap_delete(symbc->vm);
+    symbc->vm = NULL;
+    qBDD_unprotect(symbc->map);
+    qBDD_unprotect(symbc->val);
+    clearInvSqrtCoeffSymb();
+    forceGC();
+}
+
 void symb_eval(qBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata)
 {
 #ifdef MEDUSA_DEBUG
@@ -281,21 +300,20 @@ void symb_eval(qBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata)
     }
     free(new_map);
 
-    // Symbolic clean up
-    vmap_delete(symbc->vm);
-    qBDD_unprotect((symbc->map));
-    qBDD_unprotect((symbc->val));
-    clearInvSqrtCoeffSymb();
-
     MEDUSA_DBG(.cat = MEDUSA_DBG_GC, .evt = "forceGC_before", .where = "symb_eval",
                .use_bdd = 1, .bdd = (int)*circ, .ref = medusa_dbg_bdd_ref((int)*circ),
                .is_false = qBDD_isFalse(*circ), .leaves = qBDD_leafcount(*circ),
                .use_iters = 1, .iters = iters);
-    forceGC(); // Clears both the operation cache and the node cache, needed as some expressions may reappear again
+    symb_release(symbc);
     MEDUSA_DBG(.cat = MEDUSA_DBG_GC, .evt = "forceGC_after", .where = "symb_eval",
                .use_bdd = 1, .bdd = (int)*circ, .ref = medusa_dbg_bdd_ref((int)*circ),
                .is_false = qBDD_isFalse(*circ), .leaves = qBDD_leafcount(*circ),
                .use_iters = 1, .iters = iters);
+}
+
+void symb_abort(mtbdd_symb_t *symbc)
+{
+    symb_release(symbc);
 }
 
 /* end of "symb_utils.c" */

@@ -2,6 +2,7 @@
 #include <string.h>
 #include <math.h>
 #include <errno.h>
+#include <stdarg.h>
 #include "sim.h"
 #include "gates.h"
 #include "gates_symb.h"
@@ -39,6 +40,9 @@ void init_sim_info(sim_info_t *i)
     i->t_len = 0;
     i->t_el_loop = NULL;
     i->t_el_eval = NULL;
+    i->status = SIM_OK;
+    i->error[0] = '\0';
+    i->line = 0;
 }
 
 void free_sim_info(sim_info_t *i)
@@ -73,55 +77,93 @@ static void sim_info_times_addsize(sim_info_t *i, int inc)
 }
 
 /**
+ * Records why the simulation failed and returns false, so that a parse helper
+ * can report an error with `return sim_error(...)`.
+ *
+ * Called once per run: every error stops the parse.
+ */
+__attribute__((format(printf, 3, 4)))
+static bool sim_error(sim_info_t *info, sim_status_t status, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    /* fmt is always a string literal at the call site, and the format
+     * attribute above has the compiler check it against the arguments. */
+    vsnprintf(info->error, sizeof(info->error), fmt, args); // Flawfinder: ignore
+    va_end(args);
+    info->status = status;
+    return false;
+}
+
+/**
+ * Reads the next character of the circuit, keeping info->line up to date.
+ *
+ * Every read in the parser goes through here, so that an error can say on
+ * which line of the input it was found. Counting as we read (rather than
+ * seeking back and counting afterwards) also works on stdin.
+ */
+static int next_char(FILE *in, sim_info_t *info)
+{
+    int c = fgetc(in);
+    if (c == '\n') {
+        info->line++;
+    }
+    return c;
+}
+
+/**
  * Function for number parsing from the input file (reads the number from the input until the end character is encountered)
  * Checks for two possible end characters. If only one character should be checked agains, set alt_end to NO_ALT_END.
  */
-static long long parse_num(FILE *in, char end, char alt_end)
+static bool parse_num(FILE *in, char end, char alt_end, sim_info_t *info, long long *out)
 {
-    int c = fgetc(in);
+    int c = next_char(in, info);
     char num[NUM_MAX_LEN] = {0};
-    long long n;
+    size_t len = 0; // characters in num; num[len] is always its terminating '\0'
 
     // Skip leading whitespace
     while (isspace(c)) {
-        c = fgetc(in);
+        c = next_char(in, info);
     }
 
     // Load number to string
     while ( c != end && c != alt_end) {
         if (c == EOF) {
-            error_exit("Invalid format - reached an unexpected end of file when converting a number.\n");
+            return sim_error(info, SIM_ERR_SYNTAX, "Invalid format - reached an unexpected end of file when converting a number.");
         }
         else if (!isdigit(c) && c != '-') {
             // Check if isn't just trailing whitespace
             while (isspace(c)) {
-                c = fgetc(in);
+                c = next_char(in, info);
             }
             if (c == end || c == alt_end) {
                 break;
             }
             else {
-                error_exit("Invalid format - not a valid number (a non-digit character '%c' encountered while parsing a number).\n", c);
+                return sim_error(info, SIM_ERR_SYNTAX, "Invalid format - not a valid number (a non-digit character '%c' encountered while parsing a number).", c);
             }
         }
-        else if (strlen(num) + 1 < NUM_MAX_LEN) {
-            int *temp = &c;
-            strncat(num, (char*)temp, 1);
+        else if (len + 1 < NUM_MAX_LEN) {
+            /* Append the character itself. (Passing &c, an int, as a
+             * one-character string took the int's first byte - the character
+             * only on a little-endian machine.) */
+            num[len++] = (char)c;
+            num[len] = '\0';
         }
         else {
-            error_exit("Invalid format - not a valid number (too many digits).\n");
+            return sim_error(info, SIM_ERR_SYNTAX, "Invalid format - not a valid number (too many digits).");
         }
-        c = fgetc(in);
+        c = next_char(in, info);
     }
 
     // Convert to integer value
     char *ptr;
     errno = 0;
-    n = strtoll(num, &ptr, 10);
+    *out = strtoll(num, &ptr, 10);
     if (num == ptr || errno != 0) {
-        error_exit("Invalid format - not a valid number.\n");
+        return sim_error(info, SIM_ERR_SYNTAX, "Invalid format - not a valid number.");
     }
-    return n;
+    return true;
 }
 
 /**
@@ -236,23 +278,26 @@ static bool parse_rotation_cmd_angle(const char *cmd, double *angle)
 /** 
  * Function for getting the next qubit index for the command on the given line.
  */
-static uint32_t get_q_num(FILE *in)
+static bool get_q_num(FILE *in, sim_info_t *info, uint32_t *out)
 {
     int c;
     long long n;
 
-    while ((c = fgetc(in)) != '[') {
+    while ((c = next_char(in, info)) != '[') {
         if (c == EOF) {
-            error_exit("Invalid format - reached an unexpected end of file (expected a qubit index).\n");
+            return sim_error(info, SIM_ERR_SYNTAX, "Invalid format - reached an unexpected end of file (expected a qubit index).");
         }
     }
 
-    n = parse_num(in, ']', NO_ALT_END);
+    if (!parse_num(in, ']', NO_ALT_END, info, &n)) {
+        return false;
+    }
     if (n > UINT32_MAX || n < 0) {
-        error_exit("Invalid format - not a valid qubit identifier.\n");
+        return sim_error(info, SIM_ERR_SYNTAX, "Invalid format - not a valid qubit identifier.");
     }
 
-    return ((uint32_t)n);
+    *out = (uint32_t)n;
+    return true;
 }
 
 /**
@@ -268,19 +313,24 @@ static uint32_t get_q_num(FILE *in)
  * Declaration sites (creg/bit, qreg/qubit) read a register *size* rather than
  * an index and so keep calling get_q_num directly.
  */
-static uint32_t get_q_idx(FILE *in, const sim_info_t *info)
+static bool get_q_idx(FILE *in, sim_info_t *info, uint32_t *out)
 {
-    uint32_t q = get_q_num(in);
+    uint32_t q;
+    if (!get_q_num(in, info, &q)) {
+        return false;
+    }
 
     /* No "register not declared yet" check here: gate parsing sits inside
      * `if (init)`, and the else branch already reports "Circuit not
      * initialized". A guard here would be unreachable. */
     if (q >= (uint32_t)info->n_qubits) {
-        error_exit("Invalid format - qubit index q[%u] is outside the declared "
-                   "register of %d qubit(s).\n", q, info->n_qubits);
+        return sim_error(info, SIM_ERR_SYNTAX,
+                         "Invalid format - qubit index q[%u] is outside the declared "
+                         "register of %d qubit(s).", q, info->n_qubits);
     }
 
-    return q;
+    *out = q;
+    return true;
 }
 
 /**
@@ -289,90 +339,134 @@ static uint32_t get_q_idx(FILE *in, const sim_info_t *info)
  * register: the two are required to be the same size, but a user who wrote
  * c[9] should not be told about qubits.
  */
-static uint32_t get_c_idx(FILE *in, int n_bits)
+static bool get_c_idx(FILE *in, sim_info_t *info, int n_bits, uint32_t *out)
 {
-    uint32_t c = get_q_num(in);
+    uint32_t c;
+    if (!get_q_num(in, info, &c)) {
+        return false;
+    }
 
     /* Likewise no "bit register missing" check: the measure branch rejects a
      * NULL bits_to_measure before it reads either operand. */
     if (c >= (uint32_t)n_bits) {
-        error_exit("Invalid format - bit index c[%u] is outside the declared "
-                   "register of %d bit(s).\n", c, n_bits);
+        return sim_error(info, SIM_ERR_SYNTAX,
+                         "Invalid format - bit index c[%u] is outside the declared "
+                         "register of %d bit(s).", c, n_bits);
     }
 
-    return c;
+    *out = c;
+    return true;
+}
+
+sim_loop_count_t sim_loop_count(long long start, long long step, long long end, uint64_t *iters)
+{
+    /* OpenQASM 3 ranges include both ends: [start:step:end] runs start,
+     * start + step, ... while the value has not passed end. That is
+     * (end - start) / step + 1 iterations when step points from start towards
+     * end (or start == end), and none otherwise - an empty range, not an
+     * error. The loop variable itself is not used by the body.
+     *
+     * end - start is checked for overflow. From there diff and step have the
+     * same sign (or diff is 0), so diff / step is the non-negative count minus
+     * one - except that LLONG_MIN / -1 overflows, so a step of -1 counts
+     * |diff| + 1 directly. Either way the count is at most 2^63 + 1. */
+    long long diff;
+    if (step == 0) {
+        return SIM_LOOP_STEP_ZERO;
+    }
+    if (__builtin_sub_overflow(end, start, &diff)) {
+        return SIM_LOOP_OVERFLOW;
+    }
+    if ((diff > 0 && step < 0) || (diff < 0 && step > 0)) {
+        *iters = 0;
+    }
+    else if (step == -1) {
+        *iters = (uint64_t)(-(diff + 1)) + 2; /* |diff| + 1, diff <= 0 */
+    }
+    else {
+        *iters = (uint64_t)(diff / step) + 1;
+    }
+    return SIM_LOOP_OK;
 }
 
 /**
- * Returns the number of iterations, should be called when a for loop is encountered
+ * Reads the number of iterations into *iters, should be called when a for loop is encountered
  */
-static uint64_t get_iters(FILE *in)
+static bool get_iters(FILE *in, sim_info_t *info, uint64_t *iters)
 {
     int c;
     long long start, end;
     long long step = 1;
-    fpos_t second_num_pos;
-    uint64_t iters;
 
-    while ((c = fgetc(in)) != '[') {
+    while ((c = next_char(in, info)) != '[') {
         if (c == EOF) {
-            error_exit("Invalid format - reached an unexpected end of file (expected a number of loop iterations).\n");
+            return sim_error(info, SIM_ERR_SYNTAX, "Invalid format - reached an unexpected end of file (expected a number of loop iterations).");
         }
     }
 
-    start = parse_num(in, ':', NO_ALT_END);
-    end = parse_num(in, ']', ':');
+    if (!parse_num(in, ':', NO_ALT_END, info, &start) ||
+        !parse_num(in, ']', ':', info, &end)) {
+        return false;
+    }
     if (fseek(in, -1, SEEK_CUR) != 0) {
-        error_exit("Error has occured when parsing loop parameters (fseek error). Circuits with loops cannot be simulated from stdin.\n");
+        return sim_error(info, SIM_ERR_STREAM, "Error has occured when parsing loop parameters (fseek error). Circuits with loops cannot be simulated from stdin.");
     }
-    if ((c = fgetc(in)) == ':') {
+    if ((c = next_char(in, info)) == ':') {
         step = end;
-        end = parse_num(in, ']', NO_ALT_END);
+        if (!parse_num(in, ']', NO_ALT_END, info, &end)) {
+            return false;
+        }
     }
     
-    // Note: expects 64bit long long
-    if (step == 0) {
-        error_exit("Invalid number of loop iterations - step must be non-zero.\n");
+    switch (sim_loop_count(start, step, end, iters)) {
+    case SIM_LOOP_STEP_ZERO:
+        return sim_error(info, SIM_ERR_SYNTAX, "Invalid number of loop iterations - step must be non-zero.");
+    case SIM_LOOP_OVERFLOW:
+        return sim_error(info, SIM_ERR_SYNTAX, "Invalid number of loop iterations - overflow detected.");
+    default:
+        return true;
     }
-    else if ((end == LLONG_MAX && start == LLONG_MIN) || (end == LLONG_MIN && start == LLONG_MAX)) {
-        error_exit("Invalid number of loop iterations - overflow detected.\n");
-    }
-    else if ((end + 1 - start) % step != 0) {
-        error_exit("Invalid number of loop iterations - not an integer.\n");
-    }
-    else if ((end < start && step > 0) || (end > start && step < 0)) {
-        error_exit("Invalid number of loop iterations.\n");
-    }
-
-    iters = (end + 1 - start) / step;
-    
-    return ((uint64_t) iters);
 }
+
+/// skip_one_line_comments: there was a comment and it has been skipped
+#define COMMENT_SKIPPED 1
+/// skip_one_line_comments: there is no comment here
+#define COMMENT_NONE 0
+/// skip_one_line_comments: the input ended inside the comment
+#define COMMENT_EOF (-1)
+/// skip_one_line_comments: a '/' that does not start a comment (the error is in info)
+#define COMMENT_INVALID (-2)
 
 /**
  * Skips a one line comment (checks if the given char doesn't mark a start of a comment)
  * 
- * @return Returns 1 if comment has been skipped, -1 if EOF was reached, 0 if there is no comment
+ * @return One of the COMMENT_* values above
  */
-static int skip_one_line_comments(char c, FILE *in)
+static int skip_one_line_comments(char c, FILE *in, sim_info_t *info)
 {
     if (c == '/') {
-        if ((c = fgetc(in)) == '/') {
-            while ((c = fgetc(in)) != '\n') {
+        if ((c = next_char(in, info)) == '/') {
+            while ((c = next_char(in, info)) != '\n') {
                 if (c == EOF) {
-                    return -1;
+                    return COMMENT_EOF;
                 }
             }
-            return 1;
+            return COMMENT_SKIPPED;
         }
         else {
-            error_exit("Invalid command, expected a one-line comment.\n");
+            sim_error(info, SIM_ERR_SYNTAX, "Invalid command, expected a one-line comment.");
+            return COMMENT_INVALID;
         }
     }
-    return 0;
+    return COMMENT_NONE;
 }
 
-bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
+/// In sim_file: record the error, then leave through the clean-up at its end
+#define FAIL(status, ...) do { sim_error(info, (status), __VA_ARGS__); goto fail; } while (0)
+/// In sim_file: leave through the clean-up if a parse helper reported an error
+#define TRY(call) do { if (!(call)) goto fail; } while (0)
+
+sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
 {
     int c;
     char cmd[CMD_MAX_LEN]; // initialized to 0s in the loop
@@ -382,16 +476,29 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
 
     bool is_loop = false;
     fpos_t loop_start;
+    size_t loop_start_line = 0; // info->line at loop_start, restored on each rewind
     mtbdd_symb_t symbc;
     uint64_t iters;
     struct timespec t_loop_start, t_loop_finish, t_eval_start;
-    while ((c = fgetc(in)) != EOF) {
+    bool symexp_live = false; // symexp_htab_init has run and needs the clean-up
+
+    /* A NULL here is a bug in the caller, not bad input, so it is an assert
+     * rather than an error status. */
+    assert(in != NULL);
+    assert(circ != NULL);
+    assert(flags != NULL);
+    assert(info != NULL);
+
+    info->status = SIM_OK;
+    info->error[0] = '\0';
+    info->line = 1;
+    while ((c = next_char(in, info)) != EOF) {
         for (int i=0; i < CMD_MAX_LEN; i++) {
             cmd[i] = '\0';
         }
 
         while (isspace(c)) {
-            c = fgetc(in);
+            c = next_char(in, info);
         }
 
         if (c == EOF) {
@@ -399,33 +506,35 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
         }
 
         // Skip one-line comments
-        int comment_check = skip_one_line_comments(c, in);
-        if (comment_check == -1) {
+        int comment_check = skip_one_line_comments(c, in, info);
+        if (comment_check == COMMENT_EOF) {
             break;
         }
-        else if (comment_check == 1) {
+        else if (comment_check == COMMENT_SKIPPED) {
             continue;
+        }
+        else if (comment_check == COMMENT_INVALID) {
+            goto fail;
         }
 
         // Load the command
         do {
             if (c == EOF) {
-                error_exit("Invalid format - reached an unexpected end of file when loading a command.\n");
+                FAIL(SIM_ERR_SYNTAX, "Invalid format - reached an unexpected end of file when loading a command.");
             }
             int len = strlen(cmd);
             if (len + 1 < CMD_MAX_LEN) {
                 cmd[len] = (char) c;
             }
             else {
-                error_exit("Invalid command (command too long).\n");
+                FAIL(SIM_ERR_UNSUPPORTED, "Invalid command (command too long).");
             }
-        } while (!isspace(c = fgetc(in)) && (c != '['));
+        } while (!isspace(c = next_char(in, info)) && (c != '['));
+        /* The loop above ends only on whitespace or '[': an EOF is reported
+         * inside it, as an end of file while loading the command. */
         if (c == '[') {
             // get_q_num() needs to see '[' (needed because of OpenQASM 3 new syntax)
             ungetc(c, in);
-        }
-        else if (c == EOF) {
-            error_exit("Invalid format - reached an unexpected end of file immediately after a command.\n");
         }
 
         // Identify the command
@@ -433,13 +542,14 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
         else if (strcmp(cmd, "include") == 0) {}
         else if ((strcmp(cmd, "creg") == 0) || (strcmp(cmd, "bit") == 0)) {
             if (n_bits != 0) {
-                error_exit("Multiple bit register definitions encountered - currently not supported.\n");
+                FAIL(SIM_ERR_UNSUPPORTED, "Multiple bit register definitions encountered - currently not supported.");
             }
 
-            uint32_t n = get_q_num(in);
+            uint32_t n;
+            TRY(get_q_num(in, info, &n));
             n_bits = (int)n;
             if (info->n_qubits != 0 && n != info->n_qubits) { // != 0 check because maybe it's not initialized yet
-                error_exit("Bit register size is different than the size of the qubit register - currently not supported.\n");
+                FAIL(SIM_ERR_UNSUPPORTED, "Bit register size is different than the size of the qubit register - currently not supported.");
             }
 
             info->bits_to_measure = my_malloc(n * sizeof(int));
@@ -447,37 +557,38 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                 (info->bits_to_measure)[i] =  Q_NOT_MEASURED;
             }
 
-            while (isspace(c = fgetc(in))) { }
+            while (isspace(c = next_char(in, info))) { }
             // Save the register name to detect measurements
             do {
                 if (c == ';') {
                     break; // continue needs to be outside of the loop
                 }
                 else if (c == EOF) {
-                    error_exit("Invalid format - reached an unexpected end of file (bit register name expected).\n");
+                    FAIL(SIM_ERR_SYNTAX, "Invalid format - reached an unexpected end of file (bit register name expected).");
                 }
                 int len = strlen(bit_reg);
                 if (len + 1 < BIT_REG_ID_MAX_LEN) {
                     bit_reg[len] = (char) c;
                 }
                 else {
-                    error_exit("Invalid bit register identifier (identifier is too long, max supported length is %d).\n", BIT_REG_ID_MAX_LEN-1);
+                    FAIL(SIM_ERR_UNSUPPORTED, "Invalid bit register identifier (identifier is too long, max supported length is %d).", BIT_REG_ID_MAX_LEN-1);
                 }
-            } while (!isspace(c = fgetc(in)));
+            } while (!isspace(c = next_char(in, info)));
             if (c == ';') {
                 continue; // end of command
             }
         }
         else if ((strcmp(cmd, "qreg") == 0) || (strcmp(cmd, "qubit") == 0)) {
             if (init) {
-                error_exit("Multiple qubit register definitions encountered - currently not supported.\n");
+                FAIL(SIM_ERR_UNSUPPORTED, "Multiple qubit register definitions encountered - currently not supported.");
             }
 
-            uint32_t n = get_q_num(in);
+            uint32_t n;
+            TRY(get_q_num(in, info, &n));
             info->n_qubits = (int)n;
             g_num_qubits = (int)n; // for norm tracking
             if (n_bits != 0 && n != n_bits) { // != 0 check because maybe it's not initialized yet
-                error_exit("Bit register size is different than the size of the qubit register - currently not supported.\n");
+                FAIL(SIM_ERR_UNSUPPORTED, "Bit register size is different than the size of the qubit register - currently not supported.");
             }
 
             circuit_init_interface(circ, n); /* returns already protected root */
@@ -486,27 +597,49 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
         else if (init) {
             if (strcmp(cmd, "for") == 0) {
                 if (is_loop) { // currently doesn't allow nested loops
-                    error_exit("Nested loops are not allowed, aborting.\n");
+                    FAIL(SIM_ERR_UNSUPPORTED, "Nested loops are not allowed, aborting.");
                 }
-                iters = get_iters(in);
+                TRY(get_iters(in, info, &iters));
+                /* Only whitespace and comments may stand between the range and
+                 * the '{'. Anything else used to be skipped without a word -
+                 * a gate there silently lost, or an empty loop's body taken as
+                 * running to the next '}' with no '{' at all. */
+                while ((c = next_char(in, info)) != '{') {
+                    if (c == EOF) {
+                        FAIL(SIM_ERR_SYNTAX, "Invalid format - reached an unexpected end of file at the start of a loop.");
+                    }
+                    if (isspace(c)) {
+                        continue;
+                    }
+                    int comment = skip_one_line_comments(c, in, info);
+                    if (comment == COMMENT_INVALID) {
+                        goto fail;
+                    }
+                    if (comment == COMMENT_EOF) {
+                        FAIL(SIM_ERR_SYNTAX, "Invalid format - reached an unexpected end of file at the start of a loop.");
+                    }
+                    if (comment == COMMENT_NONE) {
+                        FAIL(SIM_ERR_SYNTAX, "Invalid loop syntax - expected '{' after the loop range, found '%c'.", c);
+                    }
+                }
                 if (iters == 0) {
                     // skip symbolic
-                    while ((c = fgetc(in)) != '}') {
-                        if (c == EOF || skip_one_line_comments(c, in) == -1) {
-                            error_exit("Invalid format - reached an unexpected end of file (there is an unfinished loop).\n");
+                    while ((c = next_char(in, info)) != '}') {
+                        int skipped = (c == EOF)? COMMENT_EOF : skip_one_line_comments(c, in, info);
+                        if (skipped == COMMENT_INVALID) {
+                            goto fail;
+                        }
+                        if (skipped == COMMENT_EOF) {
+                            FAIL(SIM_ERR_SYNTAX, "Invalid format - reached an unexpected end of file (there is an unfinished loop).");
                         }
                     }
                     continue;
                 }
-                while ((c = fgetc(in)) != '{') {
-                    if (c == EOF) {
-                        error_exit("Invalid format - reached an unexpected end of file at the start of a loop.\n");
-                    }
-                }
                 is_loop = true;
                 if (flags->opt_symb) {
-                    if (info->n_loops == 0) {
+                    if (!symexp_live) {
                         symexp_htab_init(1LL<<17);
+                        symexp_live = true;
                     }
                     symb_init(circ, &symbc);
                     MEDUSA_DBG(.cat = MEDUSA_DBG_SYMB, .evt = "loop_start", .where = "sim_file",
@@ -516,8 +649,9 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                                .use_iters = 1, .iters = iters,
                                .use_loop = 1, .loop_idx = (int)info->n_loops);
                 }
+                loop_start_line = info->line;
                 if (fgetpos(in, &loop_start) != 0) {
-                    error_exit("Could not get the current position of the stream to mark the start of a loop.\n");
+                    FAIL(SIM_ERR_STREAM, "Could not get the current position of the stream to mark the start of a loop.");
                 }
                 if (info->n_loops == info->t_len) {
                     sim_info_times_addsize(info, TIMES_RESIZE_COEF);
@@ -527,7 +661,7 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
             }
             else if (strcmp(cmd, "}") == 0) {
                 if (!is_loop) {
-                    error_exit("Invalid loop syntax - reached an unexpected end of a loop.\n");
+                    FAIL(SIM_ERR_SYNTAX, "Invalid loop syntax - reached an unexpected end of a loop.");
                 }
                 if (!flags->opt_symb) {
                     iters--;
@@ -540,8 +674,9 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                     }
                     else { // next iteration
                         if (fsetpos(in, &loop_start) != 0) {
-                            error_exit("Could not set a new position of the stream to start the next iteration.\n");
+                            FAIL(SIM_ERR_STREAM, "Could not set a new position of the stream to start the next iteration.");
                         }
+                        info->line = loop_start_line;
                     }
                 }
                 else {
@@ -578,8 +713,10 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                     }
                     else {
                         if (fsetpos(in, &loop_start) != 0) {
-                            error_exit("Could not set a new position of the stream during symbolic simulation.\n");
+                            rdata_delete(rdata);
+                            FAIL(SIM_ERR_STREAM, "Could not set a new position of the stream during symbolic simulation.");
                         }
+                        info->line = loop_start_line;
                     }
                     rdata_delete(rdata);
                 }
@@ -587,7 +724,7 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
             }
             else if ((strcmp(cmd, "measure") == 0) || (strcmp(cmd, bit_reg) == 0)) {
                 if (info->bits_to_measure == NULL) {
-                    error_exit("Measuring into an uninitialized bit register.\n");
+                    FAIL(SIM_ERR_SYNTAX, "Measuring into an uninitialized bit register.");
                 }
                 /* qt indexes bits_to_measure, so it is a qubit index and gets
                  * the qubit bound. ct is a *classical bit* index and gets the
@@ -597,109 +734,130 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                  * what the user wrote as a bit index. */
                 uint32_t qt, ct;
                 if ((strcmp(cmd, "measure") == 0)) {
-                    qt = get_q_idx(in, info);
-                    ct = get_c_idx(in, n_bits);
+                    TRY(get_q_idx(in, info, &qt));
+                    TRY(get_c_idx(in, info, n_bits, &ct));
                 }
                 else {
-                    ct = get_c_idx(in, n_bits);
-                    qt = get_q_idx(in, info);
+                    TRY(get_c_idx(in, info, n_bits, &ct));
+                    TRY(get_q_idx(in, info, &qt));
                 }
                 
                 info->is_measure = true;
                 (info->bits_to_measure)[qt] = ct;
             }
             else if (strcasecmp(cmd, "x") == 0) {
-                uint32_t qt = get_q_idx(in, info);
+                uint32_t qt;
+                TRY(get_q_idx(in, info, &qt));
                 (flags->opt_symb && is_loop)? gate_symb_x(&symbc.val, qt) : gate_x(circ, qt);
             }
             else if (strcasecmp(cmd, "y") == 0) {
-                uint32_t qt = get_q_idx(in, info);
+                uint32_t qt;
+                TRY(get_q_idx(in, info, &qt));
                 (flags->opt_symb && is_loop)? gate_symb_y(&symbc.val, qt) : gate_y(circ, qt);
             }
             else if (strcasecmp(cmd, "z") == 0) {
-                uint32_t qt = get_q_idx(in, info);
+                uint32_t qt;
+                TRY(get_q_idx(in, info, &qt));
                 (flags->opt_symb && is_loop)? gate_symb_z(&symbc.val, qt) : gate_z(circ, qt);
             }
             else if (strcasecmp(cmd, "h") == 0) {
-                uint32_t qt = get_q_idx(in, info);
+                uint32_t qt;
+                TRY(get_q_idx(in, info, &qt));
                 (flags->opt_symb && is_loop)? gate_symb_h(&symbc.val, qt) : gate_h(circ, qt);
             }
             else if (strcasecmp(cmd, "s") == 0) {
-                uint32_t qt = get_q_idx(in, info);
+                uint32_t qt;
+                TRY(get_q_idx(in, info, &qt));
                 (flags->opt_symb && is_loop)? gate_symb_s(&symbc.val, qt) : gate_s(circ, qt);
             }
             else if (strcasecmp(cmd, "t") == 0) {
-                uint32_t qt = get_q_idx(in, info);
+                uint32_t qt;
+                TRY(get_q_idx(in, info, &qt));
                 (flags->opt_symb && is_loop)? gate_symb_t(&symbc.val, qt) : gate_t(circ, qt);
             }
             else if (strcasecmp(cmd, "tdg") == 0) {
-                uint32_t qt = get_q_idx(in, info);
+                uint32_t qt;
+                TRY(get_q_idx(in, info, &qt));
                 (flags->opt_symb && is_loop)? gate_symb_tdg(&symbc.val, qt) : gate_tdg(circ, qt);
             }
             else if (strcasecmp(cmd, "rx(pi/2)") == 0) {
-                uint32_t qt = get_q_idx(in, info);
+                uint32_t qt;
+                TRY(get_q_idx(in, info, &qt));
                 (flags->opt_symb && is_loop)? gate_symb_rx_pihalf(&symbc.val, qt) : gate_rx_pihalf(circ, qt);
             }
             else if (strcasecmp(cmd, "ry(pi/2)") == 0) {
-                uint32_t qt = get_q_idx(in, info);
+                uint32_t qt;
+                TRY(get_q_idx(in, info, &qt));
                 (flags->opt_symb && is_loop)? gate_symb_ry_pihalf(&symbc.val, qt) : gate_ry_pihalf(circ, qt);
             }
             else if (strncasecmp(cmd, "rx(", 3) == 0 && strcasecmp(cmd, "rx(pi/2)") != 0) {
                 if (flags->opt_symb && is_loop) {
-                    error_exit("Arbitrary-angle rx is not supported inside symbolic loops "
-                               "(only rx(pi/2) has a symbolic form); command '%s'.\n", cmd);
+                    FAIL(SIM_ERR_UNSUPPORTED, "Arbitrary-angle rx is not supported inside symbolic loops "
+                                              "(only rx(pi/2) has a symbolic form); command '%s'.", cmd);
                 }
                 double angle;
                 if (!parse_rotation_cmd_angle(cmd, &angle)) {
-                    error_exit("Invalid rx angle in command '%s'.\n", cmd);
+                    FAIL(SIM_ERR_SYNTAX, "Invalid rx angle in command '%s'.", cmd);
                 }
-                uint32_t qt = get_q_idx(in, info);
+                uint32_t qt;
+                TRY(get_q_idx(in, info, &qt));
                 gate_rx(circ, qt, angle);
             }
             else if (strncasecmp(cmd, "ry(", 3) == 0 && strcasecmp(cmd, "ry(pi/2)") != 0) {
                 if (flags->opt_symb && is_loop) {
-                    error_exit("Arbitrary-angle ry is not supported inside symbolic loops "
-                               "(only ry(pi/2) has a symbolic form); command '%s'.\n", cmd);
+                    FAIL(SIM_ERR_UNSUPPORTED, "Arbitrary-angle ry is not supported inside symbolic loops "
+                                              "(only ry(pi/2) has a symbolic form); command '%s'.", cmd);
                 }
                 double angle;
                 if (!parse_rotation_cmd_angle(cmd, &angle)) {
-                    error_exit("Invalid ry angle in command '%s'.\n", cmd);
+                    FAIL(SIM_ERR_SYNTAX, "Invalid ry angle in command '%s'.", cmd);
                 }
-                uint32_t qt = get_q_idx(in, info);
+                uint32_t qt;
+                TRY(get_q_idx(in, info, &qt));
                 gate_ry(circ, qt, angle);
             }
             else if (strncasecmp(cmd, "rz(", 3) == 0) {
                 if (flags->opt_symb && is_loop) {
-                    error_exit("Arbitrary-angle rz is not supported inside symbolic loops; "
-                               "command '%s'.\n", cmd);
+                    FAIL(SIM_ERR_UNSUPPORTED, "Arbitrary-angle rz is not supported inside symbolic loops; "
+                                              "command '%s'.", cmd);
                 }
                 double angle;
                 if (!parse_rotation_cmd_angle(cmd, &angle)) {
-                    error_exit("Invalid rz angle in command '%s'.\n", cmd);
+                    FAIL(SIM_ERR_SYNTAX, "Invalid rz angle in command '%s'.", cmd);
                 }
-                uint32_t qt = get_q_idx(in, info);
+                uint32_t qt;
+                TRY(get_q_idx(in, info, &qt));
                 gate_rz(circ, qt, angle);
             }
             else if (strcasecmp(cmd, "cx") == 0) {
-                uint32_t qc = get_q_idx(in, info);
-                uint32_t qt = get_q_idx(in, info);
+                uint32_t qc;
+                TRY(get_q_idx(in, info, &qc));
+                uint32_t qt;
+                TRY(get_q_idx(in, info, &qt));
                 (flags->opt_symb && is_loop)? gate_symb_cnot(&symbc.val, qt, qc) : gate_cnot(circ, qt, qc);
             }
             else if (strcasecmp(cmd, "cz") == 0) {
-                uint32_t qc = get_q_idx(in, info);
-                uint32_t qt = get_q_idx(in, info);
+                uint32_t qc;
+                TRY(get_q_idx(in, info, &qc));
+                uint32_t qt;
+                TRY(get_q_idx(in, info, &qt));
+                if (qc == qt) {
+                    FAIL(SIM_ERR_SYNTAX, "Invalid 'cz' gate - the control and the target qubit must differ.");
+                }
                 if (qc > qt) { // can swap as it is only a controlled rotation
                     uint32_t temp = qt;
                     qt = qc;
                     qc = temp;
                 }
-                assert(qc != qt);
                 (flags->opt_symb && is_loop)? gate_symb_cz(&symbc.val, qt, qc) : gate_cz(circ, qt, qc);
             }
             else if (strcasecmp(cmd, "ccx") == 0) {
-                uint32_t qc1 = get_q_idx(in, info);
-                uint32_t qc2 = get_q_idx(in, info);
-                uint32_t qt = get_q_idx(in, info);
+                uint32_t qc1;
+                TRY(get_q_idx(in, info, &qc1));
+                uint32_t qc2;
+                TRY(get_q_idx(in, info, &qc2));
+                uint32_t qt;
+                TRY(get_q_idx(in, info, &qt));
                 (flags->opt_symb && is_loop)? gate_symb_toffoli(&symbc.val, qt, qc1, qc2) : gate_toffoli(circ, qt, qc1, qc2);
             }
             else if (strcasecmp(cmd, "mcx") == 0) { // supports 2 and 3 control qubits
@@ -707,10 +865,15 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                 
                 // Read all control qubits and the target qubit and save it in qparams
                 while(true) {
-                    qparam_list_insert_first(qparams, get_q_idx(in, info));
-                    c = fgetc(in);
+                    uint32_t q;
+                    if (!get_q_idx(in, info, &q)) {
+                        qparam_list_del(qparams);
+                        goto fail;
+                    }
+                    qparam_list_insert_first(qparams, q);
+                    c = next_char(in, info);
                     while (isspace(c)) {
-                        c = fgetc(in);
+                        c = next_char(in, info);
                     }
 
                     if (c == ',') {
@@ -720,7 +883,8 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                         break; // all qubit parameters loaded
                     }
                     else {
-                        error_exit("Invalid 'mcx' gate syntax.\n");
+                        qparam_list_del(qparams);
+                        FAIL(SIM_ERR_SYNTAX, "Invalid 'mcx' gate syntax.");
                     }
                 }
 
@@ -730,17 +894,17 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
                 continue; // ';' already encountered
             }
             else {
-                error_exit("Invalid command '%s'.\n", cmd);
+                FAIL(SIM_ERR_UNSUPPORTED, "Invalid command '%s'.", cmd);
             }
         }
         else {
-            error_exit("Circuit not initialized.\n");
+            FAIL(SIM_ERR_SYNTAX, "Circuit not initialized.");
         }
 
         // Skip all remaining characters on the currently read line
-        while ((c = fgetc(in)) != ';') {
+        while ((c = next_char(in, info)) != ';') {
             if (c == EOF) {
-                error_exit("Invalid format - reached an unexpected end of file (expected ';' to end the current line).\n");
+                FAIL(SIM_ERR_SYNTAX, "Invalid format - reached an unexpected end of file (expected ';' to end the current line).");
             }
         }
     } // while
@@ -751,15 +915,33 @@ bool sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
      * missing gates were never meant to be there - a wrong answer with no
      * indication. */
     if (is_loop) {
-        error_exit("Invalid format - reached the end of the file inside a loop "
-                   "(missing '}').\n");
+        FAIL(SIM_ERR_SYNTAX, "Invalid format - reached the end of the file inside a loop "
+                             "(missing '}').");
     }
 
-    if (flags->opt_symb && info->n_loops > 0) {
+    if (symexp_live) {
         symexp_htab_clear();
         symexp_htab_delete();
     }
-    return init;
+    if (!init) {
+        info->status = SIM_NO_CIRCUIT;
+    }
+    return info->status;
+
+fail:
+    /* Release what this run set up, so that the caller can go on (and run
+     * another circuit) after an error, as a library has to. */
+    if (is_loop && flags->opt_symb) {
+        symb_abort(&symbc);
+    }
+    if (symexp_live) {
+        symexp_htab_clear();
+        symexp_htab_delete();
+    }
+    if (init) {
+        deleteCircuit(circ);
+    }
+    return info->status;
 }
 
 void measure_all(unsigned long samples, FILE *output, qBDD circ, int n, int *bits_to_measure)

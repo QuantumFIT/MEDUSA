@@ -167,6 +167,9 @@ function(medusa_common_target_settings tgt)
   if(MEDUSA_COVERAGE)
     target_compile_options(${tgt} PRIVATE --coverage)
     target_link_options(${tgt} PRIVATE --coverage)
+    # As the Makefile's COVERAGE=1: lets test_sim_errors flush the counters
+    # before its expected aborts.
+    target_compile_definitions(${tgt} PRIVATE MEDUSA_COVERAGE)
   endif()
 endfunction()
 
