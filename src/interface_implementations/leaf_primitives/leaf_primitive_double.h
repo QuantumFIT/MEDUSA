@@ -116,6 +116,12 @@ typedef long double     leaf_scalar_t;
 #define LEAF_SQRT2INV   0.707106781186547524400844362104849039L
 
 #elif defined(__SIZEOF_FLOAT128__)
+/* The *f128 functions below come from glibc, which exports them from 2.26 on.
+ * Without them (musl, macOS on x86_64, an older glibc) the build would only
+ * fail at link time, on an undefined roundf128; say so here instead. */
+#if !defined(__GLIBC__) || __GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 26)
+#error "LEAF_FLOAT_TYPE=3 (f128) uses glibc's roundf128/sqrtf128/powf128/strfromf128, which this C library does not provide (glibc 2.26 or newer is needed); build another leaf type, e.g. make buddy_doubles_f64"
+#endif
 /* glibc declares its *f128 functions only for compilers it trusts with
  * _Float128, which excludes clang; libm and libc export them regardless, and
  * on these targets _Float128 and __float128 share one ABI. */

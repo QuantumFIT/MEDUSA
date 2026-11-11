@@ -7,6 +7,10 @@
 #include <string.h>
 #include <gmp.h>
 
+/* The hash copies LEAF_SCALAR_HASH_BYTES out of one scalar. */
+_Static_assert(LEAF_SCALAR_HASH_BYTES <= sizeof(leaf_scalar_t),
+               "LEAF_SCALAR_HASH_BYTES must not exceed the size of leaf_scalar_t");
+
 uint64_t hash_comb_generic(leaf_primitive_t data) {
     // Only the value-carrying bytes, never the padding: see the comment on
     // LEAF_SCALAR_HASH_BYTES. cmp_generic compares numerically, so hashing
