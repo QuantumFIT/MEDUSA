@@ -149,7 +149,9 @@ foreach(_gp IN LISTS _gate_paths)
   medusa_c_test(metamorphic${sfx} test_metamorphic${sfx} LABELS ${lbl})
 
   # make test-sim-errors
-  medusa_harness(test_sim_errors${sfx} test_sim_errors.c buddy_doubles_f128${sfx})
+  # _GNU_SOURCE for fopencookie: glibc before 2.39 declares it only then, and
+  # the forced leaf header includes <stdio.h> before the test's own source.
+  medusa_harness(test_sim_errors${sfx} test_sim_errors.c buddy_doubles_f128${sfx} _GNU_SOURCE)
   medusa_c_test(sim_errors${sfx} test_sim_errors${sfx} LABELS ${lbl})
 
   medusa_harness(test_unit_leaf_gmp${sfx} test_unit_leaf_gmp.c buddy_gmp${sfx})
