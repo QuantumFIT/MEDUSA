@@ -267,6 +267,13 @@ bit[2] c;
 bit[2] d;
 QASM
 
+write_bad reg_mismatch_bit_first <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+bit[2] c;
+qubit[3] q;
+QASM
+
 write_bad reg_mismatch <<'QASM'
 OPENQASM 3.0;
 include "stdgates.inc";
@@ -344,6 +351,7 @@ num_toolong|too many digits
 two_qregs|Multiple qubit register
 two_bregs|Multiple bit register
 reg_mismatch|different than the size
+reg_mismatch_bit_first|different than the size
 nested_loop|Nested loops
 loop_step_zero|step must be non-zero
 loop_not_integer|not an integer
@@ -410,6 +418,26 @@ PY
     fi
 else
     echo "SKIP gmp-long-numbers (build with: make buddy_gmp)"
+fi
+
+# A write error on res-vars.txt is reported, not ignored: the file is a link
+# to /dev/full, so writing the large numbers fails partway (Linux only).
+if [[ -x "${GMP_BIN}" && -f "${LONG_CIRCUIT}" && -c /dev/full ]]; then
+    label="gmp-long-numbers-write-error"
+    full_dir="${WORKDIR}/full"
+    mkdir -p "${full_dir}"
+    ln -sf /dev/full "${full_dir}/res-vars.txt"
+    log="${WORKDIR}/${label}.log"
+    rc=0
+    ( cd "${full_dir}" && timeout 300 "${GMP_BIN}" --file "${LONG_CIRCUIT}" >/dev/null 2>"${log}" ) || rc=$?
+    if [[ "${rc}" -eq 1 ]] && grep -q "error occurred when writing the value of large-number" "${log}"; then
+        echo "OK   ${label}"
+        summary_record "${label}" 0
+    else
+        echo "FAIL ${label}: exit ${rc}, expected 1 and a write error"
+        tail -5 "${log}" || true
+        summary_record "${label}" 1
+    fi
 fi
 
 summary_print "test_cli"
