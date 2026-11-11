@@ -119,6 +119,7 @@ static bool parse_num(FILE *in, char end, char alt_end, sim_info_t *info, long l
 {
     int c = next_char(in, info);
     char num[NUM_MAX_LEN] = {0};
+    size_t len = 0; // characters in num; num[len] is always its terminating '\0'
 
     // Skip leading whitespace
     while (isspace(c)) {
@@ -142,13 +143,12 @@ static bool parse_num(FILE *in, char end, char alt_end, sim_info_t *info, long l
                 return sim_error(info, SIM_ERR_SYNTAX, "Invalid format - not a valid number (a non-digit character '%c' encountered while parsing a number).", c);
             }
         }
-        else if (strlen(num) + 1 < NUM_MAX_LEN) {
+        else if (len + 1 < NUM_MAX_LEN) {
             /* Append the character itself. (Passing &c, an int, as a
              * one-character string took the int's first byte - the character
              * only on a little-endian machine.) */
-            size_t len = strlen(num);
-            num[len] = (char)c;
-            num[len + 1] = '\0';
+            num[len++] = (char)c;
+            num[len] = '\0';
         }
         else {
             return sim_error(info, SIM_ERR_SYNTAX, "Invalid format - not a valid number (too many digits).");
