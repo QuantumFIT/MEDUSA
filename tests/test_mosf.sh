@@ -183,6 +183,13 @@ expect_error bad_malformed        "parse error"
 expect_error bad_rx_unimplemented "rx not implemented"
 expect_error bad_ry_unimplemented "ry not implemented"
 expect_error bad_rz_unimplemented "rz not implemented"
+# A rotation needs its angle, as a string expression.
+expect_error bad_rx_no_angle "key 'angle' not found"
+expect_error bad_rx_angle_not_string "type must be string"
+expect_error bad_ry_no_angle "key 'angle' not found"
+expect_error bad_ry_angle_not_string "type must be string"
+expect_error bad_rz_no_angle "key 'angle' not found"
+expect_error bad_rz_angle_not_string "type must be string"
 
 # Gate-definition files from the MoToBuddy examples are not circuits: no
 # x_levels, and they use plus_s/minus_s which MEDUSA does not register.

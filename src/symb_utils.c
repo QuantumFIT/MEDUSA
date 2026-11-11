@@ -86,9 +86,11 @@ static void rdata_ref_first(rdata_t *rd)
     rd->ref->cur =  rd->ref->first;
 }
 
+/* Only called on a cursor that is on an element: refine_var_check's loop
+ * tests rd->ref->cur before every step. */
 static void rdata_ref_next(rdata_t *rd)
 {
-    rd->ref->cur = (rd->ref->cur)? rd->ref->cur->next : NULL;
+    rd->ref->cur = rd->ref->cur->next;
 }
 
 /**

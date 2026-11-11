@@ -89,8 +89,10 @@ extern "C" bool sim_mosf_file(FILE *in, qBDD *circ, const sim_flags_t *flags, si
         };
 
         reg.node_ops["rx"] = [](const mosf::json& j) -> NodeOp {
-            const std::string angle_expr = j.at("angle").get<std::string>();
-            return [angle_expr](BDD /*node*/) -> BDD {
+            // The angle is required (and read, so a file without it fails
+            // here), but the gate itself is not implemented yet.
+            (void)j.at("angle").get<std::string>();
+            return [](BDD /*node*/) -> BDD {
                 // TODO:
                 // Apply Rx(theta) at current node:
                 // new_low  = cos(theta/2) * low  - i sin(theta/2) * high
@@ -100,8 +102,10 @@ extern "C" bool sim_mosf_file(FILE *in, qBDD *circ, const sim_flags_t *flags, si
         };
 
         reg.node_ops["ry"] = [](const mosf::json& j) -> NodeOp {
-            const std::string angle_expr = j.at("angle").get<std::string>();
-            return [angle_expr](BDD /*node*/) -> BDD {
+            // The angle is required (and read, so a file without it fails
+            // here), but the gate itself is not implemented yet.
+            (void)j.at("angle").get<std::string>();
+            return [](BDD /*node*/) -> BDD {
                 // TODO:
                 // Apply Ry(theta) at current node:
                 // new_low  = cos(theta/2) * low - sin(theta/2) * high
@@ -111,8 +115,10 @@ extern "C" bool sim_mosf_file(FILE *in, qBDD *circ, const sim_flags_t *flags, si
         };
 
         reg.node_ops["rz"] = [](const mosf::json& j) -> NodeOp {
-            const std::string angle_expr = j.at("angle").get<std::string>();
-            return [angle_expr](BDD /*node*/) -> BDD {
+            // The angle is required (and read, so a file without it fails
+            // here), but the gate itself is not implemented yet.
+            (void)j.at("angle").get<std::string>();
+            return [](BDD /*node*/) -> BDD {
                 // TODO:
                 // Apply Rz(theta) at current node:
                 // new_low  = exp(-i theta/2) * low
