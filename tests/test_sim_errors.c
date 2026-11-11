@@ -147,6 +147,19 @@ static const error_case_t CASES[] = {
     { "loop range overflow by one", false,
       HDR "qubit[2] q;\nfor int i in [-1:9223372036854775807] {\nh q[0];\n}\n",
       SIM_ERR_SYNTAX, "overflow detected" },
+    /* Nothing but whitespace and comments between the range and '{'. */
+    { "gate before the '{' of a loop", false,
+      HDR "qubit[2] q;\nfor int i in [1:2]\nx q[0];\n{\nh q[1];\n}\n",
+      SIM_ERR_SYNTAX, "expected '{' after the loop range, found 'x'" },
+    { "empty loop without '{'", false,
+      HDR "qubit[2] q;\nfor int i in [1:1:0]\nx q[0];\n}\n",
+      SIM_ERR_SYNTAX, "expected '{' after the loop range, found 'x'" },
+    { "bad comment before the '{' of a loop", false,
+      HDR "qubit[2] q;\nfor int i in [1:2] /x\n{\nh q[1];\n}\n",
+      SIM_ERR_SYNTAX, "expected a one-line comment" },
+    { "end of file in a comment before '{'", false,
+      HDR "qubit[2] q;\nfor int i in [1:2] // no brace",
+      SIM_ERR_SYNTAX, "at the start of a loop" },
     { "end of file before '{'", false, HDR "qubit[2] q;\nfor int i in [1:2]",
       SIM_ERR_SYNTAX, "at the start of a loop" },
     { "skipped loop never closed", false, HDR "qubit[2] q;\nfor int i in [1:1:0] {\nh q[0];\n",
@@ -447,13 +460,15 @@ static void test_gate_operands(void)
  *     body (comments included) is skipped without being simulated - x q[0]
  *     in it must not happen;
  *   - the bit register declared first, and with a space before its ';';
- *   - whitespace inside the brackets of a number. */
+ *   - whitespace inside the brackets of a number;
+ *   - a comment and blank lines between a loop's range and its '{'. */
 static void test_valid_edges(void)
 {
     static const char *QASM[] = {
         HDR "qubit[2] q;\nx q[1];\n// done",
         HDR "qubit[2] q;\nx q[1];\nfor int i in [1:1:0] {\n// skipped\nx q[0];\n}\n",
         HDR "qubit[2] q;\nx q[1];\nfor int i in [1:-1:4] {\nx q[0];\n}\n",
+        HDR "qubit[2] q;\nx q[1];\nfor int i in [1:1:0] // empty\n\n{\nx q[0];\n}\n",
         HDR "bit[2] c ;\nqubit[2] q;\nx q[1];\n",
         HDR "qubit[ 2 ] q;\nx q[ 1 ];\n",
     };
