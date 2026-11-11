@@ -626,7 +626,7 @@ test-metamorphic:
 $(TEST_SIMERR_BIN): $(TEST_SIMERR_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
                     $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
 	$(CC) $(INC_DIRS_BUDDY_DOUBLES) -I $(TEST_DIR) $(CFLAGS) \
-	    -DLEAF_BACKEND_DOUBLES -DLEAF_FLOAT_TYPE=$(LEAF_FLOAT_TYPE) \
+	    -DLEAF_BACKEND_DOUBLES -DLEAF_FLOAT_TYPE=$(LEAF_FLOAT_TYPE) -D_GNU_SOURCE \
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_SIMERR_SRC) $(TEST_UNIT_OBJS) \
