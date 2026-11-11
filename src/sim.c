@@ -387,25 +387,29 @@ static bool get_iters(FILE *in, sim_info_t *info, uint64_t *iters)
         }
     }
     
-    /* span = end + 1 - start, each step checked: with the range limits
-     * anywhere near LLONG_MIN/LLONG_MAX the plain expression overflows, which
-     * is undefined behaviour. (Once both steps pass, span > LLONG_MIN, so the
-     * division below cannot overflow either.) */
-    long long span;
+    /* OpenQASM 3 ranges include both ends: [start:step:end] runs start,
+     * start + step, ... while the value has not passed end. That is
+     * (end - start) / step + 1 iterations when step points from start towards
+     * end (or start == end), and none otherwise - an empty range, not an
+     * error. The loop variable itself is not used by the body.
+     *
+     * The count is taken on magnitudes, in unsigned arithmetic: end - start
+     * is checked for overflow (the one result that cannot be represented),
+     * and from there |end - start| / |step| + 1 <= 2^63 + 1 fits in 64 bits. */
+    long long diff;
     if (step == 0) {
         return sim_error(info, SIM_ERR_SYNTAX, "Invalid number of loop iterations - step must be non-zero.");
     }
-    else if (__builtin_sub_overflow(end, start, &span) || __builtin_add_overflow(span, 1, &span)) {
+    if (__builtin_sub_overflow(end, start, &diff)) {
         return sim_error(info, SIM_ERR_SYNTAX, "Invalid number of loop iterations - overflow detected.");
     }
-    else if (span % step != 0) {
-        return sim_error(info, SIM_ERR_SYNTAX, "Invalid number of loop iterations - not an integer.");
+    if ((diff > 0 && step < 0) || (diff < 0 && step > 0)) {
+        *iters = 0;
+        return true;
     }
-    else if ((end < start && step > 0) || (end > start && step < 0)) {
-        return sim_error(info, SIM_ERR_SYNTAX, "Invalid number of loop iterations.");
-    }
-
-    *iters = (uint64_t)(span / step);
+    uint64_t span = (diff < 0) ? (uint64_t)(-(diff + 1)) + 1 : (uint64_t)diff;
+    uint64_t stride = (step < 0) ? (uint64_t)(-(step + 1)) + 1 : (uint64_t)step;
+    *iters = span / stride + 1;
     return true;
 }
 
