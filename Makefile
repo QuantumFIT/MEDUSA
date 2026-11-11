@@ -125,8 +125,20 @@ CLIBS  := -lgmp -lpthread -lm
 # them. Only where the compiler accepts the flag: Apple clang rejects it, but
 # only alongside -flto, so the check has to pass both.
 ifeq ($(BUILD)$(LTO),release1)
-  CFLAGS += $(shell $(CC) -flto=auto -ffat-lto-objects -x c -c /dev/null -o /dev/null 2>/dev/null \
-                    && echo -ffat-lto-objects)
+  FAT_LTO := $(shell $(CC) -flto=auto -ffat-lto-objects -x c -c /dev/null -o /dev/null 2>/dev/null \
+                     && echo -ffat-lto-objects)
+  CFLAGS += $(FAT_LTO)
+  # GCC always accepts the flag, so there a failed check means the test compile
+  # itself failed (no LTO plugin, no writable temp dir, ...) rather than that the
+  # flag is unsupported. Say so: the objects are then LTO-only, and a later
+  # `make LTO=0` has to rebuild instead of relinking.
+  ifeq ($(FAT_LTO),)
+    ifneq ($(shell $(CC) -dM -E -x c /dev/null 2>/dev/null | grep -c -e __GNUC__ -e __clang__),2)
+      ifneq ($(shell $(CC) -dM -E -x c /dev/null 2>/dev/null | grep -c __GNUC__),0)
+        $(warning $(CC) did not accept -flto -ffat-lto-objects in a test compile; building without fat LTO objects, so a later "make LTO=0" rebuilds instead of relinking)
+      endif
+    endif
+  endif
 endif
 
 # USE_CXX=1 compiles gates.c as C++ (enables mtbdd_traverse_to/mtbdd_swap path)
