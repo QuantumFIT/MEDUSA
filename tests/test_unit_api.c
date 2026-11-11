@@ -1288,19 +1288,35 @@ static void test_list_cursors_and_empty_copy(void) {
 /* An operation must be added to the dispatch in unary_apply_param together
  * with a converter of its own; one that is not stops with an error instead of
  * being called with arguments of the wrong kind. Checked in a child process,
- * which must exit with an error. */
+ * which must exit through error_exit (status 1) with its message. */
 static LEAF_TYPE no_converter_op(LEAF_TYPE a, size_t arg) {
     (void)arg;
     return a;
 }
 
+/* Valgrind preloads its own library; under it, the child's exit status is
+ * valgrind's error code for the package the child leaves allocated, which
+ * would make the check below meaningless. */
+static int under_valgrind(void) {
+    const char *p = getenv("LD_PRELOAD");
+    return p && strstr(p, "vgpreload") != NULL;
+}
+
 static void test_unary_apply_param_without_converter(void) {
     TEST_SECTION("unary_apply_param: an operation without a converter is an error");
+    if (under_valgrind()) {
+        printf("  (skipped under valgrind)\n");
+        return;
+    }
+    char errlog[] = "/tmp/medusa_unit_api_XXXXXX";
+    int fd = mkstemp(errlog);
+    TEST_ASSERT(fd >= 0);
+    if (fd < 0)
+        return;
     fflush(NULL);
     pid_t pid = fork();
     if (pid == 0) {
-        if (!freopen("/dev/null", "w", stderr))
-            _exit(3);
+        dup2(fd, STDERR_FILENO);
         setup_pkg();
         qBDD c;
         circuit_init_interface(&c, 1);
@@ -1309,10 +1325,13 @@ static void test_unary_apply_param_without_converter(void) {
     }
     int status = 0;
     waitpid(pid, &status, 0);
-    /* error_exit's 1 - or valgrind's own error code when the leak checks run
-     * this binary, as the child exits with the package still allocated. A
-     * normal return (0) or a crash (a signal) fails. */
-    TEST_ASSERT(WIFEXITED(status) && WEXITSTATUS(status) != 0);
+    char msg[256] = {0};
+    lseek(fd, 0, SEEK_SET);
+    ssize_t n = read(fd, msg, sizeof(msg) - 1);
+    close(fd);
+    unlink(errlog);
+    TEST_ASSERT(WIFEXITED(status) && WEXITSTATUS(status) == 1);
+    TEST_ASSERT(n > 0 && strstr(msg, "no converter for this operation") != NULL);
 }
 
 int main(void) {
