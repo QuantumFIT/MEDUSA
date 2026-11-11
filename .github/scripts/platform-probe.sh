@@ -63,8 +63,13 @@ for spec in f32:0 f64:1 f80:2 f128:3; do
         step "circuits-${s}" env MEDUSA_BIN="./MEDUSA_buddy_doubles_${s}" bash tests/test_circuits.sh
         # f128 needs no libquadmath any more; make sure nothing links it back.
         if [ "${s}" = f128 ]; then
+            # The inspection has to succeed: an empty listing would pass the
+            # grep without having looked at the binary.
             step no-libquadmath-f128 bash -c '
-                deps=$( (readelf -d "$1" 2>/dev/null | grep NEEDED) || otool -L "$1")
+                if command -v readelf > /dev/null; then deps=$(readelf -d "$1") || exit 1
+                elif command -v otool > /dev/null; then deps=$(otool -L "$1") || exit 1
+                else echo "neither readelf nor otool available"; exit 1
+                fi
                 echo "${deps}"
                 ! grep -q quadmath <<< "${deps}"' _ ./MEDUSA_buddy_doubles_f128
         fi
