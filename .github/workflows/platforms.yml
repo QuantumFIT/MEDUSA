@@ -72,8 +72,10 @@ jobs:
           echo "CC=clang" >> "${GITHUB_ENV}"
           echo "CXX=clang++" >> "${GITHUB_ENV}"
 
+      # On the command line: the Makefile sets CC := gcc, which would replace
+      # an environment CC=clang and reach MoToBuddy's CMake as gcc.
       - name: Build MoToBuddy
-        run: make init
+        run: make init CC="${CC:-gcc}" CXX="${CXX:-g++}"
 
       - name: Probe
         run: bash .github/scripts/platform-probe.sh
