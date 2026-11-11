@@ -143,8 +143,12 @@ static bool parse_num(FILE *in, char end, char alt_end, sim_info_t *info, long l
             }
         }
         else if (strlen(num) + 1 < NUM_MAX_LEN) {
-            int *temp = &c;
-            strncat(num, (char*)temp, 1);
+            /* Append the character itself. (Passing &c, an int, as a
+             * one-character string took the int's first byte - the character
+             * only on a little-endian machine.) */
+            size_t len = strlen(num);
+            num[len] = (char)c;
+            num[len + 1] = '\0';
         }
         else {
             return sim_error(info, SIM_ERR_SYNTAX, "Invalid format - not a valid number (too many digits).");
@@ -383,21 +387,25 @@ static bool get_iters(FILE *in, sim_info_t *info, uint64_t *iters)
         }
     }
     
-    // Note: expects 64bit long long
+    /* span = end + 1 - start, each step checked: with the range limits
+     * anywhere near LLONG_MIN/LLONG_MAX the plain expression overflows, which
+     * is undefined behaviour. (Once both steps pass, span > LLONG_MIN, so the
+     * division below cannot overflow either.) */
+    long long span;
     if (step == 0) {
         return sim_error(info, SIM_ERR_SYNTAX, "Invalid number of loop iterations - step must be non-zero.");
     }
-    else if ((end == LLONG_MAX && start == LLONG_MIN) || (end == LLONG_MIN && start == LLONG_MAX)) {
+    else if (__builtin_sub_overflow(end, start, &span) || __builtin_add_overflow(span, 1, &span)) {
         return sim_error(info, SIM_ERR_SYNTAX, "Invalid number of loop iterations - overflow detected.");
     }
-    else if ((end + 1 - start) % step != 0) {
+    else if (span % step != 0) {
         return sim_error(info, SIM_ERR_SYNTAX, "Invalid number of loop iterations - not an integer.");
     }
     else if ((end < start && step > 0) || (end > start && step < 0)) {
         return sim_error(info, SIM_ERR_SYNTAX, "Invalid number of loop iterations.");
     }
 
-    *iters = (uint64_t)((end + 1 - start) / step);
+    *iters = (uint64_t)(span / step);
     return true;
 }
 
