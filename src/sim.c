@@ -600,6 +600,28 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
                     FAIL(SIM_ERR_UNSUPPORTED, "Nested loops are not allowed, aborting.");
                 }
                 TRY(get_iters(in, info, &iters));
+                /* Only whitespace and comments may stand between the range and
+                 * the '{'. Anything else used to be skipped without a word -
+                 * a gate there silently lost, or an empty loop's body taken as
+                 * running to the next '}' with no '{' at all. */
+                while ((c = next_char(in, info)) != '{') {
+                    if (c == EOF) {
+                        FAIL(SIM_ERR_SYNTAX, "Invalid format - reached an unexpected end of file at the start of a loop.");
+                    }
+                    if (isspace(c)) {
+                        continue;
+                    }
+                    int comment = skip_one_line_comments(c, in, info);
+                    if (comment == COMMENT_INVALID) {
+                        goto fail;
+                    }
+                    if (comment == COMMENT_EOF) {
+                        FAIL(SIM_ERR_SYNTAX, "Invalid format - reached an unexpected end of file at the start of a loop.");
+                    }
+                    if (comment == COMMENT_NONE) {
+                        FAIL(SIM_ERR_SYNTAX, "Invalid loop syntax - expected '{' after the loop range, found '%c'.", c);
+                    }
+                }
                 if (iters == 0) {
                     // skip symbolic
                     while ((c = next_char(in, info)) != '}') {
@@ -612,11 +634,6 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
                         }
                     }
                     continue;
-                }
-                while ((c = next_char(in, info)) != '{') {
-                    if (c == EOF) {
-                        FAIL(SIM_ERR_SYNTAX, "Invalid format - reached an unexpected end of file at the start of a loop.");
-                    }
                 }
                 is_loop = true;
                 if (flags->opt_symb) {
