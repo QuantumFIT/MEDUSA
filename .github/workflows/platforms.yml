@@ -34,8 +34,8 @@ concurrency:
 
 jobs:
   ubuntu:
-    name: Ubuntu ${{ matrix.release }}${{ matrix.cc == 'clang' && ', clang' || '' }}
-    runs-on: ubuntu-24.04
+    name: Ubuntu ${{ matrix.release }}${{ matrix.cc == 'clang' && ', clang' || '' }}${{ matrix.arch == 'arm64' && ', arm64' || '' }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     container: ubuntu:${{ matrix.release }}
     timeout-minutes: 45
     strategy:
@@ -48,12 +48,21 @@ jobs:
         #   26.04 GCC 15, CMake 4.2, GMP 6.3.0
         release: ['22.04', '24.04', '26.04']
         cc: [gcc]
+        # An explicit default, so the arm64 entry below becomes a job of its
+        # own instead of being merged into the x64 24.04 one.
+        arch: [x64]
         include:
           - release: '24.04'
             cc: clang
+          # arm64 Linux: long double is IEEE binary128 there, so f128 takes the
+          # long double branch (and f80 is 128-bit too) - the only job that
+          # builds and runs that code.
+          - release: '24.04'
+            cc: gcc
+            arch: arm64
     env:
       DEBIAN_FRONTEND: noninteractive
-      PLATFORM: Ubuntu ${{ matrix.release }}, ${{ matrix.cc }}
+      PLATFORM: Ubuntu ${{ matrix.release }}, ${{ matrix.cc }}${{ matrix.arch == 'arm64' && ', arm64' || '' }}
     steps:
       - name: Install dependencies
         run: |

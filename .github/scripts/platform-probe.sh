@@ -61,6 +61,13 @@ for spec in f32:0 f64:1 f80:2 f128:3; do
         step "unit-${s}" bash -c 'make "$@" test_unit_api LEAF_FLOAT_TYPE='"${n}"' && ./test_unit_api' _ "${MAKE_ARGS[@]}"
         step "grover-${s}" make "${MAKE_ARGS[@]}" "test-grover-${s}"
         step "circuits-${s}" env MEDUSA_BIN="./MEDUSA_buddy_doubles_${s}" bash tests/test_circuits.sh
+        # f128 needs no libquadmath any more; make sure nothing links it back.
+        if [ "${s}" = f128 ]; then
+            step no-libquadmath-f128 bash -c '
+                deps=$( (readelf -d "$1" 2>/dev/null | grep NEEDED) || otool -L "$1")
+                echo "${deps}"
+                ! grep -q quadmath <<< "${deps}"' _ ./MEDUSA_buddy_doubles_f128
+        fi
     else
         skip "unit-${s}"; skip "grover-${s}"; skip "circuits-${s}"
     fi
@@ -107,6 +114,9 @@ fi
             done
         done
         echo "${row}|"
+    done
+    for i in "${!names[@]}"; do
+        [ "${names[$i]}" = no-libquadmath-f128 ] && { echo; echo "f128 binary free of libquadmath: ${results[$i]}"; }
     done
     echo
 } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
