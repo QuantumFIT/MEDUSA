@@ -93,7 +93,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: probe-logs-ubuntu-${{ matrix.release }}-${{ matrix.cc }}
+          name: probe-logs-ubuntu-${{ matrix.release }}-${{ matrix.cc }}-${{ matrix.arch || 'x64' }}
           path: probe-logs/
           if-no-files-found: ignore
 
