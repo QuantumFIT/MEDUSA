@@ -123,20 +123,26 @@ CLIBS  := -lgmp -lpthread -lm
 
 # Fat LTO objects carry ordinary code beside the IR, so an LTO=0 link can reuse
 # them. Only where the compiler accepts the flag: Apple clang rejects it, but
-# only alongside -flto, so the check has to pass both.
+# only alongside -flto, so the check has to pass both. CFLAGS also reaches the
+# C++ compiles of USE_CXX=1 (gates.c, sim_mosf.cpp), so then $(CXX) is checked
+# as well.
 ifeq ($(BUILD)$(LTO),release1)
   FAT_LTO := $(shell $(CC) -flto=auto -ffat-lto-objects -x c -c /dev/null -o /dev/null 2>/dev/null \
+                     && { [ "$(USE_CXX)" != 1 ] \
+                          || $(CXX) -flto=auto -ffat-lto-objects -x c++ -c /dev/null -o /dev/null 2>/dev/null; } \
                      && echo -ffat-lto-objects)
   CFLAGS += $(FAT_LTO)
   # GCC always accepts the flag, so there a failed check means the test compile
   # itself failed (no LTO plugin, no writable temp dir, ...) rather than that the
   # flag is unsupported. Say so: the objects are then LTO-only, and a later
-  # `make LTO=0` has to rebuild instead of relinking.
-  ifeq ($(FAT_LTO),)
-    ifneq ($(shell $(CC) -dM -E -x c /dev/null 2>/dev/null | grep -c -e __GNUC__ -e __clang__),2)
-      ifneq ($(shell $(CC) -dM -E -x c /dev/null 2>/dev/null | grep -c __GNUC__),0)
-        $(warning $(CC) did not accept -flto -ffat-lto-objects in a test compile; building without fat LTO objects, so a later "make LTO=0" rebuilds instead of relinking)
-      endif
+  # `make LTO=0` has to rebuild instead of relinking. GCC: defines __GNUC__
+  # but not __clang__ (which defines both).
+  # Only the top-level make warns; recursive ones see the same compilers.
+  ifeq ($(FAT_LTO)$(MAKELEVEL),0)
+    CC_IS_GCC := $(shell $(CC) -dM -E -x c /dev/null 2>/dev/null \
+                         | awk '$$2 == "__clang__" { c = 1 } $$2 == "__GNUC__" { g = 1 } END { if (g && !c) print 1 }')
+    ifeq ($(CC_IS_GCC),1)
+      $(warning -flto -ffat-lto-objects failed a test compile with $(CC)$(if $(filter 1,$(USE_CXX)), or $(CXX)); building without fat LTO objects, so a later "make LTO=0" rebuilds instead of relinking)
     endif
   endif
 endif
