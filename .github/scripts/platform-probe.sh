@@ -72,6 +72,21 @@ for spec in f32:0 f64:1 f80:2 f128:3; do
                 fi
                 echo "${deps}"
                 ! grep -q quadmath <<< "${deps}"' _ ./MEDUSA_buddy_doubles_f128
+            # SoftFloat f128 (macOS, and the Linux job that sets SOFTFLOAT=1):
+            # its own helpers and printing, and - where native binary128 can be
+            # built next to it - the same results as native, digit for digit.
+            if [[ " ${MAKE_ARGS[*]} " == *" SOFTFLOAT=1 "* || "$(uname -s)" = Darwin ]]; then
+                step softfloat-unit make "${MAKE_ARGS[@]}" test-unit-softfloat
+                if [ "$(uname -s)" = Linux ]; then
+                    cp ./MEDUSA_buddy_doubles_f128 ./MEDUSA_softfloat_f128
+                    if step build-f128-native make "${MAKE_ARGS[@]}" SOFTFLOAT=0 buddy_doubles LEAF_FLOAT_TYPE=3; then
+                        step softfloat-vs-native bash tests/test_softfloat_vs_native.sh \
+                            ./MEDUSA_softfloat_f128 ./MEDUSA_buddy_doubles_f128
+                    else
+                        skip softfloat-vs-native
+                    fi
+                fi
+            fi
         fi
     else
         skip "unit-${s}"; skip "grover-${s}"; skip "circuits-${s}"

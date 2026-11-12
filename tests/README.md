@@ -85,6 +85,19 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   ever built that suite at f32: five of its norm checks sit at 1e-6/1e-7 while
   the measured error over a whole benchmark circuit reaches 4e-5. Both backends
   produce identical values there, so it is precision, not divergence.
+- `make test-unit-softfloat` - the SoftFloat f128 build (`SOFTFLOAT=1`, the
+  default on macOS; `tests/test_unit_softfloat.c`, part of `make test` there).
+  It reimplements what native f128 gets from the compiler and glibc: the leaf
+  helpers and `snap` on SoftFloat calls, (1/√2)^k by building powers of two,
+  and `%.30g` printing. Fixed expectations everywhere (strings printed by
+  glibc's `strfromf128`; overflow of (1/√2)^k to +inf, the subnormals, underflow
+  to 0), and on x86_64 Linux a comparison with `__float128` and glibc on about
+  half a million random values. Mutation-checked against the former
+  (1/√2)^k, which wrapped to -0 / +0 out of range, and a shifted `%g` switch to
+  exponent notation. `tests/test_softfloat_vs_native.sh SOFT NATIVE` then
+  diffs `res.dot` and `--norm-csv` of the two builds on ten circuits; the
+  platform probe runs both in its SoftFloat job. Makefile-specific, so not in
+  CTest
 - `make test-unit-htab` - unit tests for the hash table
   (`tests/test_unit_htab.c`). `htab_resize` is static and fires from both
   `lookup_add` paths once the load factor passes `AVG_LEN_MAX` (2), but no
