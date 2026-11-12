@@ -113,6 +113,15 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   `inv_sqrt2_pow_generic` stores the exponent rather than computing a power.
   The rotation entry points are `abort()` stubs on this backend and are
   deliberately not exercised
+- `make test-build-config` - what the Makefile does on other compilers and C
+  libraries, simulated on Linux/GCC (`tests/test_build_config.sh`): a GCC
+  release build gets `-ffat-lto-objects`; a compiler that rejects it next to
+  `-flto` (a stand-in for Apple clang) builds without it and without the GCC
+  warning; a GCC whose test compile fails warns once; f128 with GCC's include
+  directory minus `quadmath.h` (what clang on Linux sees) stops with the
+  `#error` naming another leaf type; and the GMP link commands pass no
+  `-lquadmath` (a Linux linker drops it with `--as-needed`, macOS has none) and
+  the GMP binaries do not depend on it. Makefile-specific, so not in CTest
 - `make test-cli` - argument handling, parser diagnostics and the long-number
   output file (`tests/test_cli.sh`). Before it, `main.c` sat at 55.7% branch
   coverage and `sim.c` at 66.4%, because every other suite feeds the simulator
