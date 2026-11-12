@@ -310,7 +310,7 @@ help:
 	@echo "  make test-unit-htab   unit tests for the hash table"
 	@echo "  make test-unit-gmp    unit tests for the GMP leaf primitive"
 	@echo "  make test-cli         CLI, parser diagnostics, long-number output"
-	@echo "  make test-build-config fat LTO, f128 without quadmath.h, GMP without libquadmath"
+	@echo "  make test-build-config fat LTO, f128 without libquadmath, GMP without libquadmath"
 	@echo "  make test-mosf        MOSF JSON input (needs USE_CXX=1, else skips)"
 	@echo "  make test-grover-sylvan  Grover matrix on Sylvan, every leaf type + GMP"
 	@echo "  make test-sylvan-all  test-sylvan + the slow metamorphic sweep"
@@ -692,7 +692,7 @@ test-unit-gmp: buddy_gmp $(TEST_UNIT_GMP_BIN)
 	$(TEST_UNIT_GMP_BIN)
 
 # What this Makefile does with other compilers and C libraries (Apple clang's
-# fat-LTO refusal, a clang without quadmath.h, GMP links without libquadmath),
+# fat-LTO refusal, f128 without libquadmath or glibc, GMP without libquadmath),
 # simulated on the CI's Linux/GCC. Inspects the GMP binaries, hence the deps.
 test-build-config: buddy_gmp $(TEST_UNIT_GMP_BIN)
 	bash $(TEST_DIR)/test_build_config.sh
