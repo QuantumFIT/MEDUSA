@@ -20,7 +20,8 @@
 #                    GMP binaries do not depend on it
 #
 # Run from the repository root (make test-build-config). The last check needs
-# the GMP binaries, which make test-unit-gmp builds.
+# the GMP binaries, which make test-unit-gmp builds. The simulations of GCC need
+# `gcc` to be GNU GCC; where it is not (macOS: Apple clang), they are skipped.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -35,6 +36,14 @@ trap 'rm -rf "${WORKDIR}"' EXIT
 
 pass() { echo "OK   $1"; summary_record "$1" 0; }
 fail() { echo "FAIL $1: $2"; summary_record "$1" 1; }
+skip() { echo "SKIP $1 ($2)"; }
+
+# GNU GCC, as the Makefile tells it from clang: __GNUC__ without __clang__.
+GNU_GCC=0
+if gcc -dM -E -x c /dev/null 2> /dev/null \
+   | awk '$2 == "__clang__" { c = 1 } $2 == "__GNUC__" { g = 1 } END { exit !(g && !c) }'; then
+    GNU_GCC=1
+fi
 
 # The makes below must run as top-level makes even under `make
 # test-build-config`: the Makefile's warning is printed by the top level only.
@@ -51,13 +60,17 @@ dry_run() {
 # ---------------------------------------------------------------------------
 # Fat LTO objects.
 # ---------------------------------------------------------------------------
-dry_run "${WORKDIR}/gcc" buddy_doubles_f64 BUILD=release LTO=1 CC=gcc
-n=$(wc -l < "${WORKDIR}/gcc.cc")
-fat=$(grep -c -- '-ffat-lto-objects' "${WORKDIR}/gcc.cc" || true)
-if [[ "${n}" -gt 0 && "${fat}" -eq "${n}" ]] && ! grep -q 'failed a test compile' "${WORKDIR}/gcc.err"; then
-    pass "fat-lto-gcc"
+if [[ "${GNU_GCC}" -eq 1 ]]; then
+    dry_run "${WORKDIR}/gcc" buddy_doubles_f64 BUILD=release LTO=1 CC=gcc
+    n=$(wc -l < "${WORKDIR}/gcc.cc")
+    fat=$(grep -c -- '-ffat-lto-objects' "${WORKDIR}/gcc.cc" || true)
+    if [[ "${n}" -gt 0 && "${fat}" -eq "${n}" ]] && ! grep -q 'failed a test compile' "${WORKDIR}/gcc.err"; then
+        pass "fat-lto-gcc"
+    else
+        fail "fat-lto-gcc" "${fat} of ${n} compile commands have -ffat-lto-objects"
+    fi
 else
-    fail "fat-lto-gcc" "${fat} of ${n} compile commands have -ffat-lto-objects"
+    skip "fat-lto-gcc" "gcc is not GNU GCC"
 fi
 
 # A stand-in for Apple clang: GCC underneath, but it rejects -ffat-lto-objects
@@ -98,42 +111,50 @@ for a in "$@"; do [ "$a" = -ffat-lto-objects ] && exit 1; done
 exec gcc "$@"
 SH
 chmod +x "${BROKEN_CC}"
-dry_run "${WORKDIR}/broken" buddy_doubles_f64 BUILD=release LTO=1 CC="${BROKEN_CC}"
-warnings=$(grep -c 'failed a test compile' "${WORKDIR}/broken.err" || true)
-if [[ "${warnings}" -eq 1 ]]; then
-    pass "fat-lto-warning"
+if [[ "${GNU_GCC}" -eq 1 ]]; then
+    dry_run "${WORKDIR}/broken" buddy_doubles_f64 BUILD=release LTO=1 CC="${BROKEN_CC}"
+    warnings=$(grep -c 'failed a test compile' "${WORKDIR}/broken.err" || true)
+    if [[ "${warnings}" -eq 1 ]]; then
+        pass "fat-lto-warning"
+    else
+        fail "fat-lto-warning" "expected one warning, got ${warnings}"
+    fi
 else
-    fail "fat-lto-warning" "expected one warning, got ${warnings}"
+    skip "fat-lto-warning" "gcc is not GNU GCC"
 fi
 
 # ---------------------------------------------------------------------------
 # f128 without <quadmath.h>: GCC's own include directory, minus quadmath*.h,
 # in place of the real one - what clang on Linux sees.
 # ---------------------------------------------------------------------------
-GCC_INC="$(gcc -print-file-name=include)"
-NOQM="${WORKDIR}/gcc-include-no-quadmath"
-mkdir -p "${NOQM}"
-for f in "${GCC_INC}"/*; do
-    case "$(basename "$f")" in quadmath*) ;; *) ln -s "$f" "${NOQM}/" ;; esac
-done
-SYS_INC=()
-while read -r d; do
-    [ "$d" = "${GCC_INC}" ] || SYS_INC+=(-isystem "$d")
-done < <(echo | gcc -E -Wp,-v -x c - 2>&1 | sed -n '/<...> search starts here/,/End of search/p' | grep '^ /' | sed 's/^ //')
-if [ -f "${GCC_INC}/quadmath.h" ]; then
-    printf '#include "leaf_primitive_double.h"\n' > "${WORKDIR}/f128.c"
-    gcc -nostdinc -isystem "${NOQM}" "${SYS_INC[@]}" \
-        -I src/interface_implementations/leaf_primitives -DLEAF_FLOAT_TYPE=3 \
-        -fsyntax-only "${WORKDIR}/f128.c" > "${WORKDIR}/f128.log" 2>&1 || true
-    if grep -q 'needs GCC.s libquadmath' "${WORKDIR}/f128.log" \
-       && ! grep -q 'quadmath.h.*No such file' "${WORKDIR}/f128.log"; then
-        pass "f128-no-quadmath"
+if [[ "${GNU_GCC}" -eq 1 ]]; then
+    GCC_INC="$(gcc -print-file-name=include)"
+    NOQM="${WORKDIR}/gcc-include-no-quadmath"
+    mkdir -p "${NOQM}"
+    for f in "${GCC_INC}"/*; do
+        case "$(basename "$f")" in quadmath*) ;; *) ln -s "$f" "${NOQM}/" ;; esac
+    done
+    SYS_INC=()
+    while read -r d; do
+        [ "$d" = "${GCC_INC}" ] || SYS_INC+=(-isystem "$d")
+    done < <(echo | gcc -E -Wp,-v -x c - 2>&1 | sed -n '/<...> search starts here/,/End of search/p' | grep '^ /' | sed 's/^ //')
+    if [ -f "${GCC_INC}/quadmath.h" ]; then
+        printf '#include "leaf_primitive_double.h"\n' > "${WORKDIR}/f128.c"
+        gcc -nostdinc -isystem "${NOQM}" "${SYS_INC[@]}" \
+            -I src/interface_implementations/leaf_primitives -DLEAF_FLOAT_TYPE=3 \
+            -fsyntax-only "${WORKDIR}/f128.c" > "${WORKDIR}/f128.log" 2>&1 || true
+        if grep -q 'needs GCC.s libquadmath' "${WORKDIR}/f128.log" \
+           && ! grep -q 'quadmath.h.*No such file' "${WORKDIR}/f128.log"; then
+            pass "f128-no-quadmath"
+        else
+            fail "f128-no-quadmath" "expected the libquadmath #error"
+            head -5 "${WORKDIR}/f128.log"
+        fi
     else
-        fail "f128-no-quadmath" "expected the libquadmath #error"
-        head -5 "${WORKDIR}/f128.log"
+        skip "f128-no-quadmath" "this GCC has no quadmath.h to take away"
     fi
 else
-    echo "SKIP f128-no-quadmath (this GCC has no quadmath.h to take away)"
+    skip "f128-no-quadmath" "gcc is not GNU GCC"
 fi
 
 # ---------------------------------------------------------------------------
