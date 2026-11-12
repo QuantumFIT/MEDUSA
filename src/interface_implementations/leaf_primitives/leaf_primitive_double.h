@@ -120,7 +120,7 @@ typedef long double     leaf_scalar_t;
  * Without them (musl, macOS on x86_64, an older glibc) the build would only
  * fail at link time, on an undefined roundf128; say so here instead. */
 #if !defined(__GLIBC__) || __GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 26)
-#error "LEAF_FLOAT_TYPE=3 (f128) uses glibc's roundf128/sqrtf128/powf128/strfromf128, which this C library does not provide (glibc 2.26 or newer is needed); build another leaf type, e.g. make buddy_doubles_f64"
+#error "LEAF_FLOAT_TYPE=3 (f128) uses glibc's roundf128/sqrtf128/powf128/strfromf128, which this C library does not provide (glibc 2.26 or newer is needed); build another leaf type, e.g. f64 (make buddy_doubles_f64, or -DMEDUSA_FLOAT_TYPES=f64 with CMake)"
 #endif
 /* glibc declares its *f128 functions only for compilers it trusts with
  * _Float128, which excludes clang; libm and libc export them regardless, and
@@ -165,7 +165,7 @@ static inline leaf_scalar_t leaf_abs_q(leaf_scalar_t x) {
 #define LEAF_ABS(x) leaf_abs_q(x)
 
 #else
-#error "LEAF_FLOAT_TYPE=3 (f128, the default) needs an IEEE binary128 type: __float128 or a 128-bit long double. This target has neither (e.g. arm64 macOS); build another leaf type, e.g. make buddy_doubles_f64"
+#error "LEAF_FLOAT_TYPE=3 (f128, the default) needs an IEEE binary128 type: __float128 or a 128-bit long double. This target has neither (e.g. arm64 macOS); build another leaf type, e.g. f64 (make buddy_doubles_f64, or -DMEDUSA_FLOAT_TYPES=f64 with CMake)"
 #endif
 
 #else
