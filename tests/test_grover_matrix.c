@@ -94,7 +94,7 @@ static const char *backend_name(void)
 
 static double to_p(prob_t x)
 {
-    return (double)x;
+    return PROB_TO_D(x);
 }
 
 static double basis_p(qBDD t, const char *bits)
@@ -105,7 +105,7 @@ static double basis_p(qBDD t, const char *bits)
     }
     if (qBDD_isFalse(t))
         return 0.0;
-    return to_p(LEAF_S_TO_PROB(qBDD_calculateProb(t)));
+    return to_p(qBDD_calculateProb(t));
 }
 
 /** P(search=marked, ancilla=1), summed over workspace bits. */

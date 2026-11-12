@@ -175,14 +175,14 @@ static void test_apply_free_unused_preserves_terminals(void) {
     forceGC();
 
     TEST_ASSERT(qBDD_isInternal(circ) || qBDD_isTerminal(circ));
-    prob_t p = qBDD_total_prob(circ, 1);
+    double p = PROB_TO_D(qBDD_total_prob(circ, 1));
     /* After H on |0>, amplitudes are 1/sqrt(2); total prob ~ 1 */
     TEST_ASSERT_NEAR(p, 1.0, UNIT_EPS(1e-9));
 
     /* Apply again: results equal to existing leaves must free clones only */
     gate_h(&circ, 0);
     forceGC();
-    p = qBDD_total_prob(circ, 1);
+    p = PROB_TO_D(qBDD_total_prob(circ, 1));
     TEST_ASSERT_NEAR(p, 1.0, UNIT_EPS(1e-9));
 
     /* Read a terminal value after GC - must not be freed-as-unused */
@@ -247,7 +247,7 @@ static void test_cnot_protect_balance(void) {
     gate_h(&circ, 0);
     gate_cnot(&circ, 1, 0);
     forceGC();
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 3), 1.0, UNIT_EPS(1e-9));
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, 3)), 1.0, UNIT_EPS(1e-9));
     TEST_ASSERT(refcount(circ) >= 1);
 
     qBDD_unprotect(circ);
@@ -271,7 +271,7 @@ static void test_toffoli_norm_regression(void) {
     gate_toffoli(&circ, 2, 0, 1);
     forceGC();
 
-    prob_t p = qBDD_total_prob(circ, 3);
+    double p = PROB_TO_D(qBDD_total_prob(circ, 3));
 #if EXPECT_TOFFOLI_OK
     TEST_ASSERT_NEAR(p, 1.0, UNIT_EPS(1e-9));
 #else
@@ -300,36 +300,36 @@ static void test_gates_norm_and_idempotence(void) {
     qBDD circ;
     circuit_init_interface(&circ, 2);
 
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, UNIT_EPS(1e-9));
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, 2)), 1.0, UNIT_EPS(1e-9));
 
     gate_x(&circ, 0);
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, UNIT_EPS(1e-9));
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, 2)), 1.0, UNIT_EPS(1e-9));
     gate_x(&circ, 0);
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, UNIT_EPS(1e-9));
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, 2)), 1.0, UNIT_EPS(1e-9));
 
     gate_z(&circ, 0);
     gate_z(&circ, 0);
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, UNIT_EPS(1e-9));
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, 2)), 1.0, UNIT_EPS(1e-9));
 
     gate_y(&circ, 1);
     gate_y(&circ, 1);
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, UNIT_EPS(1e-9));
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, 2)), 1.0, UNIT_EPS(1e-9));
 
     gate_h(&circ, 0);
     gate_h(&circ, 0);
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, UNIT_EPS(1e-9));
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, 2)), 1.0, UNIT_EPS(1e-9));
 
     gate_s(&circ, 0);
     gate_s(&circ, 0);
     gate_s(&circ, 0);
     gate_s(&circ, 0); /* S^4 = I */
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, UNIT_EPS(1e-9));
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, 2)), 1.0, UNIT_EPS(1e-9));
 
     qBDD_unprotect(circ);
     freePackage();
 }
 
-static prob_t test_basis_prob(qBDD t, const char *bits)
+static double test_basis_prob(qBDD t, const char *bits)
 {
     while (!qBDD_isTerminal(t) && !qBDD_isFalse(t)) {
         uint32_t v = (uint32_t)qBDD_getVar(t);
@@ -337,7 +337,7 @@ static prob_t test_basis_prob(qBDD t, const char *bits)
     }
     if (qBDD_isFalse(t))
         return 0.0;
-    return (prob_t)LEAF_S_TO_PROB(qBDD_calculateProb(t));
+    return PROB_TO_D(qBDD_calculateProb(t));
 }
 
 static void test_x_flips_computational_basis(void) {
@@ -380,7 +380,7 @@ static void test_grover_2q_marks_11(void) {
     gate_h(&circ, 0);
     gate_h(&circ, 1);
 
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, UNIT_EPS(1e-9));
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, 2)), 1.0, UNIT_EPS(1e-9));
     TEST_ASSERT_MSG(test_basis_prob(circ, "11") > 0.9,
         "classic X/CZ Grover must amplify |11>");
 
@@ -399,7 +399,7 @@ static void test_bell_state(void) {
     gate_cnot(&circ, 1, 0);
     forceGC();
 
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, UNIT_EPS(1e-9));
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, 2)), 1.0, UNIT_EPS(1e-9));
     TEST_ASSERT(qBDD_leafcount(circ) >= 1);
 
     qBDD_unprotect(circ);
@@ -1102,7 +1102,7 @@ static void test_many_terminals_survive_gc_when_protected(void) {
     gate_s(&circ, 0);
     gate_t(&circ, 1);
     forceGC();
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 3), 1.0, UNIT_EPS(1e-8));
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, 3)), 1.0, UNIT_EPS(1e-8));
 
     /* Walk all terminals reachable from root - none may have NULL pImpl */
     qBDD stack[64];
@@ -1143,7 +1143,7 @@ static void test_stress_gates_with_gc_terminals_intact(void) {
         if (round % 2 == 0)
             gate_cnot(&circ, (uint32_t)(round % 4), (uint32_t)((round + 1) % 4));
         forceGC();
-        TEST_ASSERT_NEAR(qBDD_total_prob(circ, 4), 1.0, UNIT_EPS(1e-7));
+        TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, 4)), 1.0, UNIT_EPS(1e-7));
 
         qBDD walk = circ;
         int steps = 0;

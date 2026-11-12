@@ -209,7 +209,11 @@ else ifeq ($(LEAF_FLOAT_TYPE), 3)
   FLOAT_SUFFIX := f128
   ifeq ($(SOFTFLOAT), 1)
     CFLAGS += -DLEAF_F128_SOFTFLOAT -I $(SOFTFLOAT_DIR)/source/include
-    CLIBS  += $(SOFTFLOAT_LIB)
+    # Only the float-leaf binaries link it (CLIBS_DOUBLES): a GMP build on
+    # macOS needs no SoftFloat. F128_DEPS gates their object directories, so
+    # a missing library stops the build with the hint below before any
+    # compile fails on a missing softfloat.h.
+    F128_LIBS := $(SOFTFLOAT_LIB)
     F128_DEPS := $(SOFTFLOAT_LIB)
   endif
 else
@@ -219,6 +223,7 @@ endif
 # libbuddy.a always includes mtbddop.cxx. C-linked buddy binaries still need
 # the C++ runtime (operator new/delete, std::function, __gxx_personality_v0).
 CLIBS += -lstdc++
+CLIBS_DOUBLES := $(CLIBS) $(F128_LIBS)
 
 # ==============================================================================
 # buddy_doubles paths
@@ -414,7 +419,7 @@ sylvan_doubles: $(OBJS_SYLVAN_DOUBLES) $(INTERFACE_OBJ_sylvan_doubles) \
 	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) -o $(BIN_DIR)/MEDUSA_sylvan_doubles_$(FLOAT_SUFFIX) \
 	    $(OBJS_SYLVAN_DOUBLES) $(INTERFACE_OBJ_sylvan_doubles) \
 	    $(LEAF_OBJ_sylvan_double) $(LEAF_OBJ_sylvan_reim) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS_DOUBLES)
 
 $(SYLVAN_GMP_OBJ_DIR)/interface_sylvan.o: $(BACKENDS_DIR)/interface_sylvan.c | $(SYLVAN_GMP_OBJ_DIR)
 	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) $(SYLVAN_GMP_CFLAGS) -MMD -MP -c $< -o $@
@@ -572,7 +577,7 @@ $(TEST_UNIT_BIN): $(TEST_UNIT_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_UNIT_SRC) $(TEST_UNIT_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_DOUBLES)
 
 $(TEST_SEM_BIN): $(TEST_SEM_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
                  $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
@@ -581,7 +586,7 @@ $(TEST_SEM_BIN): $(TEST_SEM_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_SEM_SRC) $(TEST_UNIT_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_DOUBLES)
 
 # ------------------------------------------------------------------------------
 # Float leaf representations swept on Sylvan.
@@ -632,14 +637,14 @@ $(TEST_SEM_SYLVAN_BIN): $(TEST_SEM_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_OBJS)
 	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
 	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) \
 	    -o $@ $(TEST_SEM_SRC) $(TEST_SYLVAN_OBJS) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS_DOUBLES)
 
 $(TEST_META_SYLVAN_BIN): $(TEST_META_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_OBJS)
 	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
 	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
 	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) \
 	    -o $@ $(TEST_META_SRC) $(TEST_SYLVAN_OBJS) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS_DOUBLES)
 
 test-circuits:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
@@ -661,7 +666,7 @@ $(TEST_META_BIN): $(TEST_META_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_META_SRC) $(TEST_UNIT_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_DOUBLES)
 
 test-metamorphic:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
@@ -695,7 +700,7 @@ $(TEST_HTAB_BIN): $(TEST_HTAB_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_HTAB_SRC) $(TEST_UNIT_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_DOUBLES)
 
 test-unit-htab:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
@@ -734,7 +739,7 @@ $(TEST_GROVER_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_GROVER_SRC) $(TEST_UNIT_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_DOUBLES)
 
 $(TEST_GROVER_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_OBJS) \
                         $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
@@ -769,7 +774,7 @@ $(TEST_GROVER_SYLVAN_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_OB
 	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
 	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) \
 	    -o $@ $(TEST_GROVER_SRC) $(TEST_SYLVAN_OBJS) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS_DOUBLES)
 
 $(TEST_GROVER_SYLVAN_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_GMP_OBJS)
 	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
@@ -915,7 +920,7 @@ $(TEST_STRESS_DOUBLES_BIN): $(TEST_STRESS_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJ
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_STRESS_SRC) $(TEST_UNIT_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_DOUBLES)
 
 $(TEST_STRESS_GMP_BIN): $(TEST_STRESS_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_OBJS) \
                         $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
@@ -950,9 +955,9 @@ buddy_doubles: $(SIM_MOSF_OBJ) \
                $(INTERFACE_OBJ_buddy_doubles) \
                $(LEAF_OBJ_double) \
                $(LEAF_OBJ_reim) \
-               $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a | $(BIN_DIR) $(F128_DEPS)
+               $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a | $(BIN_DIR)
 	$(LINKER) $(INC_DIRS_BUDDY_DOUBLES) $(CFLAGS) \
-	    -o $(BIN_DIR)/MEDUSA_buddy_doubles_$(FLOAT_SUFFIX) $^ $(CLIBS)
+	    -o $(BIN_DIR)/MEDUSA_buddy_doubles_$(FLOAT_SUFFIX) $^ $(CLIBS_DOUBLES)
 ifeq ($(LEAF_FLOAT_TYPE),3)
 	ln -sfn MEDUSA_buddy_doubles_$(FLOAT_SUFFIX) $(EXEC)
 endif
@@ -1009,12 +1014,12 @@ $(DOUBLES_OBJ_DIR)/interface_motobuddy.o: $(BACKENDS_DIR)/interface_motobuddy.c 
 	    -MMD -MP -c $< -o $@
 
 $(OBJ_DIR)/leaf_primitive_double_$(FLOAT_SUFFIX).o: \
-        $(LEAF_PRIM_DIR)/leaf_primitive_double.c | $(OBJ_DIR)
+        $(LEAF_PRIM_DIR)/leaf_primitive_double.c | $(OBJ_DIR) $(F128_DEPS)
 	$(CC) $(INC_DIRS_BUDDY_DOUBLES) $(CFLAGS) $(BUDDY_DOUBLES_CFLAGS) \
 	    -MMD -MP -c $< -o $@
 
 $(OBJ_DIR)/leaf_reim_double_$(FLOAT_SUFFIX).o: \
-        $(LEAF_ALG_DIR)/leaf_reim_double.c | $(OBJ_DIR)
+        $(LEAF_ALG_DIR)/leaf_reim_double.c | $(OBJ_DIR) $(F128_DEPS)
 	$(CC) $(INC_DIRS_BUDDY_DOUBLES) $(CFLAGS) $(BUDDY_DOUBLES_CFLAGS) \
 	    -MMD -MP -c $< -o $@
 
@@ -1057,6 +1062,9 @@ $(OBJ_DIR)/buddy_gmp/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)/buddy_gmp
 $(BIN_DIR) $(OBJ_DIR) $(OBJ_DIR)/buddy_gmp $(DOUBLES_OBJ_DIR) \
 $(SYLVAN_GMP_OBJ_DIR) $(SYLVAN_DOUBLES_OBJ_DIR):
 	mkdir -p $@
+
+# Everything compiled against the float leaves waits for SoftFloat (if used).
+$(DOUBLES_OBJ_DIR) $(SYLVAN_DOUBLES_OBJ_DIR): | $(F128_DEPS)
 
 # ==============================================================================
 # Dependency inclusion

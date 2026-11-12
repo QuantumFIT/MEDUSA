@@ -43,10 +43,12 @@ make init
 make init-softfloat
 make
 ```
-Results are bit-identical to f128 on Linux, except that (1/√2)^k is computed
-exactly rather than with `powf128` (last-digit differences under `--symbolic`),
-and probabilities (measurement, `--norm-csv`) are computed in `double`.
-Linux needs none of this: there f128 uses the compiler's binary128 type.
+Results are bit-identical to f128 on Linux, probabilities (measurement,
+`--norm-csv`) included, except that (1/√2)^k is computed exactly rather than
+with `powf128` (last-digit differences under `--symbolic`). The epsilons cannot
+be overridden (`make LEAF_ABS_EPS=...` stops with an error). Linux needs none
+of this: there f128 uses the compiler's binary128 type; `make SOFTFLOAT=1`
+builds the SoftFloat variant there too, for comparison.
 
 ### Build types
 

@@ -303,7 +303,7 @@ static void stress_orphan_circuit_churn(void) {
 
     forceGC();
     forceGC();
-    TEST_ASSERT_NEAR(qBDD_total_prob(survivor, 4), 1.0, 1e-5);
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(survivor, 4)), 1.0, 1e-5);
     walk_check_terminals(survivor, 10000);
     {
         qBDD w = survivor;
@@ -348,7 +348,7 @@ static void stress_gate_storm_with_gc(void) {
         if ((r % GC_EVERY) == 0) {
             forceGC();
             walk_check_terminals(circ, 20000);
-            prob_t p = qBDD_total_prob(circ, n);
+            double p = PROB_TO_D(qBDD_total_prob(circ, n));
             /* Unitary gates: norm must stay ~1 (float eps grows with depth). */
 #if defined(LEAF_BACKEND_DOUBLES)
             TEST_ASSERT_NEAR(p, 1.0, 1e-4);
@@ -360,7 +360,7 @@ static void stress_gate_storm_with_gc(void) {
     }
 
     forceGC();
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, n), 1.0,
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, n)), 1.0,
 #if defined(LEAF_BACKEND_DOUBLES)
         1e-3
 #else
@@ -419,7 +419,7 @@ static void stress_apply_temp_churn(void) {
 
     forceGC();
     assert_terminal_alive(leaf, "leaf dead after apply storm");
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 2), 1.0, 1e-5);
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, 2)), 1.0, 1e-5);
 
     qBDD_unprotect(leaf);
     qBDD_unprotect(circ);
@@ -449,7 +449,7 @@ static void stress_protect_thrash(void) {
     }
 
     forceGC();
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, 5), 1.0,
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, 5)), 1.0,
 #if defined(LEAF_BACKEND_DOUBLES)
         1e-3
 #else
@@ -475,7 +475,7 @@ static void stress_ghz_ladder(void) {
         gate_cnot(&circ, (uint32_t)(i + 1), (uint32_t)i);
         forceGC();
         walk_check_terminals(circ, 20000);
-        TEST_ASSERT_NEAR(qBDD_total_prob(circ, n), 1.0, 1e-5);
+        TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, n)), 1.0, 1e-5);
     }
 
     /* Undo with reverse CNOTs + H */
@@ -485,7 +485,7 @@ static void stress_ghz_ladder(void) {
     }
     gate_h(&circ, 0);
     forceGC();
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, n), 1.0, 1e-5);
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, n)), 1.0, 1e-5);
 
     qBDD_unprotect(circ);
     freePackage();
@@ -514,7 +514,7 @@ static void stress_mixed_toffoli_gc(void) {
         forceGC();
 
         walk_check_terminals(circ, 30000);
-        TEST_ASSERT_NEAR(qBDD_total_prob(circ, 6), 1.0,
+        TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, 6)), 1.0,
 #if defined(LEAF_BACKEND_DOUBLES)
             5e-3
 #else
@@ -543,7 +543,7 @@ static void stress_replace_root_gc(void) {
             /* old should not be required; touching circ terminals must work */
             walk_check_terminals(circ, 10000);
         }
-        TEST_ASSERT_NEAR(qBDD_total_prob(circ, 4), 1.0, 1e-4);
+        TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, 4)), 1.0, 1e-4);
     }
 
     qBDD_unprotect(circ);

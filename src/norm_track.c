@@ -76,9 +76,8 @@ void norm_track_record(const char *gate_name, qBDD circ, int n) {
     if (!s_csv) return;
 
     prob_t total = qBDD_total_prob(circ, n);
-    leaf_scalar_t total_s = LEAF_S_FROM_PROB(total);
-    leaf_primitive_t total_primitive = { total_s };
-    leaf_scalar_t dev = LEAF_ABS(LEAF_S_SUB(total_s, LEAF_ONE));
+    leaf_primitive_t total_primitive = { total };
+    leaf_scalar_t dev = LEAF_ABS(LEAF_S_SUB(total, LEAF_ONE));
     leaf_primitive_t dev_primitive = { dev };
 
     if (LEAF_S_LT(max_dev, dev)) {

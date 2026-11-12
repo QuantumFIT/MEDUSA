@@ -190,7 +190,7 @@ int main(int argc, char *argv[])
     // Output:
     {
         double tp = sim_successful
-            ? (double)qBDD_total_prob(circ, info.n_qubits) : 0.0;
+            ? PROB_TO_D(qBDD_total_prob(circ, info.n_qubits)) : 0.0;
         MEDUSA_DBG(.cat = MEDUSA_DBG_NORM, .evt = "sim_done", .where = "main",
                    .use_bdd = 1, .bdd = (int)circ, .ref = medusa_dbg_bdd_ref((int)circ),
                    .is_false = qBDD_isFalse(circ), .leaves = qBDD_leafcount(circ),
