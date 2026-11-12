@@ -210,8 +210,6 @@ static inline leaf_scalar_t leaf_abs_q(leaf_scalar_t x) {
 #define LEAF_S_IS_ZERO(x)     ((x) == LEAF_ZERO)
 #define LEAF_S_TO_DOUBLE(x)   ((double)(x))
 #define LEAF_S_FROM_DOUBLE(d) ((leaf_scalar_t)(d))
-#define LEAF_S_TO_PROB(x)     (x)
-#define LEAF_S_FROM_PROB(p)   (p)
 
 static inline leaf_scalar_t leaf_sqrt2inv_pow(long k) {
     return LEAF_POW(LEAF_SQRT2INV, (leaf_scalar_t)k);

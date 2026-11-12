@@ -9,14 +9,21 @@
  * bit for bit. float128_t is a struct, so C operators do not apply: this
  * header provides the *_generic API and snap() on top of SoftFloat calls, and
  * the LEAF_S_* macros that the few call sites outside it use instead of
- * operators. Probabilities (prob_t) are double in this mode.
+ * operators; probabilities (prob_t, mtbdd.h) are float128_t too, with
+ * mtbdd.h's PROB_* macros for their arithmetic.
  */
 #ifndef LEAF_F128_SOFT_H
 #define LEAF_F128_SOFT_H
 
 #include <string.h>
 #define SOFTFLOAT_FAST_INT64   /* what lib/softfloat is built with: pass-by-value API */
+#ifdef __cplusplus      /* gates.c is C++ with USE_CXX=1; softfloat.h is plain C */
+extern "C" {
+#endif
 #include <softfloat.h>
+#ifdef __cplusplus
+}
+#endif
 
 #define LEAF_SCALAR_IS_SOFT 1
 
@@ -25,7 +32,12 @@ typedef float128_t      leaf_scalar_t;
 
 /* Constants as binary128 bit patterns {low, high} (little-endian, as
  * SoftFloat stores them), equal to the q-suffixed literals of the
- * __float128 build. LEAF_REL_EPS / LEAF_ABS_EPS cannot be overridden here. */
+ * __float128 build. An override of the epsilons (make LEAF_ABS_EPS=...) is a
+ * C literal, which cannot be turned into such a pattern here; refuse it rather
+ * than ignore it. */
+#if defined(LEAF_ABS_EPS) || defined(LEAF_REL_EPS)
+#error "LEAF_ABS_EPS / LEAF_REL_EPS cannot be overridden in the SoftFloat f128 build (SOFTFLOAT=1): its constants are fixed binary128 bit patterns"
+#endif
 #define LEAF_F128_BITS(lo, hi) ((float128_t){ { (lo), (hi) } })
 #define LEAF_ZERO        LEAF_F128_BITS(0, 0)
 #define LEAF_ONE         LEAF_F128_BITS(0, 0x3fff000000000000ULL)
@@ -33,12 +45,25 @@ typedef float128_t      leaf_scalar_t;
 #define LEAF_ABS_EPS     LEAF_F128_BITS(0x2974cfbc31db4b03ULL, 0x3f949f623d5a8a73ULL) /* 1e-32 */
 #define LEAF_INV_ABS_EPS LEAF_F128_BITS(0x6b3be04000000000ULL, 0x40693b8b5b5056e1ULL) /* 1/fl(1e-32) */
 #define LEAF_SQRT2INV    LEAF_F128_BITS(0xc908b2fb1366ea95ULL, 0x3ffe6a09e667f3bcULL) /* 1/sqrt(2) */
+#define LEAF_SQRT2INV_X2 LEAF_F128_BITS(0xc908b2fb1366ea95ULL, 0x3fff6a09e667f3bcULL) /* 2 * the above */
+
+/* float64_t is SoftFloat's bit container for a double: same size, same bits. */
+#ifdef __cplusplus
+static_assert(sizeof(float64_t) == sizeof(double), "float64_t must hold a double");
+#else
+_Static_assert(sizeof(float64_t) == sizeof(double), "float64_t must hold a double");
+#endif
 
 static inline float128_t leaf_s_from_d(double d) {
-    float64_t f; memcpy(&f, &d, sizeof d); return f64_to_f128(f);
+    float64_t f;
+    memcpy(&f, &d, sizeof f);  // Flawfinder: ignore (same size, asserted above)
+    return f64_to_f128(f);
 }
 static inline double leaf_s_to_d(float128_t x) {
-    float64_t f = f128_to_f64(x); double d; memcpy(&d, &f, sizeof d); return d;
+    float64_t f = f128_to_f64(x);
+    double d;
+    memcpy(&d, &f, sizeof d);  // Flawfinder: ignore (same size, asserted above)
+    return d;
 }
 static inline float128_t leaf_s_neg(float128_t x) { x.v[1] ^= (uint64_t)1 << 63; return x; }
 static inline float128_t leaf_s_abs(float128_t x) { x.v[1] &= ~((uint64_t)1 << 63); return x; }
@@ -57,14 +82,27 @@ static inline float128_t leaf_s_abs(float128_t x) { x.v[1] &= ~((uint64_t)1 << 6
 #define LEAF_S_IS_ZERO(x)    f128_eq((x), LEAF_ZERO)
 #define LEAF_S_TO_DOUBLE(x)  leaf_s_to_d(x)
 #define LEAF_S_FROM_DOUBLE(d) leaf_s_from_d(d)
-#define LEAF_S_TO_PROB(x)    leaf_s_to_d(x)
-#define LEAF_S_FROM_PROB(p)  leaf_s_from_d(p)
 
-/* (1/sqrt 2)^k, exactly rounded: 2^-q, times 1/sqrt 2 when k is odd. */
+/* 2^e as a binary128: +inf above the largest exponent, subnormal below the
+ * smallest normal one (down to 2^-16494), and 0 below that. */
+static inline float128_t leaf_s_pow2(long e) {
+    if (e > 16383)  return LEAF_F128_BITS(0, (uint64_t)0x7fff << 48);
+    if (e >= -16382) return LEAF_F128_BITS(0, (uint64_t)(e + 16383) << 48);
+    if (e < -16494) return LEAF_ZERO;
+    long b = e + 16494;                                 /* significand bit 0..111 */
+    return b >= 64 ? LEAF_F128_BITS(0, (uint64_t)1 << (b - 64))
+                   : LEAF_F128_BITS((uint64_t)1 << b, 0);
+}
+
+/* (1/sqrt 2)^k, exactly rounded: 2^-q, times 1/sqrt 2 when k is odd; for the
+ * largest odd results 2^-q itself overflows, so 2^(-q-1) * sqrt 2 instead (the
+ * same product). Out of range it overflows to +inf and underflows through the
+ * subnormals to 0, as powf128 does. */
 static inline float128_t leaf_sqrt2inv_pow(long k) {
-    long q = k >= 0 ? k / 2 : -((-k + 1) / 2);       /* floor(k / 2) */
-    float128_t r = LEAF_F128_BITS(0, (uint64_t)(16383 - q) << 48);
-    return (k - 2 * q) ? f128_mul(r, LEAF_SQRT2INV) : r;
+    long q = k / 2 - (k % 2 < 0);                       /* floor(k / 2), no overflow */
+    if (k % 2 == 0) return leaf_s_pow2(-q);
+    if (-q > 16383) return f128_mul(leaf_s_pow2(-q - 1), LEAF_SQRT2INV_X2);
+    return f128_mul(leaf_s_pow2(-q), LEAF_SQRT2INV);
 }
 
 #define LEAF_SCALAR_HASH_BYTES sizeof(leaf_scalar_t)

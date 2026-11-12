@@ -60,11 +60,11 @@ static void leaf_s_to_str(float128_t x, char *buf, size_t bufsize) {
     unsigned e = (unsigned)(x.v[1] >> 48) & 0x7fff;
     uint64_t hi = x.v[1] & 0xffffffffffffULL, lo = x.v[0];
     if (e == 0x7fff) {
-        snprintf(buf, bufsize, (hi | lo) ? "nan" : (neg ? "-inf" : "inf"));
+        snprintf(buf, bufsize, "%s", (hi | lo) ? "nan" : (neg ? "-inf" : "inf"));
         return;
     }
     if (e == 0 && (hi | lo) == 0) {
-        snprintf(buf, bufsize, neg ? "-0" : "0");
+        snprintf(buf, bufsize, "%s", neg ? "-0" : "0");
         return;
     }
     mpz_t num, den, q, r, lim;

@@ -56,7 +56,7 @@ static bool sim_path(const char *path, qBDD *out, int *n_qubits)
 }
 
 /** Probability of one computational-basis state (bits[i] in {'0','1'}). */
-static prob_t basis_prob(qBDD t, const char *bits, int n)
+static double basis_prob(qBDD t, const char *bits, int n)
 {
     (void)n;
     while (!qBDD_isTerminal(t) && !qBDD_isFalse(t)) {
@@ -68,7 +68,7 @@ static prob_t basis_prob(qBDD t, const char *bits, int n)
     }
     if (qBDD_isFalse(t))
         return 0.0;
-    return (prob_t)LEAF_S_TO_PROB(qBDD_calculateProb(t));
+    return PROB_TO_D(qBDD_calculateProb(t));
 }
 
 static void fill_zeros(char *bits, int n)
@@ -93,16 +93,16 @@ static void grover_marked_bits(char *bits, int n_search, int n_total)
 }
 
 /** Max basis-state probability (enumerates all 2^n; n must be small). */
-static prob_t max_basis_prob(qBDD circ, int n, char *out_bits)
+static double max_basis_prob(qBDD circ, int n, char *out_bits)
 {
-    prob_t best = 0.0;
+    double best = 0.0;
     char bits[64];
     bits[n] = '\0';
     const int N = 1 << n;
     for (int s = 0; s < N; s++) {
         for (int i = 0; i < n; i++)
             bits[i] = ((s >> i) & 1) ? '1' : '0';
-        prob_t p = basis_prob(circ, bits, n);
+        double p = basis_prob(circ, bits, n);
         if (p > best) {
             best = p;
             if (out_bits)
@@ -124,7 +124,7 @@ static void test_bv_recovers_secret(void)
         int n = 0;
         TEST_ASSERT(sim_path("benchmarks/no-measure/BernsteinVazirani/01.qasm", &circ, &n));
         TEST_ASSERT(n == 2);
-        TEST_ASSERT_NEAR(qBDD_total_prob(circ, n), 1.0, SEM_EPS(1e-8));
+        TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, n)), 1.0, SEM_EPS(1e-8));
         TEST_ASSERT_NEAR(basis_prob(circ, "11", n), 1.0, SEM_EPS(1e-6));
         TEST_ASSERT_NEAR(basis_prob(circ, "00", n), 0.0, SEM_EPS(1e-6));
         TEST_ASSERT_NEAR(basis_prob(circ, "01", n), 0.0, SEM_EPS(1e-6));
@@ -141,7 +141,7 @@ static void test_bv_recovers_secret(void)
         int n = 0;
         TEST_ASSERT(sim_path("benchmarks/no-measure/BernsteinVazirani/05.qasm", &circ, &n));
         TEST_ASSERT(n == 6);
-        TEST_ASSERT_NEAR(qBDD_total_prob(circ, n), 1.0, SEM_EPS(1e-7));
+        TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, n)), 1.0, SEM_EPS(1e-7));
         TEST_ASSERT_NEAR(basis_prob(circ, "101011", n), 1.0, SEM_EPS(1e-5));
         TEST_ASSERT(basis_prob(circ, "000000", n) < SEM_EPS(1e-5));
         deleteCircuit(&circ);
@@ -183,8 +183,8 @@ static void test_reversible_returns_zero(void)
         TEST_ASSERT(n > 0 && n < 64);
         char bits[64];
         fill_zeros(bits, n);
-        TEST_ASSERT_NEAR(qBDD_total_prob(circ, n), 1.0, SEM_EPS(1e-7));
-        prob_t p0 = basis_prob(circ, bits, n);
+        TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, n)), 1.0, SEM_EPS(1e-7));
+        double p0 = basis_prob(circ, bits, n);
         TEST_ASSERT_MSG(fabs((double)p0 - 1.0) < SEM_EPS(1e-5), files[i]);
         deleteCircuit(&circ);
         freePackage();
@@ -203,14 +203,14 @@ static void test_grover_benchmark_marked_is_mode(void)
         int n = 0;
         TEST_ASSERT(sim_path("benchmarks/no-measure/LP-Grover/05.qasm", &circ, &n));
         TEST_ASSERT(n == 10);
-        TEST_ASSERT_NEAR(qBDD_total_prob(circ, n), 1.0, SEM_EPS(1e-6));
+        TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, n)), 1.0, SEM_EPS(1e-6));
 
         char marked[64], best_bits[64];
         grover_marked_bits(marked, 5, n);
         TEST_ASSERT(strcmp(marked, "0101010000") == 0);
 
-        prob_t p_marked = basis_prob(circ, marked, n);
-        prob_t p_max = max_basis_prob(circ, n, best_bits);
+        double p_marked = basis_prob(circ, marked, n);
+        double p_max = max_basis_prob(circ, n, best_bits);
 
         TEST_ASSERT_NEAR(p_marked, p_max, SEM_EPS(1e-6));
         TEST_ASSERT_MSG(p_marked > 0.9,
@@ -219,7 +219,7 @@ static void test_grover_benchmark_marked_is_mode(void)
         char wrong[64];
         memcpy(wrong, marked, (size_t)n + 1);
         wrong[1] = '0'; /* 01010 → 00010, unmarked */
-        prob_t p_wrong = basis_prob(circ, wrong, n);
+        double p_wrong = basis_prob(circ, wrong, n);
         TEST_ASSERT_MSG(p_marked > p_wrong,
             "marked state must beat an unmarked neighbor");
 
@@ -240,8 +240,8 @@ static void test_grover_benchmark_marked_is_mode(void)
             TEST_ASSERT(n == 12);
             char marked[64];
             grover_marked_bits(marked, 6, n);
-            prob_t p_marked = basis_prob(circ, marked, n);
-            prob_t p_max = max_basis_prob(circ, n, NULL);
+            double p_marked = basis_prob(circ, marked, n);
+            double p_max = max_basis_prob(circ, n, NULL);
             TEST_ASSERT_NEAR(p_marked, p_max, SEM_EPS(1e-6));
             TEST_ASSERT(p_marked > 0.9);
             deleteCircuit(&circ);
@@ -260,9 +260,9 @@ static void test_mogrover_peak_on_data(void)
     int n = 0;
     TEST_ASSERT(sim_path("benchmarks/no-measure/MOGrover/03.qasm", &circ, &n));
     TEST_ASSERT(n == 9);
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, n), 1.0, SEM_EPS(1e-6));
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, n)), 1.0, SEM_EPS(1e-6));
 
-    prob_t best = max_basis_prob(circ, n, NULL);
+    double best = max_basis_prob(circ, n, NULL);
     const double uniform = 1.0 / (double)(1 << n);
     TEST_ASSERT_MSG(best > uniform * 8.0,
         "MOGrover should concentrate probability well above uniform");
@@ -283,7 +283,7 @@ static void test_quantum_counting_not_collapsed_wrongly(void)
     TEST_ASSERT(sim_path(
         "benchmarks/no-measure/LP-QuantumCounting/07_03_05_0.qasm", &circ, &n));
     TEST_ASSERT(n == 11);
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, n), 1.0, SEM_EPS(1e-6));
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, n)), 1.0, SEM_EPS(1e-6));
 
     /*
      * This instance ends in a near-uniform / constant-amplitude MTBDD.
@@ -292,7 +292,7 @@ static void test_quantum_counting_not_collapsed_wrongly(void)
      */
     char zero[64];
     fill_zeros(zero, n);
-    prob_t p0 = basis_prob(circ, zero, n);
+    double p0 = basis_prob(circ, zero, n);
     const double uniform = 1.0 / (double)(1ULL << n);
     /* Constant-leaf case: every state has ~uniform probability */
     TEST_ASSERT_NEAR(p0, uniform, SEM_EPS(uniform * 0.5));
@@ -312,11 +312,11 @@ static void test_period_finding_unit_and_structured(void)
     TEST_ASSERT(sim_path(
         "benchmarks/no-measure/LP-PeriodFinding/07_03_05_0.qasm", &circ, &n));
     TEST_ASSERT(n > 0);
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, n), 1.0, SEM_EPS(1e-6));
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, n)), 1.0, SEM_EPS(1e-6));
 
     char zero[64];
     fill_zeros(zero, n);
-    prob_t p0 = basis_prob(circ, zero, n);
+    double p0 = basis_prob(circ, zero, n);
     /* Period finding should leave a non-trivial superposition. */
     TEST_ASSERT(p0 < 0.99);
 

@@ -237,13 +237,13 @@ static bool sim_path_symb(const char *path, qBDD *out, int *n_qubits) {
     return ok;
 }
 
-static prob_t basis_prob(qBDD t, const char *bits) {
+static double basis_prob(qBDD t, const char *bits) {
     while (!qBDD_isTerminal(t) && !qBDD_isFalse(t)) {
         uint32_t v = (uint32_t)qBDD_getVar(t);
         t = (bits[v] == '1') ? qBDD_getHigh(t) : qBDD_getLow(t);
     }
     if (qBDD_isFalse(t)) return 0.0;
-    return (prob_t)LEAF_S_TO_PROB(qBDD_calculateProb(t));
+    return PROB_TO_D(qBDD_calculateProb(t));
 }
 
 static int basis_amp(qBDD t, const char *bits, double *re, double *im) {
@@ -268,7 +268,7 @@ static void zeros_bits(char *bits, int n) {
 static void assert_is_all_zero(qBDD circ, int n, double eps, const char *ctx) {
     char bits[META_MAX_QUBITS + 1];
     zeros_bits(bits, n);
-    TEST_ASSERT_NEAR(qBDD_total_prob(circ, n), 1.0, eps);
+    TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, n)), 1.0, eps);
     TEST_ASSERT_MSG(fabs((double)basis_prob(circ, bits) - 1.0) <= eps, ctx);
 }
 
