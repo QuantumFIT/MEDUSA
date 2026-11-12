@@ -86,8 +86,9 @@ typedef long double     leaf_scalar_t;
 /* GCC's libquadmath: missing under clang and on arm64 macOS. */
 #if defined(__has_include) && !__has_include(<quadmath.h>)
 #error "LEAF_FLOAT_TYPE=3 (__float128, the default) needs GCC's libquadmath, which this compiler lacks; build another leaf type, e.g. f64 (make buddy_doubles_f64, or -DMEDUSA_FLOAT_TYPES=f64 with CMake)"
-#endif
+#else
 #include <quadmath.h>
+#endif
 typedef __float128      leaf_primitive_t[1];
 typedef __float128      leaf_scalar_t;
 #define LEAF_ROUND      roundq
