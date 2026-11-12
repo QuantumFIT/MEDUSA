@@ -113,8 +113,10 @@ static void test_format_fixed(void) {
 }
 
 #ifdef HAVE_NATIVE_F128
-static __float128 native(float128_t x) { __float128 f; memcpy(&f, &x, sizeof f); return f; }
-static float128_t soft(__float128 f) { float128_t x; memcpy(&x, &f, sizeof x); return x; }
+/* the same 16 bytes, little-endian {lo, hi} either way */
+typedef union { float128_t s; __float128 n; } f128_pun;
+static __float128 native(float128_t x) { f128_pun p = { .s = x }; return p.n; }
+static float128_t soft(__float128 f) { f128_pun p = { .n = f }; return p.s; }
 
 static void check_format_native(float128_t x, int *bad) {
     char a[64], b[64];

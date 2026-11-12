@@ -47,23 +47,15 @@ typedef float128_t      leaf_scalar_t;
 #define LEAF_SQRT2INV    LEAF_F128_BITS(0xc908b2fb1366ea95ULL, 0x3ffe6a09e667f3bcULL) /* 1/sqrt(2) */
 #define LEAF_SQRT2INV_X2 LEAF_F128_BITS(0xc908b2fb1366ea95ULL, 0x3fff6a09e667f3bcULL) /* 2 * the above */
 
-/* float64_t is SoftFloat's bit container for a double: same size, same bits. */
-#ifdef __cplusplus
-static_assert(sizeof(float64_t) == sizeof(double), "float64_t must hold a double");
-#else
-_Static_assert(sizeof(float64_t) == sizeof(double), "float64_t must hold a double");
-#endif
-
+/* float64_t is SoftFloat's bit container for a double: { uint64_t v }. */
 static inline float128_t leaf_s_from_d(double d) {
-    float64_t f;
-    memcpy(&f, &d, sizeof f);  // Flawfinder: ignore (same size, asserted above)
+    union { double d; uint64_t u; } c = { d };
+    float64_t f = { c.u };
     return f64_to_f128(f);
 }
 static inline double leaf_s_to_d(float128_t x) {
-    float64_t f = f128_to_f64(x);
-    double d;
-    memcpy(&d, &f, sizeof d);  // Flawfinder: ignore (same size, asserted above)
-    return d;
+    union { uint64_t u; double d; } c = { f128_to_f64(x).v };
+    return c.d;
 }
 static inline float128_t leaf_s_neg(float128_t x) { x.v[1] ^= (uint64_t)1 << 63; return x; }
 static inline float128_t leaf_s_abs(float128_t x) { x.v[1] &= ~((uint64_t)1 << 63); return x; }

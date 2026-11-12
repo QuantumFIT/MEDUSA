@@ -54,69 +54,98 @@ void inv_sqrt2_pow_generic(leaf_primitive_t x, mpz_t k) {
  * prints it: the value M * 2^ex is exact, so 30 significant digits are found
  * by integer division with round-half-even, then laid out by the %g rules
  * (exponent form below 1e-4 or from 1e30, trailing zeros dropped). */
-static void leaf_s_to_str(float128_t x, char *buf, size_t bufsize) {
-    enum { P = 30 };
-    int neg = (int)(x.v[1] >> 63);
+enum { LEAF_S_DIGITS = 30 };
+
+/* The significand M of a finite nonzero x into num; returns ex, x = M * 2^ex.
+ * M = [implicit 1] . hi (48 bits) . lo (64 bits), built in 32-bit pieces so
+ * it does not depend on the width of unsigned long. */
+static long leaf_s_significand(mpz_t num, float128_t x) {
     unsigned e = (unsigned)(x.v[1] >> 48) & 0x7fff;
     uint64_t hi = x.v[1] & 0xffffffffffffULL, lo = x.v[0];
-    if (e == 0x7fff) {
-        snprintf(buf, bufsize, "%s", (hi | lo) ? "nan" : (neg ? "-inf" : "inf"));
-        return;
-    }
-    if (e == 0 && (hi | lo) == 0) {
-        snprintf(buf, bufsize, "%s", neg ? "-0" : "0");
-        return;
-    }
-    mpz_t num, den, q, r, lim;
-    mpz_inits(num, den, q, r, lim, NULL);
-    /* significand = [implicit 1] . hi (48 bits) . lo (64 bits), built in
-     * 32-bit pieces so it does not depend on the width of unsigned long */
     mpz_set_ui(num, e ? 1 : 0);
     mpz_mul_2exp(num, num, 16);  mpz_add_ui(num, num, (unsigned long)(hi >> 32));
     mpz_mul_2exp(num, num, 32);  mpz_add_ui(num, num, (unsigned long)(hi & 0xffffffffULL));
     mpz_mul_2exp(num, num, 32);  mpz_add_ui(num, num, (unsigned long)(lo >> 32));
     mpz_mul_2exp(num, num, 32);  mpz_add_ui(num, num, (unsigned long)(lo & 0xffffffffULL));
-    long ex = (long)(e ? e : 1) - 16383 - 112;
-    /* decimal exponent estimate, corrected below */
+    return (long)(e ? e : 1) - 16383 - 112;
+}
+
+/* q = round-half-even(M * 2^ex * 10^sc) */
+static void leaf_s_scaled(mpz_t q, const mpz_t num, long ex, long sc) {
+    mpz_t den, r;
+    mpz_inits(den, r, NULL);
+    mpz_set(q, num);
+    mpz_set_ui(den, 1);
+    if (ex >= 0) mpz_mul_2exp(q, q, (mp_bitcnt_t)ex);
+    else         mpz_mul_2exp(den, den, (mp_bitcnt_t)-ex);
+    mpz_ui_pow_ui(r, 10, (unsigned long)(sc >= 0 ? sc : -sc));
+    if (sc >= 0) mpz_mul(q, q, r);
+    else         mpz_mul(den, den, r);
+    mpz_tdiv_qr(q, r, q, den);
+    mpz_mul_2exp(r, r, 1);
+    int c = mpz_cmp(r, den);
+    if (c > 0 || (c == 0 && mpz_odd_p(q))) mpz_add_ui(q, q, 1);
+    mpz_clears(den, r, NULL);
+}
+
+/* The LEAF_S_DIGITS significant digits of M * 2^ex into d (trailing zeros
+ * dropped, as %g does); returns the decimal exponent E of the first digit. */
+static long leaf_s_decimal(char *d, const mpz_t num, long ex) {
+    mpz_t q, lim, low;
+    mpz_inits(q, lim, low, NULL);
+    mpz_ui_pow_ui(lim, 10, LEAF_S_DIGITS);
+    mpz_tdiv_q_ui(low, lim, 10);
+    /* estimate from the bit length, then correct by one where it is off */
     long E = (long)floor(((double)mpz_sizeinbase(num, 2) - 1 + (double)ex) * 0.30102999566398120);
-    mpz_ui_pow_ui(lim, 10, P);
     for (;;) {
-        long sc = P - 1 - E;                    /* q = round(v * 10^sc) */
-        mpz_set(q, num);
-        mpz_set_ui(den, 1);
-        if (ex >= 0) mpz_mul_2exp(q, q, (mp_bitcnt_t)ex);
-        else         mpz_mul_2exp(den, den, (mp_bitcnt_t)-ex);
-        if (sc >= 0) { mpz_ui_pow_ui(r, 10, (unsigned long)sc);  mpz_mul(q, q, r); }
-        else         { mpz_ui_pow_ui(r, 10, (unsigned long)-sc); mpz_mul(den, den, r); }
-        mpz_tdiv_qr(q, r, q, den);
-        mpz_mul_2exp(r, r, 1);
-        int c = mpz_cmp(r, den);
-        if (c > 0 || (c == 0 && mpz_odd_p(q))) mpz_add_ui(q, q, 1);
-        if (mpz_cmp(q, lim) >= 0) { E++; continue; }          /* 10^P digits */
-        mpz_tdiv_q_ui(r, lim, 10);
-        if (mpz_cmp(q, r) < 0) { E--; continue; }             /* P-1 digits */
-        break;
+        leaf_s_scaled(q, num, ex, LEAF_S_DIGITS - 1 - E);
+        if (mpz_cmp(q, lim) >= 0)      E++;     /* one digit too many */
+        else if (mpz_cmp(q, low) < 0)  E--;     /* one too few */
+        else break;
     }
-    char d[P + 1];
-    mpz_get_str(d, 10, q);                      /* exactly P digits */
-    int n = P;
-    while (n > 1 && d[n - 1] == '0') n--;       /* %g drops trailing zeros */
+    mpz_get_str(d, 10, q);
+    int n = LEAF_S_DIGITS;
+    while (n > 1 && d[n - 1] == '0') n--;
     d[n] = '\0';
+    mpz_clears(q, lim, low, NULL);
+    return E;
+}
+
+/* Lay the digits d (n of them, first at 10^E) out as %g does. */
+static void leaf_s_layout(char *buf, size_t bufsize, int neg, const char *d, long E) {
+    static const char zeros[] = "0000000000000000000000000000000000";  /* > LEAF_S_DIGITS + 3 */
     const char *sg = neg ? "-" : "";
-    char z[P + 5];                              /* zeros for fixed notation */
-    if (E < -4 || E >= P) {                     /* d[.ddd]e+XX */
+    long n = (long)strlen(d);
+    if (E < -4 || E >= LEAF_S_DIGITS)           /* d[.ddd]e+XX */
         snprintf(buf, bufsize, "%s%c%s%se%c%02ld", sg, d[0], n > 1 ? "." : "", d + 1,
                  E < 0 ? '-' : '+', E < 0 ? -E : E);
-    } else if (E < 0) {                         /* 0.000ddd */
-        memset(z, '0', (size_t)(-E - 1)); z[-E - 1] = '\0';
-        snprintf(buf, bufsize, "%s0.%s%s", sg, z, d);
-    } else if (n <= E + 1) {                    /* ddd000 */
-        memset(z, '0', (size_t)(E + 1 - n)); z[E + 1 - n] = '\0';
-        snprintf(buf, bufsize, "%s%s%s", sg, d, z);
-    } else {                                    /* ddd.ddd */
+    else if (E < 0)                             /* 0.000ddd */
+        snprintf(buf, bufsize, "%s0.%.*s%s", sg, (int)(-E - 1), zeros, d);
+    else if (n <= E + 1)                        /* ddd000 */
+        snprintf(buf, bufsize, "%s%s%.*s", sg, d, (int)(E + 1 - n), zeros);
+    else                                        /* ddd.ddd */
         snprintf(buf, bufsize, "%s%.*s.%s", sg, (int)(E + 1), d, d + E + 1);
+}
+
+static void leaf_s_to_str(float128_t x, char *buf, size_t bufsize) {
+    int neg = (int)(x.v[1] >> 63);
+    unsigned e = (unsigned)(x.v[1] >> 48) & 0x7fff;
+    int frac = (x.v[1] & 0xffffffffffffULL) != 0 || x.v[0] != 0;
+    if (e == 0x7fff) {
+        snprintf(buf, bufsize, "%s", frac ? "nan" : (neg ? "-inf" : "inf"));
+        return;
     }
-    mpz_clears(num, den, q, r, lim, NULL);
+    if (e == 0 && !frac) {
+        snprintf(buf, bufsize, "%s", neg ? "-0" : "0");
+        return;
+    }
+    char d[LEAF_S_DIGITS + 1];
+    mpz_t num;
+    mpz_init(num);
+    long ex = leaf_s_significand(num, x);
+    long E = leaf_s_decimal(d, num, ex);
+    mpz_clear(num);
+    leaf_s_layout(buf, bufsize, neg, d, E);
 }
 #endif
 
