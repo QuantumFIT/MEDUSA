@@ -167,7 +167,8 @@ medusa_harness(test_unit_htab test_unit_htab.c buddy_doubles_f128)
 medusa_c_test(unit_htab test_unit_htab LABELS pr)
 
 # ------------------------------------------------------------------------------
-# Shell suites (make test-cli / test-mosf / test-circuits / test-benchmarks)
+# Shell suites (make test-cli / test-mosf / test-circuits / test-benchmarks).
+# make test-build-config is not here: it checks the Makefile itself.
 # ------------------------------------------------------------------------------
 foreach(_gp IN LISTS _gate_paths)
   string(REPLACE "|" ";" _gp "${_gp}")

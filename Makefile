@@ -275,6 +275,7 @@ BSCRIPT_PATH       := benchmark-utils/scripts
         buddy_doubles_f32 buddy_doubles_f64 buddy_doubles_f80              \
         buddy_doubles_f128 buddy_doubles_all                               \
         test test-unit test-unit-htab test-unit-gmp test-cli test-mosf     \
+        test-build-config                                                  \
         test-unit-leaf-types                                               \
         test-circuits                                                      \
         test-benchmarks test-metamorphic                                   \
@@ -314,6 +315,7 @@ help:
 	@echo "  make test-unit-htab   unit tests for the hash table"
 	@echo "  make test-unit-gmp    unit tests for the GMP leaf primitive"
 	@echo "  make test-cli         CLI, parser diagnostics, long-number output"
+	@echo "  make test-build-config fat LTO, f128 without quadmath.h, GMP without libquadmath"
 	@echo "  make test-mosf        MOSF JSON input (needs USE_CXX=1, else skips)"
 	@echo "  make test-grover-sylvan  Grover matrix on Sylvan, every leaf type + GMP"
 	@echo "  make test-sylvan-all  test-sylvan + the slow metamorphic sweep"
@@ -473,8 +475,8 @@ TEST_STRESS_GMP_BIN  := $(BIN_DIR)/test_stress_gmp
 TEST_STRESS_GMP_OBJS := $(filter-out $(OBJ_DIR)/buddy_gmp/main.o, $(OBJS_BUDDY_GMP)) \
                         $(INTERFACE_OBJ_motobuddy) $(LEAF_OBJ_mpz) $(LEAF_OBJ_algebraic)
 
-test: test-unit test-unit-htab test-unit-gmp test-cli test-mosf test-circuits \
-      test-benchmarks test-metamorphic
+test: test-unit test-unit-htab test-unit-gmp test-build-config test-cli test-mosf \
+      test-circuits test-benchmarks test-metamorphic
 
 test-all: test test-sylvan
 
@@ -693,6 +695,12 @@ $(TEST_UNIT_GMP_BIN): $(TEST_UNIT_GMP_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 
 test-unit-gmp: buddy_gmp $(TEST_UNIT_GMP_BIN)
 	$(TEST_UNIT_GMP_BIN)
+
+# What this Makefile does with other compilers and C libraries (Apple clang's
+# fat-LTO refusal, a clang without quadmath.h, GMP links without libquadmath),
+# simulated on the CI's Linux/GCC. Inspects the GMP binaries, hence the deps.
+test-build-config: buddy_gmp $(TEST_UNIT_GMP_BIN)
+	bash $(TEST_DIR)/test_build_config.sh
 
 TEST_GROVER_SRC := $(TEST_DIR)/test_grover_matrix.c
 TEST_GROVER_BIN := $(BIN_DIR)/test_grover_$(FLOAT_SUFFIX)
