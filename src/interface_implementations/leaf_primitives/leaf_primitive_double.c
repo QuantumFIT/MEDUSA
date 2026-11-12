@@ -88,9 +88,10 @@ static void leaf_s_scaled(mpz_t q, const mpz_t num, long ex, long sc) {
     mpz_clears(den, r, NULL);
 }
 
-/* The LEAF_S_DIGITS significant digits of M * 2^ex into d (trailing zeros
- * dropped, as %g does); returns the decimal exponent E of the first digit. */
-static long leaf_s_decimal(char *d, const mpz_t num, long ex) {
+/* The LEAF_S_DIGITS significant digits of M * 2^ex into d, *n of them once
+ * trailing zeros are dropped (as %g does); returns the decimal exponent E of
+ * the first digit. */
+static long leaf_s_decimal(char *d, int *n, const mpz_t num, long ex) {
     mpz_t q, lim, low;
     mpz_inits(q, lim, low, NULL);
     mpz_ui_pow_ui(lim, 10, LEAF_S_DIGITS);
@@ -104,18 +105,17 @@ static long leaf_s_decimal(char *d, const mpz_t num, long ex) {
         else break;
     }
     mpz_get_str(d, 10, q);
-    int n = LEAF_S_DIGITS;
-    while (n > 1 && d[n - 1] == '0') n--;
-    d[n] = '\0';
+    *n = LEAF_S_DIGITS;
+    while (*n > 1 && d[*n - 1] == '0') (*n)--;
+    d[*n] = '\0';
     mpz_clears(q, lim, low, NULL);
     return E;
 }
 
 /* Lay the digits d (n of them, first at 10^E) out as %g does. */
-static void leaf_s_layout(char *buf, size_t bufsize, int neg, const char *d, long E) {
+static void leaf_s_layout(char *buf, size_t bufsize, int neg, const char *d, long n, long E) {
     static const char zeros[] = "0000000000000000000000000000000000";  /* > LEAF_S_DIGITS + 3 */
     const char *sg = neg ? "-" : "";
-    long n = (long)strlen(d);
     if (E < -4 || E >= LEAF_S_DIGITS)           /* d[.ddd]e+XX */
         snprintf(buf, bufsize, "%s%c%s%se%c%02ld", sg, d[0], n > 1 ? "." : "", d + 1,
                  E < 0 ? '-' : '+', E < 0 ? -E : E);
@@ -143,9 +143,10 @@ static void leaf_s_to_str(float128_t x, char *buf, size_t bufsize) {
     mpz_t num;
     mpz_init(num);
     long ex = leaf_s_significand(num, x);
-    long E = leaf_s_decimal(d, num, ex);
+    int n;
+    long E = leaf_s_decimal(d, &n, num, ex);
     mpz_clear(num);
-    leaf_s_layout(buf, bufsize, neg, d, E);
+    leaf_s_layout(buf, bufsize, neg, d, n, E);
 }
 #endif
 
