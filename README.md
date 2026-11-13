@@ -31,6 +31,27 @@ make
 ```
 `make help` lists all targets.
 
+### macOS (Apple Silicon)
+
+Apple's toolchain has no 128-bit floating-point type, so on macOS the default
+f128 leaves are computed with [Berkeley SoftFloat](https://github.com/ucb-bar/berkeley-softfloat-3)
+(`SOFTFLOAT=1`, the default there). Install the dependencies and build it once, next to MoToBuddy:
+```
+brew install gmp
+export CPATH="$(brew --prefix)/include" LIBRARY_PATH="$(brew --prefix)/lib"
+make init
+make init-softfloat
+make
+```
+Results are bit-identical to f128 on Linux, probabilities (measurement,
+`--norm-csv`) included, except that (1/√2)^k is computed exactly rather than
+with `powf128` (last-digit differences under `--symbolic`). The epsilons cannot
+be overridden (`make LEAF_ABS_EPS=...` stops with an error). SoftFloat is built
+with per-thread state (for Sylvan's worker threads); a `lib/softfloat` built
+before that change stops the build with a hint to run `make init-softfloat` again. Linux needs none
+of this: there f128 uses the compiler's binary128 type; `make SOFTFLOAT=1`
+builds the SoftFloat variant there too, for comparison.
+
 ### Build types
 
 | | flags | object tree | use |

@@ -85,6 +85,18 @@ ifeq ($(MEDUSA_DEBUG), 1)
   OBJ_TAG := $(OBJ_TAG)-dbglog
 endif
 
+# f128 on Berkeley SoftFloat (src/.../leaf_f128_soft.h), for targets with no
+# binary128 type. On by default only on macOS, where it needs
+# `make init-softfloat` once; Linux builds neither need nor use it.
+ifeq ($(shell uname -s),Darwin)
+  SOFTFLOAT ?= 1
+else
+  SOFTFLOAT ?= 0
+endif
+ifeq ($(SOFTFLOAT), 1)
+  OBJ_TAG := $(OBJ_TAG)-softfloat
+endif
+
 OBJ_DIR := $(OBJ_ROOT)/$(OBJ_TAG)
 
 SRCS             := $(wildcard $(SRC_DIR)/*.c)
@@ -120,6 +132,21 @@ LEAF_OBJ_algebraic           := $(OBJ_DIR)/leaf_algebraic_mpz.o
 CC     := gcc
 CXX    := g++
 CLIBS  := -lgmp -lpthread -lm
+
+# SoftFloat 3e, pinned. Its build directory is named Linux-x86_64-GCC, but it is
+# SoftFloat's generic 64-bit little-endian configuration and builds with any
+# GCC or clang (8086-SSE only selects NaN encodings, which MEDUSA never uses).
+SOFTFLOAT_REPO   := https://github.com/ucb-bar/berkeley-softfloat-3.git
+SOFTFLOAT_COMMIT := a0c6494cdc11865811dec815d5c0049fba9d82a8
+SOFTFLOAT_DIR    := $(LIB_DIR)/softfloat
+SOFTFLOAT_LIB    := $(SOFTFLOAT_DIR)/build/Linux-x86_64-GCC/softfloat.a
+# Its state (exception flags, rounding mode) is thread-local, for Sylvan's
+# worker threads: leaf_f128_soft.h declares it so, and the library must be
+# built to match. The stamp marks a library built that way by init-softfloat;
+# one built before is not, and gets the hint below instead of a link error.
+SOFTFLOAT_OPTS   := -DSOFTFLOAT_ROUND_ODD -DINLINE_LEVEL=5 -DSOFTFLOAT_FAST_DIV32TO16 \
+                    -DSOFTFLOAT_FAST_DIV64TO32 -DTHREAD_LOCAL=_Thread_local
+SOFTFLOAT_STAMP  := $(SOFTFLOAT_DIR)/.medusa-thread-local
 
 # Fat LTO objects carry ordinary code beside the IR, so an LTO=0 link can reuse
 # them. Only where the compiler accepts the flag: Apple clang rejects it, but
@@ -187,6 +214,15 @@ else ifeq ($(LEAF_FLOAT_TYPE), 2)
   FLOAT_SUFFIX := f80
 else ifeq ($(LEAF_FLOAT_TYPE), 3)
   FLOAT_SUFFIX := f128
+  ifeq ($(SOFTFLOAT), 1)
+    CFLAGS += -DLEAF_F128_SOFTFLOAT -I $(SOFTFLOAT_DIR)/source/include
+    # Only the float-leaf binaries link it (CLIBS_DOUBLES): a GMP build on
+    # macOS needs no SoftFloat. F128_DEPS gates their object directories, so
+    # a missing library stops the build with the hint below before any
+    # compile fails on a missing softfloat.h.
+    F128_LIBS := $(SOFTFLOAT_LIB)
+    F128_DEPS := $(SOFTFLOAT_STAMP)
+  endif
 else
   $(error Unknown LEAF_FLOAT_TYPE=$(LEAF_FLOAT_TYPE))
 endif
@@ -194,6 +230,7 @@ endif
 # libbuddy.a always includes mtbddop.cxx. C-linked buddy binaries still need
 # the C++ runtime (operator new/delete, std::function, __gxx_personality_v0).
 CLIBS += -lstdc++
+CLIBS_DOUBLES := $(CLIBS) $(F128_LIBS)
 
 # ==============================================================================
 # buddy_doubles paths
@@ -262,7 +299,7 @@ BSCRIPT_PATH       := benchmark-utils/scripts
 .PHONY: all help clean clean-all clean-artifacts clean-deps clean-benchmark \
         plot benchmarks                                                     \
         init init-motobuddy make-motobuddy download-motobuddy               \
-        init-sylvan make-sylvan download-sylvan                             \
+        init-sylvan make-sylvan download-sylvan init-softfloat              \
         make-sliqsim                                                        \
         sylvan_gmp sylvan_doubles buddy_mpfr                                \
         buddy_gmp                                                           \
@@ -270,6 +307,7 @@ BSCRIPT_PATH       := benchmark-utils/scripts
         buddy_doubles_f32 buddy_doubles_f64 buddy_doubles_f80              \
         buddy_doubles_f128 buddy_doubles_all                               \
         test test-unit test-unit-htab test-unit-gmp test-cli test-mosf     \
+        test-unit-softfloat                                               \
         test-build-config                                                  \
         test-unit-leaf-types                                               \
         test-circuits                                                      \
@@ -301,6 +339,7 @@ help:
 	@echo "  make LTO=0 ...        release without link-time optimisation"
 	@echo "  make init             clone/pin MoToBuddy @ $(MOTOBUDDY_COMMIT) and build"
 	@echo "  make init-sylvan      clone and build lib/sylvan (optional; Lace via CMake)"
+	@echo "  make init-softfloat   clone and build lib/softfloat (macOS only: f128 there)"
 	@echo "  make sylvan_gmp       algebraic GMP leaves on Sylvan (C path, no MOSF)"
 	@echo "  make sylvan_doubles   float leaves on Sylvan (LEAF_FLOAT_TYPE, default f128)"
 	@echo "  make test             MoToBuddy unit + circuits + benchmarks + metamorphic"
@@ -308,6 +347,7 @@ help:
 	@echo "  make test-sylvan-leaf-types  benchmark semantics on Sylvan, every leaf type"
 	@echo "  make test-sylvan-metamorphic Sylvan metamorphic sweep (slow; nightly)"
 	@echo "  make test-unit-htab   unit tests for the hash table"
+	@echo "  make test-unit-softfloat  SoftFloat f128 helpers and printing (SOFTFLOAT=1)"
 	@echo "  make test-unit-gmp    unit tests for the GMP leaf primitive"
 	@echo "  make test-cli         CLI, parser diagnostics, long-number output"
 	@echo "  make test-build-config fat LTO, f128 without libquadmath, GMP without libquadmath"
@@ -388,7 +428,7 @@ sylvan_doubles: $(OBJS_SYLVAN_DOUBLES) $(INTERFACE_OBJ_sylvan_doubles) \
 	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) -o $(BIN_DIR)/MEDUSA_sylvan_doubles_$(FLOAT_SUFFIX) \
 	    $(OBJS_SYLVAN_DOUBLES) $(INTERFACE_OBJ_sylvan_doubles) \
 	    $(LEAF_OBJ_sylvan_double) $(LEAF_OBJ_sylvan_reim) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS_DOUBLES)
 
 $(SYLVAN_GMP_OBJ_DIR)/interface_sylvan.o: $(BACKENDS_DIR)/interface_sylvan.c | $(SYLVAN_GMP_OBJ_DIR)
 	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) $(SYLVAN_GMP_CFLAGS) -MMD -MP -c $< -o $@
@@ -471,7 +511,8 @@ TEST_STRESS_GMP_OBJS := $(filter-out $(OBJ_DIR)/buddy_gmp/main.o, $(OBJS_BUDDY_G
                         $(INTERFACE_OBJ_motobuddy) $(LEAF_OBJ_mpz) $(LEAF_OBJ_algebraic)
 
 test: test-unit test-unit-htab test-unit-gmp test-build-config test-cli test-mosf \
-      test-circuits test-benchmarks test-metamorphic
+      test-circuits test-benchmarks test-metamorphic \
+      $(if $(filter 1,$(SOFTFLOAT)),test-unit-softfloat)
 
 test-all: test test-sylvan
 
@@ -546,7 +587,7 @@ $(TEST_UNIT_BIN): $(TEST_UNIT_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_UNIT_SRC) $(TEST_UNIT_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_DOUBLES)
 
 $(TEST_SEM_BIN): $(TEST_SEM_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
                  $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
@@ -555,7 +596,7 @@ $(TEST_SEM_BIN): $(TEST_SEM_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_SEM_SRC) $(TEST_UNIT_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_DOUBLES)
 
 # ------------------------------------------------------------------------------
 # Float leaf representations swept on Sylvan.
@@ -606,14 +647,14 @@ $(TEST_SEM_SYLVAN_BIN): $(TEST_SEM_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_OBJS)
 	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
 	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) \
 	    -o $@ $(TEST_SEM_SRC) $(TEST_SYLVAN_OBJS) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS_DOUBLES)
 
 $(TEST_META_SYLVAN_BIN): $(TEST_META_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_OBJS)
 	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
 	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
 	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) \
 	    -o $@ $(TEST_META_SRC) $(TEST_SYLVAN_OBJS) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS_DOUBLES)
 
 test-circuits:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
@@ -635,7 +676,7 @@ $(TEST_META_BIN): $(TEST_META_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_META_SRC) $(TEST_UNIT_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_DOUBLES)
 
 test-metamorphic:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
@@ -669,12 +710,28 @@ $(TEST_HTAB_BIN): $(TEST_HTAB_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_HTAB_SRC) $(TEST_UNIT_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_DOUBLES)
 
 test-unit-htab:
 	$(MAKE) buddy_doubles LEAF_FLOAT_TYPE=3
 	$(MAKE) $(TEST_HTAB_BIN) LEAF_FLOAT_TYPE=3
 	$(TEST_HTAB_BIN)
+
+# ------------------------------------------------------------------------------
+# SoftFloat f128 (SOFTFLOAT=1 only): leaf helpers, snap, (1/sqrt 2)^k and the
+# "%.30g" printing against fixed values, and against __float128 / glibc where
+# those exist too (x86_64 Linux). Needs only the leaf primitive object.
+# ------------------------------------------------------------------------------
+TEST_SOFTFLOAT_SRC := $(TEST_DIR)/test_unit_softfloat.c
+TEST_SOFTFLOAT_BIN := $(BIN_DIR)/test_unit_softfloat
+
+$(TEST_SOFTFLOAT_BIN): $(TEST_SOFTFLOAT_SRC) $(TEST_HARNESS_H) $(LEAF_OBJ_double) | $(F128_DEPS)
+	$(CC) $(INC_DIRS_BUDDY_DOUBLES) -I $(TEST_DIR) $(CFLAGS) $(BUDDY_DOUBLES_CFLAGS) \
+	    -o $@ $(TEST_SOFTFLOAT_SRC) $(LEAF_OBJ_double) $(CLIBS_DOUBLES)
+
+test-unit-softfloat:
+	$(MAKE) $(TEST_SOFTFLOAT_BIN) SOFTFLOAT=1 LEAF_FLOAT_TYPE=3
+	$(TEST_SOFTFLOAT_BIN)
 
 TEST_UNIT_GMP_SRC := $(TEST_DIR)/test_unit_leaf_gmp.c
 TEST_UNIT_GMP_BIN := $(BIN_DIR)/test_unit_leaf_gmp
@@ -708,7 +765,7 @@ $(TEST_GROVER_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_GROVER_SRC) $(TEST_UNIT_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_DOUBLES)
 
 $(TEST_GROVER_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_OBJS) \
                         $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
@@ -743,7 +800,7 @@ $(TEST_GROVER_SYLVAN_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_OB
 	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
 	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_DOUBLES_CFLAGS) \
 	    -o $@ $(TEST_GROVER_SRC) $(TEST_SYLVAN_OBJS) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS_DOUBLES)
 
 $(TEST_GROVER_SYLVAN_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_SYLVAN_GMP_OBJS)
 	@test -n "$(SYLVAN_LIB)" && test -n "$(LACE_LIB)" || \
@@ -889,7 +946,7 @@ $(TEST_STRESS_DOUBLES_BIN): $(TEST_STRESS_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJ
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_STRESS_SRC) $(TEST_UNIT_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_DOUBLES)
 
 $(TEST_STRESS_GMP_BIN): $(TEST_STRESS_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_OBJS) \
                         $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
@@ -926,7 +983,7 @@ buddy_doubles: $(SIM_MOSF_OBJ) \
                $(LEAF_OBJ_reim) \
                $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a | $(BIN_DIR)
 	$(LINKER) $(INC_DIRS_BUDDY_DOUBLES) $(CFLAGS) \
-	    -o $(BIN_DIR)/MEDUSA_buddy_doubles_$(FLOAT_SUFFIX) $^ $(CLIBS)
+	    -o $(BIN_DIR)/MEDUSA_buddy_doubles_$(FLOAT_SUFFIX) $^ $(CLIBS_DOUBLES)
 ifeq ($(LEAF_FLOAT_TYPE),3)
 	ln -sfn MEDUSA_buddy_doubles_$(FLOAT_SUFFIX) $(EXEC)
 endif
@@ -983,12 +1040,12 @@ $(DOUBLES_OBJ_DIR)/interface_motobuddy.o: $(BACKENDS_DIR)/interface_motobuddy.c 
 	    -MMD -MP -c $< -o $@
 
 $(OBJ_DIR)/leaf_primitive_double_$(FLOAT_SUFFIX).o: \
-        $(LEAF_PRIM_DIR)/leaf_primitive_double.c | $(OBJ_DIR)
+        $(LEAF_PRIM_DIR)/leaf_primitive_double.c | $(OBJ_DIR) $(F128_DEPS)
 	$(CC) $(INC_DIRS_BUDDY_DOUBLES) $(CFLAGS) $(BUDDY_DOUBLES_CFLAGS) \
 	    -MMD -MP -c $< -o $@
 
 $(OBJ_DIR)/leaf_reim_double_$(FLOAT_SUFFIX).o: \
-        $(LEAF_ALG_DIR)/leaf_reim_double.c | $(OBJ_DIR)
+        $(LEAF_ALG_DIR)/leaf_reim_double.c | $(OBJ_DIR) $(F128_DEPS)
 	$(CC) $(INC_DIRS_BUDDY_DOUBLES) $(CFLAGS) $(BUDDY_DOUBLES_CFLAGS) \
 	    -MMD -MP -c $< -o $@
 
@@ -1032,6 +1089,9 @@ $(BIN_DIR) $(OBJ_DIR) $(OBJ_DIR)/buddy_gmp $(DOUBLES_OBJ_DIR) \
 $(SYLVAN_GMP_OBJ_DIR) $(SYLVAN_DOUBLES_OBJ_DIR):
 	mkdir -p $@
 
+# Everything compiled against the float leaves waits for SoftFloat (if used).
+$(DOUBLES_OBJ_DIR) $(SYLVAN_DOUBLES_OBJ_DIR): | $(F128_DEPS)
+
 # ==============================================================================
 # Dependency inclusion
 # ==============================================================================
@@ -1061,6 +1121,18 @@ benchmarks:
 # ==============================================================================
 
 init: init-motobuddy
+
+# Only for f128 on macOS (SOFTFLOAT=1); see SOFTFLOAT_COMMIT above.
+init-softfloat:
+	rm -rf $(SOFTFLOAT_DIR)
+	git clone -q $(SOFTFLOAT_REPO) $(SOFTFLOAT_DIR)
+	git -C $(SOFTFLOAT_DIR) checkout -q $(SOFTFLOAT_COMMIT)
+	$(MAKE) -C $(dir $(SOFTFLOAT_LIB)) SPECIALIZE_TYPE=8086-SSE SOFTFLOAT_OPTS="$(SOFTFLOAT_OPTS)"
+	touch $(SOFTFLOAT_STAMP)
+
+$(SOFTFLOAT_STAMP):
+	@echo >&2 "error: f128 with SOFTFLOAT=1 needs SoftFloat, built with thread-local state" \
+	          "(a lib/softfloat from before that is not). Run: make init-softfloat"; exit 1
 
 init-motobuddy: make-motobuddy
 	mkdir -p $(LIB_DIR) && rm -rf $(LIB_DIR)/MoToBuddy && mv MoToBuddy $(LIB_DIR)
@@ -1121,7 +1193,7 @@ clean-artifacts:
 	       MEDUSA_sylvan_gmp MEDUSA_sylvan_doubles MEDUSA_sylvan_doubles_f32 \
 	       MEDUSA_sylvan_doubles_f64 MEDUSA_sylvan_doubles_f80 \
 	       MEDUSA_sylvan_doubles_f128 \
-	       $(TEST_UNIT_BIN) $(TEST_UNIT_GMP_BIN) $(TEST_HTAB_BIN) \
+	       $(TEST_UNIT_BIN) $(TEST_UNIT_GMP_BIN) $(TEST_HTAB_BIN) $(TEST_SOFTFLOAT_BIN) \
 	       $(TEST_STRESS_F64_BIN) $(TEST_STRESS_F128_BIN) \
 	       $(TEST_STRESS_GMP_BIN) \
 	       $(TEST_SEM_BIN) $(TEST_META_BIN) \

@@ -68,7 +68,7 @@ long get_coef(uint32_t start, uint32_t end, uint32_t target, char *curr_state)
 
 prob_t interface_prob_sum(qBDD t, uint32_t xt, char* curr_state, int n) {
      // we must immediately convert to float else the skip coefficient will be also squared
-    prob_t res = 0;
+    prob_t res = PROB_ZERO;
 
     // terminal cases
     if (qBDD_isFalse(t)) {
@@ -105,21 +105,21 @@ prob_t interface_prob_sum(qBDD t, uint32_t xt, char* curr_state, int n) {
     // recursion
     if (var_a == xt || curr_state[var_a] == '1') {
         res = interface_prob_sum(high, xt, curr_state, n);
-        res *= skip_high;
+        res = PROB_MUL(res, PROB_FROM_I(skip_high));
     }
     else if (curr_state[var_a] == '0') {
         res = interface_prob_sum(low, xt, curr_state, n);
-        res *= skip_low;
+        res = PROB_MUL(res, PROB_FROM_I(skip_low));
     }
     else {
         
         prob_t res_low = interface_prob_sum(low, xt, curr_state, n);
-        res_low *= skip_low;
+        res_low = PROB_MUL(res_low, PROB_FROM_I(skip_low));
 
         prob_t res_high = interface_prob_sum(high, xt, curr_state, n);
-        res_high *= skip_high;
+        res_high = PROB_MUL(res_high, PROB_FROM_I(skip_high));
 
-        res = res_low + res_high;
+        res = PROB_ADD(res_low, res_high);
     }
 
     return res;
@@ -127,13 +127,13 @@ prob_t interface_prob_sum(qBDD t, uint32_t xt, char* curr_state, int n) {
 
 static prob_t prob_sum_recurse(qBDD t, uint32_t var, int n, uint64_t path_count)
 {
-    if (qBDD_isFalse(t)) return 0.0;
+    if (qBDD_isFalse(t)) return PROB_ZERO;
 
     if (qBDD_isTerminal(t)) {
         prob_t p = qBDD_calculateProb(t);
         // variables from 'var' to 'n-1' are all skipped = 2^(n-var) equal paths
         uint64_t remaining = (var < n) ? (1ULL << (n - var)) : 1ULL;
-        return p * (prob_t)path_count * (prob_t)remaining;
+        return PROB_MUL(PROB_MUL(p, PROB_FROM_U(path_count)), PROB_FROM_U(remaining));
     }
 
     uint32_t var_a = qBDD_getVar(t);
@@ -147,7 +147,7 @@ static prob_t prob_sum_recurse(qBDD t, uint32_t var, int n, uint64_t path_count)
     qBDD low = qBDD_getLow(t);
     prob_t res_low  = prob_sum_recurse(low,  var_a + 1, n, path_count * multiplier);
 
-    return res_high + res_low;
+    return PROB_ADD(res_high, res_low);
 }
 
 /**

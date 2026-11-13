@@ -94,7 +94,7 @@ static const char *backend_name(void)
 
 static double to_p(prob_t x)
 {
-    return (double)x;
+    return PROB_TO_D(x);
 }
 
 static double basis_p(qBDD t, const char *bits)

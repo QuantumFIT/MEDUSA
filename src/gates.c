@@ -26,7 +26,7 @@ prob_t measure(qBDD *a, uint32_t xt, char *curr_state, int n)
         skip_coef = get_coef(0, var_t, xt, curr_state);
     }
     prob_t prob = interface_prob_sum(*a, xt, curr_state, n);
-    prob *= skip_coef;
+    prob = PROB_MUL(prob, PROB_FROM_I(skip_coef));
     
     return prob;
 }

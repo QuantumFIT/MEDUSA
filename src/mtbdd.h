@@ -24,8 +24,43 @@ typedef struct cnum {
     coef_t d;
 }cnum;
 
-/// Type for the probability that a given qubit is 1
+/// Type for the probability that a given qubit is 1: the leaves' own scalar,
+/// so measurement and norm tracking keep their precision.
 typedef leaf_scalar_t prob_t;
+
+/* Arithmetic on prob_t. SoftFloat's float128_t (leaf_f128_soft.h) is a struct
+ * without C operators, so code that computes with probabilities goes through
+ * these; everywhere else they are the plain operators and conversions, and
+ * compile to what the operators did. PROB_SQRT_D is a square root in double,
+ * as measure_all has always taken it. */
+#ifdef LEAF_SCALAR_IS_SOFT
+#define PROB_ZERO           LEAF_ZERO
+#define PROB_ONE            LEAF_ONE
+#define PROB_ADD(a, b)      f128_add((a), (b))
+#define PROB_SUB(a, b)      f128_sub((a), (b))
+#define PROB_MUL(a, b)      f128_mul((a), (b))
+#define PROB_DIV(a, b)      f128_div((a), (b))
+#define PROB_LE(a, b)       f128_le((a), (b))
+#define PROB_EQ(a, b)       f128_eq((a), (b))
+#define PROB_FROM_I(i)      i64_to_f128((int64_t)(i))
+#define PROB_FROM_U(u)      ui64_to_f128((uint64_t)(u))
+#define PROB_FROM_D(d)      leaf_s_from_d(d)
+#define PROB_TO_D(p)        leaf_s_to_d(p)
+#else
+#define PROB_ZERO           ((prob_t)0)
+#define PROB_ONE            ((prob_t)1)
+#define PROB_ADD(a, b)      ((a) + (b))
+#define PROB_SUB(a, b)      ((a) - (b))
+#define PROB_MUL(a, b)      ((a) * (b))
+#define PROB_DIV(a, b)      ((a) / (b))
+#define PROB_LE(a, b)       ((a) <= (b))
+#define PROB_EQ(a, b)       ((a) == (b))
+#define PROB_FROM_I(i)      ((prob_t)(i))
+#define PROB_FROM_U(u)      ((prob_t)(u))
+#define PROB_FROM_D(d)      ((prob_t)(d))
+#define PROB_TO_D(p)        ((double)(p))
+#endif
+#define PROB_SQRT_D(p)      PROB_FROM_D(sqrt(PROB_TO_D(p)))
 
 // ==========================================
 // Measurement operations:
