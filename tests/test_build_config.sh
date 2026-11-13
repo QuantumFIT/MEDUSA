@@ -19,6 +19,14 @@
 #   f128-no-binary128 f128 on a target with neither __float128 nor a 128-bit
 #                    long double (arm64 macOS) stops with its #error
 #   f128-no-quadmath-link the f128 links do not pass -lquadmath
+#   softfloat-off    SOFTFLOAT=0: the f128 commands carry neither
+#                    -DLEAF_F128_SOFTFLOAT nor softfloat.a
+#   softfloat-missing-lib  SOFTFLOAT=1 without a usable lib/softfloat (none, or
+#                    one built before its state was thread-local): the float
+#                    build stops with the init-softfloat hint before compiling
+#                    anything, and the GMP build does not need SoftFloat
+#   softfloat-eps-override  LEAF_ABS_EPS / LEAF_REL_EPS with SoftFloat is an
+#                    #error, not silently ignored
 #   gmp-no-quadmath  the GMP links do not pass -lquadmath, which macOS does
 #                    not have (checked on the commands: a Linux linker with
 #                    --as-needed drops it from the binary either way), and the
@@ -199,6 +207,66 @@ if [[ "$(wc -l < "${WORKDIR}/f128-links")" -ge 1 ]] && ! grep -q -- '-lquadmath'
     pass "f128-no-quadmath-link"
 else
     fail "f128-no-quadmath-link" "the f128 link passes -lquadmath (or was not found)"
+fi
+
+# ---------------------------------------------------------------------------
+# SoftFloat f128 (SOFTFLOAT=1, the default on macOS).
+# ---------------------------------------------------------------------------
+make --no-print-directory -n -B buddy_doubles LEAF_FLOAT_TYPE=3 SOFTFLOAT=0 2> /dev/null \
+    | sed -e ':a' -e '/\\$/N; s/\\\n//; ta' > "${WORKDIR}/sf-off.cmds" || true
+ncc=$(grep -c -- ' -c ' "${WORKDIR}/sf-off.cmds" || true)
+if [[ "${ncc}" -gt 0 ]] && ! grep -q -- 'LEAF_F128_SOFTFLOAT\|softfloat\.a' "${WORKDIR}/sf-off.cmds"; then
+    pass "softfloat-off"
+else
+    fail "softfloat-off" "${ncc} compile commands; SoftFloat flags or library present: $(grep -c -- 'LEAF_F128_SOFTFLOAT\|softfloat\.a' "${WORKDIR}/sf-off.cmds" || true)"
+fi
+
+# No SoftFloat at all, and one built before it had thread-local state (a
+# library but no stamp): both must stop at the hint, before any object exists.
+bad=""
+mkdir -p "${WORKDIR}/sf-stale/build/Linux-x86_64-GCC"
+: > "${WORKDIR}/sf-stale/build/Linux-x86_64-GCC/softfloat.a"
+for sf in sf-none sf-stale; do
+    rc=0
+    make --no-print-directory buddy_doubles LEAF_FLOAT_TYPE=3 SOFTFLOAT=1 \
+        SOFTFLOAT_DIR="${WORKDIR}/${sf}" OBJ_ROOT="${WORKDIR}/obj-${sf}" \
+        > "${WORKDIR}/${sf}.log" 2>&1 || rc=$?
+    nobj=$( { find "${WORKDIR}/obj-${sf}" -name '*.o' 2> /dev/null || true; } | wc -l)
+    if [[ "${rc}" -eq 0 ]] || ! grep -q 'Run: make init-softfloat' "${WORKDIR}/${sf}.log" \
+       || [[ "${nobj}" -ne 0 ]]; then
+        bad+=" ${sf}(exit ${rc}, ${nobj} objects)"
+    fi
+done
+# The GMP build with SoftFloat selected neither waits for it nor links it.
+rc=0
+make --no-print-directory -n -B buddy_gmp SOFTFLOAT=1 SOFTFLOAT_DIR="${WORKDIR}/sf-none" \
+    > "${WORKDIR}/sf-gmp.cmds" 2>&1 || rc=$?
+if [[ "${rc}" -ne 0 ]] || grep -q 'init-softfloat\|softfloat\.a' "${WORKDIR}/sf-gmp.cmds"; then
+    bad+=" buddy_gmp(exit ${rc})"
+fi
+if [[ -z "${bad}" ]]; then
+    pass "softfloat-missing-lib"
+else
+    fail "softfloat-missing-lib" "${bad# }"
+    tail -3 "${WORKDIR}/sf-none.log" 2> /dev/null || true
+fi
+
+# The epsilon check comes first in leaf_f128_soft.h, so this needs no SoftFloat.
+printf '#include "leaf_primitive_double.h"\nint main(void) { return 0; }\n' > "${WORKDIR}/sf-eps.c"
+bad=""
+for eps in -DLEAF_ABS_EPS=1e-40 -DLEAF_REL_EPS=1e-30; do
+    if gcc -fsyntax-only -DLEAF_F128_SOFTFLOAT -DLEAF_FLOAT_TYPE=3 "${eps}" \
+           -I src/interface_implementations/leaf_primitives "${WORKDIR}/sf-eps.c" \
+           > "${WORKDIR}/sf-eps.log" 2>&1 \
+       || ! grep -q 'cannot be overridden in the SoftFloat' "${WORKDIR}/sf-eps.log"; then
+        bad+=" ${eps}"
+    fi
+done
+if [[ -z "${bad}" ]]; then
+    pass "softfloat-eps-override"
+else
+    fail "softfloat-eps-override" "no #error for:${bad}"
+    head -3 "${WORKDIR}/sf-eps.log"
 fi
 
 # ---------------------------------------------------------------------------

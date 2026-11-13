@@ -15,6 +15,12 @@
 #ifndef LEAF_F128_SOFT_H
 #define LEAF_F128_SOFT_H
 
+/* An epsilon override (make LEAF_ABS_EPS=...) is a C literal; the constants
+ * below are binary128 bit patterns it cannot become. Refuse it, first thing. */
+#if defined(LEAF_ABS_EPS) || defined(LEAF_REL_EPS)
+#error "LEAF_ABS_EPS / LEAF_REL_EPS cannot be overridden in the SoftFloat f128 build (SOFTFLOAT=1): its constants are fixed binary128 bit patterns"
+#endif
+
 #include <string.h>
 #define SOFTFLOAT_FAST_INT64   /* what lib/softfloat is built with: pass-by-value API */
 /* SoftFloat's state (exception flags, rounding mode) is per thread: Sylvan
@@ -43,11 +49,8 @@ typedef float128_t      leaf_scalar_t;
 /* Constants as binary128 bit patterns {low, high} (little-endian, as
  * SoftFloat stores them), equal to the q-suffixed literals of the
  * __float128 build. An override of the epsilons (make LEAF_ABS_EPS=...) is a
- * C literal, which cannot be turned into such a pattern here; refuse it rather
- * than ignore it. */
-#if defined(LEAF_ABS_EPS) || defined(LEAF_REL_EPS)
-#error "LEAF_ABS_EPS / LEAF_REL_EPS cannot be overridden in the SoftFloat f128 build (SOFTFLOAT=1): its constants are fixed binary128 bit patterns"
-#endif
+ * C literal, which cannot be turned into such a pattern here: refused at the
+ * top of this header rather than ignored. */
 #define LEAF_F128_BITS(lo, hi) ((float128_t){ { (lo), (hi) } })
 #define LEAF_ZERO        LEAF_F128_BITS(0, 0)
 #define LEAF_ONE         LEAF_F128_BITS(0, 0x3fff000000000000ULL)
