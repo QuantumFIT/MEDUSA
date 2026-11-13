@@ -115,7 +115,16 @@ find_library(QUADMATH_LIBRARY quadmath
 if("f128" IN_LIST MEDUSA_FLOAT_TYPES AND NOT QUADMATH_LIBRARY)
   message(FATAL_ERROR "f128 needs libquadmath")
 endif()
-find_package(Threads REQUIRED)
+if(EMSCRIPTEN)
+  # The Wasm build (.github/workflows/wasm.yml) has no threads (no -pthread);
+  # nothing outside Sylvan uses them, and Sylvan is not built for Wasm.
+  if(MEDUSA_SYLVAN)
+    message(FATAL_ERROR "MEDUSA_SYLVAN needs threads, which the Emscripten build does not have")
+  endif()
+  add_library(Threads::Threads INTERFACE IMPORTED)
+else()
+  find_package(Threads REQUIRED)
+endif()
 
 # ------------------------------------------------------------------------------
 # MEDUSA flags (this directory and below)
