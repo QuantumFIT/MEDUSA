@@ -421,7 +421,9 @@ else
 fi
 
 # A write error on res-vars.txt is reported, not ignored: the file is a link
-# to /dev/full, so writing the large numbers fails partway (Linux only).
+# to /dev/full, so writing the large numbers fails partway (Linux only). This
+# output is ~30 KB, so the error shows while writing; the short-output cases
+# below fail only when the file is closed.
 if [[ -x "${GMP_BIN}" && -f "${LONG_CIRCUIT}" && -c /dev/full ]]; then
     label="gmp-long-numbers-write-error"
     full_dir="${WORKDIR}/full"
@@ -438,6 +440,37 @@ if [[ -x "${GMP_BIN}" && -f "${LONG_CIRCUIT}" && -c /dev/full ]]; then
         tail -5 "${log}" || true
         summary_record "${label}" 1
     fi
+fi
+
+# write_error_case LABEL BIN FILE EXPECTED_MESSAGE QASM: FILE is a link to
+# /dev/full and the output is short enough to sit in the stdio buffer until
+# fclose; MEDUSA must still exit 1 with the message.
+write_error_case() {
+    local label="$1" bin="$2" file="$3" expect="$4" qasm="$5"
+    local dir="${WORKDIR}/${label}" log="${WORKDIR}/${label}.log" rc=0
+    mkdir -p "${dir}"
+    printf '%s' "${qasm}" > "${dir}/c.qasm"
+    ln -sf /dev/full "${dir}/${file}"
+    ( cd "${dir}" && timeout 60 "${bin}" --file c.qasm >/dev/null 2>"${log}" ) || rc=$?
+    if [[ "${rc}" -eq 1 ]] && grep -q "${expect}" "${log}"; then
+        echo "OK   ${label}"
+        summary_record "${label}" 0
+    else
+        echo "FAIL ${label}: exit ${rc}, expected 1 and \"${expect}\""
+        tail -5 "${log}" || true
+        summary_record "${label}" 1
+    fi
+}
+if [[ -c /dev/full ]]; then
+    # ~800 bytes of large numbers: (1/sqrt 2)^1000-ish coefficients
+    if [[ -x "${GMP_BIN}" ]]; then
+        write_error_case gmp-short-res-vars-write-error "${GMP_BIN}" res-vars.txt \
+            "error occurred when writing res-vars.txt" \
+            $'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[1] q;\nfor int i in [1:1000] {\nh q[0];\nt q[0];\n}\n'
+    fi
+    write_error_case short-res-dot-write-error "${BIN}" res.dot \
+        "error occurred when writing res.dot" \
+        $'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[1] q;\nx q[0];\n'
 fi
 
 summary_print "test_cli"

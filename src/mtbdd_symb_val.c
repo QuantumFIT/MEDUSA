@@ -29,10 +29,6 @@ qBDD my_mtbdd_symb_minus_i(qBDD a, qBDD b) {
     return binary_apply(a, b, mtbdd_symb_minus_i);
 }
 
-qBDD my_mtbdd_symb_times_c_i(qBDD t, size_t c_raw) {
-    return unary_apply_param(t, mtbdd_symb_times_c_i, c_raw);
-}
-
 qBDD my_mtbdd_symb_neg_i(qBDD t) {
     return unary_apply(t, mtbdd_symb_neg_i);
 }

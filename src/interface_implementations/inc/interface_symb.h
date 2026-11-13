@@ -99,13 +99,6 @@ LEAF_TYPE mtbdd_symb_plus_i(LEAF_TYPE a, LEAF_TYPE b);
  */
 LEAF_TYPE mtbdd_symb_minus_i(LEAF_TYPE a, LEAF_TYPE b);
 
-/**
- * @brief Multiplies a symbolic leaf by a raw integer constant.
- * @param t     The input symbolic leaf
- * @param c_raw Raw encoding of the integer constant
- * @return      A new leaf holding t times the constant
- */
-LEAF_TYPE mtbdd_symb_times_c_i(LEAF_TYPE t, size_t c_raw);
 
 
 /* *************************************************************************

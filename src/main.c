@@ -58,6 +58,14 @@ static long get_peak_mem()
     return peak;
 }
 
+/* Closes an output file; false if anything written to it was lost. A full
+ * disk often shows only here: what fits in the stdio buffer is written by
+ * fclose, so a short file fails nowhere else. */
+static bool close_output(FILE *f) {
+    bool ok = !ferror(f);
+    return (fclose(f) == 0) && ok;
+}
+
 int main(int argc, char *argv[])
 {
     FILE *input = stdin;
@@ -213,7 +221,9 @@ int main(int argc, char *argv[])
                 error_exit("Cannot open the output file for the separate output for large numbers.\n");
             }
             lnum_map_print(lnums_out);
-            fclose(lnums_out);
+            if (!close_output(lnums_out)) {
+                error_exit("An error occurred when writing " LONG_NUMS_OUT_FILE ".\n");
+            }
         }
         lnum_map_clear();
     }
@@ -244,7 +254,10 @@ int main(int argc, char *argv[])
     }
     free_sim_info(&info);
     freePackage();
-    fclose(out);
+    bool out_ok = close_output(out);
+    if (!out_ok) {
+        fprintf(stderr, "ERROR: An error occurred when writing " OUT_FILE ".dot.\n");
+    }
     norm_track_close();
     if (opt_infile) {
         fclose(input);
@@ -260,5 +273,5 @@ int main(int argc, char *argv[])
      * ones it has already reported on stderr. Returning 0 in those cases made
      * a failed run indistinguishable from a successful one for anything
      * scripting MEDUSA. See issue #13. */
-    return sim_successful ? 0 : 1;
+    return (sim_successful && out_ok) ? 0 : 1;
 }

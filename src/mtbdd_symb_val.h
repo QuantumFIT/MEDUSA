@@ -61,16 +61,6 @@ qBDD my_mtbdd_symb_plus_i(qBDD a, qBDD b);
 qBDD my_mtbdd_symb_minus_i(qBDD a, qBDD b);
 
 /**
- * Computes c * t for a symbolic MTBDD
- * 
- * @param t symbolic value MTBDD
- * 
- * @param c unsigned integer (the multiplication coefficient)
- * 
- */
-qBDD my_mtbdd_symb_times_c_i(qBDD t, size_t c);
-
-/**
  * Computes -a for a symbolic MTBDD
  * 
  * @param t symbolic value MTBDD
