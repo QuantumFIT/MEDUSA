@@ -160,8 +160,16 @@ if [[ "${GNU_GCC}" -eq 1 ]]; then
         head -5 "${WORKDIR}/f128-ok.log"
     fi
 
+    # Where long double is binary128 (aarch64, riscv64, s390x Linux) f128 is
+    # long double: neither glibc's *f128 functions nor __float128 matter there.
+    LDBL_BINARY128=0
+    [ "$(gcc -dM -E -x c /dev/null | awk '$2 == "__LDBL_MANT_DIG__" { print $3 }')" = 113 ] \
+        && LDBL_BINARY128=1
+
     # The C library check needs glibc's macros gone, after a libc header defined them.
-    if ! f128_compile f128-libc '#include <stdio.h>' '#undef __GLIBC__' \
+    if [[ "${LDBL_BINARY128}" -eq 1 ]]; then
+        skip "f128-libc" "long double is binary128 here"
+    elif ! f128_compile f128-libc '#include <stdio.h>' '#undef __GLIBC__' \
        && grep -q 'glibc 2.26 or newer is needed' "${WORKDIR}/f128-libc.log"; then
         pass "f128-libc"
     else
@@ -171,11 +179,11 @@ if [[ "${GNU_GCC}" -eq 1 ]]; then
 
     # x86_64 without __float128: long double is 80-bit there, so no binary128 at all.
     F128_EXTRA=(-U__SIZEOF_FLOAT128__)
-    if ! f128_compile f128-none \
+    if [[ "${LDBL_BINARY128}" -eq 1 ]]; then
+        skip "f128-no-binary128" "long double is binary128 here"
+    elif ! f128_compile f128-none \
        && grep -q 'needs an IEEE binary128 type' "${WORKDIR}/f128-none.log"; then
         pass "f128-no-binary128"
-    elif [ "$(gcc -dM -E -x c /dev/null | awk '$2 == "__LDBL_MANT_DIG__" { print $3 }')" = 113 ]; then
-        skip "f128-no-binary128" "long double is binary128 here"
     else
         fail "f128-no-binary128" "expected the binary128 #error"
         head -5 "${WORKDIR}/f128-none.log"
