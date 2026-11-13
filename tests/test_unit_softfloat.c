@@ -8,7 +8,8 @@
  * printing (instead of strfromf128). The circuit suites compare amplitudes
  * with a tolerance, so a wrong last digit in any of these would pass them.
  *
- * Two kinds of checks:
+ * It also checks that SoftFloat's state is per thread, as Sylvan's worker
+ * threads need. Two kinds of checks otherwise:
  *  - fixed expectations (bit patterns, strings printed by glibc's strfromf128),
  *    which run everywhere, macOS included;
  *  - where the compiler also has __float128 and glibc its *f128 functions
@@ -18,6 +19,7 @@
 #include "test_harness.h"
 
 #include <limits.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -261,6 +263,29 @@ static void test_conversions_fixed(void) {
     TEST_ASSERT(same_bits(snap(LEAF_ZERO), LEAF_ZERO));
 }
 
+/* One thread raises "inexact" (1/3 is not exact); with per-thread state the
+ * other thread's flags stay clear. With SoftFloat's default, shared globals,
+ * they would not. */
+static void *raise_inexact(void *seen) {
+    softfloat_exceptionFlags = 0;
+    (void)f128_div(LEAF_ONE, ui64_to_f128(3));
+    *(uint_fast8_t *)seen = softfloat_exceptionFlags;
+    return NULL;
+}
+
+static void test_state_per_thread(void) {
+    TEST_SECTION("SoftFloat state is per thread (exception flags)");
+    uint_fast8_t seen = 0;
+    softfloat_exceptionFlags = 0;
+    pthread_t t;
+    TEST_ASSERT(pthread_create(&t, NULL, raise_inexact, &seen) == 0);
+    TEST_ASSERT(pthread_join(t, NULL) == 0);
+    TEST_ASSERT(seen & softfloat_flag_inexact);          /* the other thread's own flag */
+    TEST_ASSERT(softfloat_exceptionFlags == 0);          /* and not this thread's */
+    (void)f128_div(LEAF_ONE, ui64_to_f128(3));
+    TEST_ASSERT(softfloat_exceptionFlags & softfloat_flag_inexact);
+}
+
 int main(void)
 {
     printf("MEDUSA SoftFloat f128 unit tests%s\n",
@@ -273,6 +298,7 @@ int main(void)
     test_format_fixed();
     test_pow_fixed();
     test_conversions_fixed();
+    test_state_per_thread();
 #ifdef HAVE_NATIVE_F128
     test_format_vs_strfromf128();
     test_arith_vs_native();

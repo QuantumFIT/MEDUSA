@@ -17,6 +17,16 @@
 
 #include <string.h>
 #define SOFTFLOAT_FAST_INT64   /* what lib/softfloat is built with: pass-by-value API */
+/* SoftFloat's state (exception flags, rounding mode) is per thread: Sylvan
+ * runs leaf operations on several worker threads. make init-softfloat builds
+ * the library with the same definition. */
+#ifndef THREAD_LOCAL
+#ifdef __cplusplus
+#define THREAD_LOCAL thread_local
+#else
+#define THREAD_LOCAL _Thread_local
+#endif
+#endif
 #ifdef __cplusplus      /* gates.c is C++ with USE_CXX=1; softfloat.h is plain C */
 extern "C" {
 #endif
