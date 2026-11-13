@@ -1,0 +1,133 @@
+name: Code quality
+
+# Compiler warnings, static analysis (cppcheck) and shell-script lint, each
+# collected on this change and on the commit it is based on. A job fails only
+# on findings this change adds: the existing backlog is listed in the job
+# summary but does not block anything. Inspired by VeriFIT/mata's
+# code-quality.yml.
+#
+# The badge in README.md shows this workflow on devel, i.e. whether the last
+# push there added findings.
+
+on:
+  # Every pull request, whatever its base, so that stacked PRs are checked
+  # against the PR below them.
+  pull_request:
+  push:
+    branches: [main, devel]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Compiler warnings (gcc)
+            collect: warnings --compiler gcc
+            needs-build: true
+          - name: Compiler warnings (clang)
+            collect: warnings --compiler clang
+            needs-build: true
+          - name: Static analysis (cppcheck)
+            collect: cppcheck
+            needs-build: true
+          - name: Shell scripts (shellcheck)
+            collect: shellcheck
+            needs-build: false
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: head
+          # The job builds and runs code from the pull request; it does not
+          # need the token afterwards (the base fetch below is anonymous, as
+          # the repository is public).
+          persist-credentials: false
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+              libgmp-dev cmake g++ clang cppcheck shellcheck python3
+
+      - name: Show toolchain
+        run: |
+          gcc --version | head -1
+          clang --version | head -1
+          cppcheck --version
+          shellcheck --version | sed -n 2p
+
+      # What the change is compared against: the PR's base, the previous tip
+      # of the branch for a push, and devel for a manual run.
+      - name: Check out the base
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          case "${EVENT}" in
+            pull_request) base="${PR_BASE}" ;;
+            push) base="${BEFORE}" ;;
+            *) base="" ;;
+          esac
+          cd head
+          if [ -z "${base}" ] || [ "${base}" = 0000000000000000000000000000000000000000 ]; then
+            git fetch --no-tags --depth=1 origin devel
+            base=$(git rev-parse FETCH_HEAD)
+          else
+            git fetch --no-tags --depth=1 origin "${base}"
+          fi
+          echo "Base: ${base}"
+          git worktree add --detach ../base "${base}"
+
+      # Clones and builds MoToBuddy at the pinned commit. The base reuses the
+      # same build when it pins the same commit, which is the usual case.
+      - name: Build MoToBuddy
+        if: matrix.needs-build
+        run: |
+          (cd head && make init)
+          pin() { sed -n 's/^MOTOBUDDY_COMMIT[[:space:]]*[:?]*=[[:space:]]*//p' "$1/Makefile" | head -1; }
+          if [ "$(pin head)" = "$(pin base)" ]; then
+            ln -s "${PWD}/head/lib" base/lib
+          else
+            (cd base && make init)
+          fi
+
+      - name: Collect on this change
+        working-directory: head
+        run: python3 .github/scripts/code_quality.py ${{ matrix.collect }} --out ../head.txt
+
+      # The base is analysed with this change's script, so both sides are
+      # collected and normalised the same way.
+      - name: Collect on the base
+        working-directory: base
+        run: python3 ../head/.github/scripts/code_quality.py ${{ matrix.collect }} --out ../base.txt
+
+      - name: Compare
+        run: python3 head/.github/scripts/code_quality.py compare --name "${{ matrix.name }}" base.txt head.txt
+
+  # One stable name to require in branch protection, whatever the matrix
+  # becomes.
+  result:
+    name: Code quality
+    if: ${{ !cancelled() }}
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - name: All checks passed
+        run: |
+          if [ "${{ needs.check.result }}" != "success" ]; then
+            echo "A code-quality check found new problems or failed to run: ${{ needs.check.result }}"
+            exit 1
+          fi
