@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Emscripten
-        uses: mymindstorm/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984  # v16
+        uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984  # v16
         with:
           version: ${{ env.EMSDK_VERSION }}
           actions-cache-folder: emsdk-cache
