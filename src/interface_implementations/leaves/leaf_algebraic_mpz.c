@@ -517,24 +517,6 @@ LEAF_TYPE mtbdd_symb_minus_i(LEAF_TYPE a, LEAF_TYPE b) {
     return (LEAF_TYPE){ .pImpl = (LEAF_TYPE_IMPL*)res_data };
 }
 
-LEAF_TYPE mtbdd_symb_times_c_i(LEAF_TYPE t, size_t c_raw) {
-    // Partial function check
-    if (t.pImpl == NULL) return t;
-
-    // Compute c*t if mtbdd is a leaf
-    sl_val_t *ldata = (sl_val_t*) t.pImpl;
-    unsigned long c = (unsigned long)c_raw;
-
-    sl_val_t *res_data = (sl_val_t *)malloc(sizeof(sl_val_t));
-    res_data->a = symexp_mul_c(ldata->a, c);
-    res_data->b = symexp_mul_c(ldata->b, c);
-    res_data->c = symexp_mul_c(ldata->c, c);
-    res_data->d = symexp_mul_c(ldata->d, c);
-
-    LEAF_TYPE res = {.pImpl = (LEAF_TYPE_IMPL*)res_data};
-    return res;
-}
-
 qBDD mtbdd_map_to_symb_val_reduced_i(qBDD t, size_t raw_map) {
     // Partial function check not needed, 4 variables were assigned to every base vector
 

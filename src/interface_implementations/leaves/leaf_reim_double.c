@@ -972,26 +972,6 @@ qBDD mtbdd_symb_refine_i(qBDD map, qBDD val, size_t rd_raw) {
     return qBDD_false(); // Recurse deeper
 }
 
-LEAF_TYPE mtbdd_symb_times_c_i(LEAF_TYPE t, size_t c_raw) {
-    // Partial function check
-    if (t.pImpl == NULL) return t;
-
-    // Compute c*t if mtbdd is a leaf
-    sl_val_t *ldata = (sl_val_t*) t.pImpl;
-    unsigned long c = (unsigned long)c_raw;
-
-    sl_val_t *res_data = (sl_val_t *)malloc(sizeof(sl_val_t));
-    if (res_data == NULL) {
-        printf("ERROR ALLOCATION\n");
-        exit(1);
-    }
-    res_data->re = symexp_mul_c(ldata->re, c);
-    res_data->im = symexp_mul_c(ldata->im, c);
-
-    LEAF_TYPE res = {.pImpl = (LEAF_TYPE_IMPL*)res_data};
-    return res;
-}
-
 qBDD mtbdd_map_to_symb_val_reduced_i(qBDD t, size_t raw_map) {
     // Partial function check not needed, 2 variables were assigned to every base vector
 
