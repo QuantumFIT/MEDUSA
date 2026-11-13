@@ -58,6 +58,14 @@ static long get_peak_mem()
     return peak;
 }
 
+/* Closes an output file; false if anything written to it was lost. A full
+ * disk often shows only here: what fits in the stdio buffer is written by
+ * fclose, so a short file fails nowhere else. */
+static bool close_output(FILE *f) {
+    bool ok = !ferror(f);
+    return (fclose(f) == 0) && ok;
+}
+
 int main(int argc, char *argv[])
 {
     FILE *input = stdin;
@@ -188,6 +196,9 @@ int main(int argc, char *argv[])
     clock_gettime(CLOCK_MONOTONIC, &t_finish); // End the timer
     long peak_mem = get_peak_mem();
     // Output:
+#ifdef MEDUSA_DEBUG
+    /* A full walk over the diagram, for the log only: release builds skip it
+     * (it used to run after the timer, so it cost wall time but no Time=). */
     {
         double tp = sim_successful
             ? (double)qBDD_total_prob(circ, info.n_qubits) : 0.0;
@@ -199,6 +210,7 @@ int main(int argc, char *argv[])
                    .use_loop = 1, .loop_idx = (int)info.n_loops,
                    .note = sim_successful ? "ok" : "sim_failed");
     }
+#endif
     if (sim_successful) {
         lnum_map_init(LONG_NUMS_MAP_INIT_SIZE);
         q_fprintdot(out, circ);
@@ -209,7 +221,9 @@ int main(int argc, char *argv[])
                 error_exit("Cannot open the output file for the separate output for large numbers.\n");
             }
             lnum_map_print(lnums_out);
-            fclose(lnums_out);
+            if (!close_output(lnums_out)) {
+                error_exit("An error occurred when writing " LONG_NUMS_OUT_FILE ".\n");
+            }
         }
         lnum_map_clear();
     }
@@ -225,7 +239,7 @@ int main(int argc, char *argv[])
         if (info.n_loops > 0) {
             printf("\nLoop time stats:\n");
             for (size_t i = 0; i < info.n_loops; i++) {
-                printf("  Loop[%ld] - Total time=%.3gs", i, info.t_el_loop[i]);
+                printf("  Loop[%zu] - Total time=%.3gs", i, info.t_el_loop[i]);
                 if (flags.opt_symb) {
                     printf(", Eval time=%.3gs", info.t_el_eval[i]);
                 }
@@ -240,7 +254,10 @@ int main(int argc, char *argv[])
     }
     free_sim_info(&info);
     freePackage();
-    fclose(out);
+    bool out_ok = close_output(out);
+    if (!out_ok) {
+        fprintf(stderr, "ERROR: An error occurred when writing " OUT_FILE ".dot.\n");
+    }
     norm_track_close();
     if (opt_infile) {
         fclose(input);
@@ -256,5 +273,5 @@ int main(int argc, char *argv[])
      * ones it has already reported on stderr. Returning 0 in those cases made
      * a failed run indistinguishable from a successful one for anything
      * scripting MEDUSA. See issue #13. */
-    return sim_successful ? 0 : 1;
+    return (sim_successful && out_ok) ? 0 : 1;
 }

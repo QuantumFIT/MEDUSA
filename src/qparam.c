@@ -19,7 +19,7 @@ void qparam_list_first(qparam_list_t *l)
 void qparam_list_next(qparam_list_t *l)
 {
     if (l) {
-        l->active = (l->active)? l->active = l->active->next : NULL;
+        l->active = (l->active)? l->active->next : NULL;
     }
 }
 

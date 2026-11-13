@@ -54,7 +54,7 @@ sim_file_medusa() {
     local mem_cur
 
     if [[ $fail = false ]]; then
-        for i in $(eval echo "{1..$REPS}"); do
+        for _ in $(eval echo "{1..$REPS}"); do
             output=$($TIMEOUT $MEDUSA_EXEC $medusa_run_opt $symb_opt <$file 2>&1 | grep -v "^ *'")
             if [[ -z $output ]]; then
                 time_avg=$TO
@@ -84,9 +84,10 @@ sim_file_medusa() {
         mem_avg=$NO_RUN
     fi
 
-    eval "$var_time_name"=$time_avg
-    eval "$var_mem_name"=$mem_avg
-    eval "$var_fail_name"=$fail
+    # Results go back through variables the caller names.
+    printf -v "$var_time_name" '%s' "$time_avg"
+    printf -v "$var_mem_name" '%s' "$mem_avg"
+    printf -v "$var_fail_name" '%s' "$fail"
 }
 
 # Runs a single circuit with the SliQSim executable.
@@ -95,7 +96,7 @@ sim_file_sliqsim() {
     sliqsim_mem_sum=0.0
 
     if [[ $sliqsim_fail = false ]]; then
-        for i in $(eval echo "{1..$REPS}"); do
+        for _ in $(eval echo "{1..$REPS}"); do
             sliqsim_output=$($TIMEOUT $sliqsim_run_exec --sim_qasm $file $sliqsim_run_opt 2>&1 | \
                              grep -v '^{ "counts"')
             if [[ -z $sliqsim_output ]]; then
@@ -151,6 +152,8 @@ run_benchmark_file() {
     sim_file_medusa "" "medusa_time_avg" "medusa_mem_avg" "medusa_fail"
     sim_file_sliqsim
 
+    # The medusa_* averages are set by sim_file_medusa through printf -v.
+    # shellcheck disable=SC2154
     printf "%s$SEP%s$SEP%s$SEP%s$SEP%s$SEP%s$SEP%s\n" "${benchmark_name%.qasm}" "$medusa_symb_time_avg" "$medusa_symb_mem_avg" \
            "$medusa_time_avg" "$medusa_mem_avg" "$sliqsim_time_avg" "$sliqsim_mem_avg" \
            >> "$file_out"

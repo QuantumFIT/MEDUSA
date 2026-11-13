@@ -11,6 +11,8 @@
 #include "kernel.h" /* bddnodes[].refcou for protect checks */
 #include "terminal.h" /* CUSTOMFREE / freefun registration */
 #include "medusa_mem_track.h"
+#include "qparam.h"
+#include "symexp_list.h"
 
 #include <stdint.h>
 #include <sys/types.h>
@@ -1260,10 +1262,84 @@ static void test_get_terminal_value_null_safe_on_false(void) {
 
 /* -------------------------------------------------------------------------- */
 
+/* The list cursors stop at the end: next() on an exhausted cursor stays NULL
+ * rather than walking off the list (each used to be a double assignment
+ * without a sequence point in between). Copying an empty list gives NULL. */
+static void test_list_cursors_and_empty_copy(void) {
+    TEST_SECTION("qparam/symexp lists: cursor past the end, empty copy");
+
+    qparam_list_t *q = qparam_list_create();
+    qparam_list_insert_first(q, 7);
+    qparam_list_first(q);
+    TEST_ASSERT(q->active != NULL && q->active->q_index == 7);
+    qparam_list_next(q);
+    TEST_ASSERT(q->active == NULL);
+    qparam_list_next(q);
+    TEST_ASSERT(q->active == NULL);
+    qparam_list_del(q);
+
+    symexp_list_t *e = symexp_list_create();
+    TEST_ASSERT(symexp_list_mkcpy(e) == NULL);
+    symexp_list_next(e);
+    TEST_ASSERT(e->active == NULL);
+    symexp_list_del(e);
+}
+
+/* An operation must be added to the dispatch in unary_apply_param together
+ * with a converter of its own; one that is not stops with an error instead of
+ * being called with arguments of the wrong kind. Checked in a child process,
+ * which must exit through error_exit (status 1) with its message. */
+static LEAF_TYPE no_converter_op(LEAF_TYPE a, size_t arg) {
+    (void)arg;
+    return a;
+}
+
+/* Valgrind preloads its own library; under it, the child's exit status is
+ * valgrind's error code for the package the child leaves allocated, which
+ * would make the check below meaningless. */
+static int under_valgrind(void) {
+    const char *p = getenv("LD_PRELOAD");
+    return p && strstr(p, "vgpreload") != NULL;
+}
+
+static void test_unary_apply_param_without_converter(void) {
+    TEST_SECTION("unary_apply_param: an operation without a converter is an error");
+    if (under_valgrind()) {
+        printf("  (skipped under valgrind)\n");
+        return;
+    }
+    char errlog[] = "/tmp/medusa_unit_api_XXXXXX";
+    int fd = mkstemp(errlog);
+    TEST_ASSERT(fd >= 0);
+    if (fd < 0)
+        return;
+    fflush(NULL);
+    pid_t pid = fork();
+    if (pid == 0) {
+        dup2(fd, STDERR_FILENO);
+        setup_pkg();
+        qBDD c;
+        circuit_init_interface(&c, 1);
+        unary_apply_param(c, no_converter_op, 0);
+        _exit(0); /* not reached if the operation is refused */
+    }
+    int status = 0;
+    waitpid(pid, &status, 0);
+    char msg[256] = {0};
+    lseek(fd, 0, SEEK_SET);
+    ssize_t n = read(fd, msg, sizeof(msg) - 1);
+    close(fd);
+    unlink(errlog);
+    TEST_ASSERT(WIFEXITED(status) && WEXITSTATUS(status) == 1);
+    TEST_ASSERT(n > 0 && strstr(msg, "no converter for this operation") != NULL);
+}
+
 int main(void) {
     printf("MEDUSA MoToBuddy API tests\n");
 
     test_init_package_sizes();
+    test_list_cursors_and_empty_copy();
+    test_unary_apply_param_without_converter();
     test_leaf_print_prob();
     test_leaf_add_does_not_alias();
     test_freepimpl_registered_with_motobuddy();

@@ -313,7 +313,7 @@ void htab_m_print_all(htab_t *t, FILE *output)
             for(int i=(strlen(curr->data.key)-1); i >= 0 ;i--) {
                 putc(htab_m_get_key(curr)[i], output);
             }
-            fprintf(output,"\'    %d\n", curr->data.value);
+            fprintf(output,"\'    %u\n", curr->data.value);
             curr = curr->next;
         }
     }

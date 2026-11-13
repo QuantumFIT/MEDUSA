@@ -141,5 +141,16 @@ else
     summary_record "BV-01-measure" 1
 fi
 
+# --info on a circuit with loops: the totals and a line per loop.
+if "${BIN}" --file "${ROOT}/benchmarks/no-measure/LP-Grover/05.qasm" --info >"${OUT}" 2>&1 \
+        && grep -q '^Time=' "${OUT}" && grep -q 'Loop\[0\] - Total time=' "${OUT}"; then
+    echo "OK   info-loop-stats"
+    summary_record "info-loop-stats" 0
+else
+    echo "FAIL info-loop-stats: expected Time= and a Loop[0] line from --info"
+    cat "${OUT}" || true
+    summary_record "info-loop-stats" 1
+fi
+
 summary_print "test_circuits"
 exit $?

@@ -213,6 +213,19 @@ done
 # since #13 the exit status says so.
 check "parse-empty" nonzero "" "${BIN}" --file "${WORKDIR}/bad/empty.qasm"
 
+# The bit register may come first: both size checks then run with the other
+# register already declared.
+printf 'OPENQASM 3.0;\ninclude "stdgates.inc";\nbit[2] c;\nqubit[2] q;\nx q[1];\nc[1] = measure q[1];\n' \
+    >"${WORKDIR}/bit_register_first.qasm"
+check "bit-register-first" 0 "" "${BIN}" --file "${WORKDIR}/bit_register_first.qasm"
+
+# A comment holding a 0xFF byte ("caf\xff", Latin-1 "café"). The comment
+# skipper kept fgetc's result in a char, so with a signed char that byte read
+# as EOF: parsing stopped there and the rest of the circuit was silently
+# dropped.
+printf 'OPENQASM 2.0;\n// caf\xff\nqreg q[1];\nx q[0];\n' >"${WORKDIR}/byte_ff_comment.qasm"
+check "comment-with-0xff-byte" 0 "" "${BIN}" --file "${WORKDIR}/byte_ff_comment.qasm"
+
 # ---------------------------------------------------------------------------
 # Parser error paths.
 #
@@ -252,6 +265,13 @@ include "stdgates.inc";
 qubit[2] q;
 bit[2] c;
 bit[2] d;
+QASM
+
+write_bad reg_mismatch_bit_first <<'QASM'
+OPENQASM 3.0;
+include "stdgates.inc";
+bit[2] c;
+qubit[3] q;
 QASM
 
 write_bad reg_mismatch <<'QASM'
@@ -331,6 +351,7 @@ num_toolong|too many digits
 two_qregs|Multiple qubit register
 two_bregs|Multiple bit register
 reg_mismatch|different than the size
+reg_mismatch_bit_first|different than the size
 nested_loop|Nested loops
 loop_step_zero|step must be non-zero
 loop_not_integer|not an integer
@@ -397,6 +418,59 @@ PY
     fi
 else
     echo "SKIP gmp-long-numbers (build with: make buddy_gmp)"
+fi
+
+# A write error on res-vars.txt is reported, not ignored: the file is a link
+# to /dev/full, so writing the large numbers fails partway (Linux only). This
+# output is ~30 KB, so the error shows while writing; the short-output cases
+# below fail only when the file is closed.
+if [[ -x "${GMP_BIN}" && -f "${LONG_CIRCUIT}" && -c /dev/full ]]; then
+    label="gmp-long-numbers-write-error"
+    full_dir="${WORKDIR}/full"
+    mkdir -p "${full_dir}"
+    ln -sf /dev/full "${full_dir}/res-vars.txt"
+    log="${WORKDIR}/${label}.log"
+    rc=0
+    ( cd "${full_dir}" && timeout 300 "${GMP_BIN}" --file "${LONG_CIRCUIT}" >/dev/null 2>"${log}" ) || rc=$?
+    if [[ "${rc}" -eq 1 ]] && grep -q "error occurred when writing the value of large-number" "${log}"; then
+        echo "OK   ${label}"
+        summary_record "${label}" 0
+    else
+        echo "FAIL ${label}: exit ${rc}, expected 1 and a write error"
+        tail -5 "${log}" || true
+        summary_record "${label}" 1
+    fi
+fi
+
+# write_error_case LABEL BIN FILE EXPECTED_MESSAGE QASM: FILE is a link to
+# /dev/full and the output is short enough to sit in the stdio buffer until
+# fclose; MEDUSA must still exit 1 with the message.
+write_error_case() {
+    local label="$1" bin="$2" file="$3" expect="$4" qasm="$5"
+    local dir="${WORKDIR}/${label}" log="${WORKDIR}/${label}.log" rc=0
+    mkdir -p "${dir}"
+    printf '%s' "${qasm}" > "${dir}/c.qasm"
+    ln -sf /dev/full "${dir}/${file}"
+    ( cd "${dir}" && timeout 60 "${bin}" --file c.qasm >/dev/null 2>"${log}" ) || rc=$?
+    if [[ "${rc}" -eq 1 ]] && grep -q "${expect}" "${log}"; then
+        echo "OK   ${label}"
+        summary_record "${label}" 0
+    else
+        echo "FAIL ${label}: exit ${rc}, expected 1 and \"${expect}\""
+        tail -5 "${log}" || true
+        summary_record "${label}" 1
+    fi
+}
+if [[ -c /dev/full ]]; then
+    # ~800 bytes of large numbers: (1/sqrt 2)^1000-ish coefficients
+    if [[ -x "${GMP_BIN}" ]]; then
+        write_error_case gmp-short-res-vars-write-error "${GMP_BIN}" res-vars.txt \
+            "error occurred when writing res-vars.txt" \
+            $'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[1] q;\nfor int i in [1:1000] {\nh q[0];\nt q[0];\n}\n'
+    fi
+    write_error_case short-res-dot-write-error "${BIN}" res.dot \
+        "error occurred when writing res.dot" \
+        $'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[1] q;\nx q[0];\n'
 fi
 
 summary_print "test_cli"

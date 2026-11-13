@@ -23,7 +23,7 @@ uint64_t my_int_hash(uint64_t x) {
 uint64_t my_str_hash(const char *str) {
     uint64_t hash = 0;
     int c;
-    while (c = *str++) {
+    while ((c = *str++)) {
         hash = c + (hash << 6) + (hash << 16) - hash;
     }
     return hash;

@@ -86,9 +86,11 @@ static void rdata_ref_first(rdata_t *rd)
     rd->ref->cur =  rd->ref->first;
 }
 
+/* Only called on a cursor that is on an element: refine_var_check's loop
+ * tests rd->ref->cur before every step. */
 static void rdata_ref_next(rdata_t *rd)
 {
-    rd->ref->cur = (rd->ref->cur)? rd->ref->cur = rd->ref->cur->next : NULL;
+    rd->ref->cur = rd->ref->cur->next;
 }
 
 /**
@@ -146,6 +148,7 @@ static void eval_var(size_t var, rdata_t *rdata, coef_t *map, coef_t *new_map)
 
     if (expr != SYMEXP_NULL) {
         coef_t imm_res;
+        // cppcheck-suppress uninitvar ; init_generic is what initialises it
         init_generic(imm_res);
 
         if (expr != NULL) {
@@ -234,7 +237,7 @@ void symb_eval(qBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata)
 
     coef_t *new_map = my_malloc(sizeof(coef_t) * symbc->vm->msize);
 
-    for (int i = 0; i < symbc->vm->msize; i++) {
+    for (size_t i = 0; i < symbc->vm->msize; i++) {
         init_generic(new_map[i]);
     }
     coef_t *temp_map;
@@ -246,13 +249,13 @@ void symb_eval(qBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata)
 #endif 
     for (uint64_t i = 0; i < iters; i++) {
         // update new_map
-        for (int v = 0; v < symbc->vm->next_var; v++) {
+        for (vars_t v = 0; v < symbc->vm->next_var; v++) {
             eval_var(v, rdata, symbc->vm->map, new_map);
         }
 
 #if !defined(LEAF_BACKEND_GMP)
         // mul by the inverse sqrt coeff per iteration
-        for (int v = 0; v < symbc->vm->next_var; v++)
+        for (vars_t v = 0; v < symbc->vm->next_var; v++)
             mul_generic(new_map[v], new_map[v], scale_primitive);
 #endif
         // swap maps
@@ -276,7 +279,7 @@ void symb_eval(qBDD *circ,  mtbdd_symb_t *symbc, uint64_t iters, rdata_t *rdata)
     addInvSqrtCoeffs();
 #endif
     // dealloc aux variable
-    for (int i = 0; i < symbc->vm->msize; i++) {
+    for (size_t i = 0; i < symbc->vm->msize; i++) {
         clear_generic(new_map[i]);
     }
     free(new_map);
