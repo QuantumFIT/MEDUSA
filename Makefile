@@ -174,7 +174,7 @@ endif
 
 # ==============================================================================
 # Float type selection for buddy_doubles
-# 0 = float   1 = double   2 = long double   3 = __float128 (default)
+# 0 = float   1 = double   2 = long double   3 = IEEE binary128 (default)
 # ==============================================================================
 
 LEAF_FLOAT_TYPE ?= 3
@@ -187,7 +187,6 @@ else ifeq ($(LEAF_FLOAT_TYPE), 2)
   FLOAT_SUFFIX := f80
 else ifeq ($(LEAF_FLOAT_TYPE), 3)
   FLOAT_SUFFIX := f128
-  CLIBS        += -lquadmath
 else
   $(error Unknown LEAF_FLOAT_TYPE=$(LEAF_FLOAT_TYPE))
 endif
@@ -195,10 +194,6 @@ endif
 # libbuddy.a always includes mtbddop.cxx. C-linked buddy binaries still need
 # the C++ runtime (operator new/delete, std::function, __gxx_personality_v0).
 CLIBS += -lstdc++
-
-# GMP builds have no __float128 leaves, so they must not depend on libquadmath
-# (absent on macOS) just because the default LEAF_FLOAT_TYPE is f128.
-CLIBS_GMP := $(filter-out -lquadmath,$(CLIBS))
 
 # ==============================================================================
 # buddy_doubles paths
@@ -315,7 +310,7 @@ help:
 	@echo "  make test-unit-htab   unit tests for the hash table"
 	@echo "  make test-unit-gmp    unit tests for the GMP leaf primitive"
 	@echo "  make test-cli         CLI, parser diagnostics, long-number output"
-	@echo "  make test-build-config fat LTO, f128 without quadmath.h, GMP without libquadmath"
+	@echo "  make test-build-config fat LTO, f128 without libquadmath, GMP without libquadmath"
 	@echo "  make test-mosf        MOSF JSON input (needs USE_CXX=1, else skips)"
 	@echo "  make test-grover-sylvan  Grover matrix on Sylvan, every leaf type + GMP"
 	@echo "  make test-sylvan-all  test-sylvan + the slow metamorphic sweep"
@@ -384,7 +379,7 @@ sylvan_gmp: $(OBJS_SYLVAN_GMP) $(INTERFACE_OBJ_sylvan_gmp) \
 	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) -o $(BIN_DIR)/MEDUSA_sylvan_gmp \
 	    $(OBJS_SYLVAN_GMP) $(INTERFACE_OBJ_sylvan_gmp) \
 	    $(LEAF_OBJ_sylvan_mpz) $(LEAF_OBJ_sylvan_algebraic) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS_GMP)
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
 
 sylvan_doubles: $(OBJS_SYLVAN_DOUBLES) $(INTERFACE_OBJ_sylvan_doubles) \
                 $(LEAF_OBJ_sylvan_double) $(LEAF_OBJ_sylvan_reim) | $(BIN_DIR)
@@ -691,13 +686,13 @@ $(TEST_UNIT_GMP_BIN): $(TEST_UNIT_GMP_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_mpz.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_UNIT_GMP_SRC) $(TEST_STRESS_GMP_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_GMP)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
 
 test-unit-gmp: buddy_gmp $(TEST_UNIT_GMP_BIN)
 	$(TEST_UNIT_GMP_BIN)
 
 # What this Makefile does with other compilers and C libraries (Apple clang's
-# fat-LTO refusal, a clang without quadmath.h, GMP links without libquadmath),
+# fat-LTO refusal, f128 without libquadmath or glibc, GMP without libquadmath),
 # simulated on the CI's Linux/GCC. Inspects the GMP binaries, hence the deps.
 test-build-config: buddy_gmp $(TEST_UNIT_GMP_BIN)
 	bash $(TEST_DIR)/test_build_config.sh
@@ -722,7 +717,7 @@ $(TEST_GROVER_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_mpz.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_GROVER_SRC) $(TEST_STRESS_GMP_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_GMP)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
 
 # ------------------------------------------------------------------------------
 # The same Grover matrix on Sylvan.
@@ -755,7 +750,7 @@ $(TEST_GROVER_SYLVAN_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_SYLVA
 	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
 	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_GMP_CFLAGS) \
 	    -o $@ $(TEST_GROVER_SRC) $(TEST_SYLVAN_GMP_OBJS) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS_GMP)
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
 
 SYLVAN_GROVER_LEAF_TYPES ?= 0 1 2 3
 
@@ -903,7 +898,7 @@ $(TEST_STRESS_GMP_BIN): $(TEST_STRESS_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_mpz.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_STRESS_SRC) $(TEST_STRESS_GMP_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_GMP)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
 
 # ==============================================================================
 # buddy_gmp target
@@ -912,7 +907,7 @@ $(TEST_STRESS_GMP_BIN): $(TEST_STRESS_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 buddy_gmp: $(OBJS_BUDDY_GMP) $(INTERFACE_OBJ_motobuddy) \
            $(LEAF_OBJ_mpz) $(LEAF_OBJ_algebraic) \
            $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a | $(BIN_DIR)
-	$(LINKER) $(INC_DIRS_BUDDY_GMP) $(CFLAGS) -o $(BIN_DIR)/MEDUSA_buddy_gmp $^ $(CLIBS_GMP)
+	$(LINKER) $(INC_DIRS_BUDDY_GMP) $(CFLAGS) -o $(BIN_DIR)/MEDUSA_buddy_gmp $^ $(CLIBS)
 
 # ==============================================================================
 # buddy_doubles target (parameterized by LEAF_FLOAT_TYPE)
