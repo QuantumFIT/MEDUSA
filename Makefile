@@ -140,6 +140,13 @@ SOFTFLOAT_REPO   := https://github.com/ucb-bar/berkeley-softfloat-3.git
 SOFTFLOAT_COMMIT := a0c6494cdc11865811dec815d5c0049fba9d82a8
 SOFTFLOAT_DIR    := $(LIB_DIR)/softfloat
 SOFTFLOAT_LIB    := $(SOFTFLOAT_DIR)/build/Linux-x86_64-GCC/softfloat.a
+# Its state (exception flags, rounding mode) is thread-local, for Sylvan's
+# worker threads: leaf_f128_soft.h declares it so, and the library must be
+# built to match. The stamp marks a library built that way by init-softfloat;
+# one built before is not, and gets the hint below instead of a link error.
+SOFTFLOAT_OPTS   := -DSOFTFLOAT_ROUND_ODD -DINLINE_LEVEL=5 -DSOFTFLOAT_FAST_DIV32TO16 \
+                    -DSOFTFLOAT_FAST_DIV64TO32 -DTHREAD_LOCAL=_Thread_local
+SOFTFLOAT_STAMP  := $(SOFTFLOAT_DIR)/.medusa-thread-local
 
 # Fat LTO objects carry ordinary code beside the IR, so an LTO=0 link can reuse
 # them. Only where the compiler accepts the flag: Apple clang rejects it, but
@@ -214,7 +221,7 @@ else ifeq ($(LEAF_FLOAT_TYPE), 3)
     # a missing library stops the build with the hint below before any
     # compile fails on a missing softfloat.h.
     F128_LIBS := $(SOFTFLOAT_LIB)
-    F128_DEPS := $(SOFTFLOAT_LIB)
+    F128_DEPS := $(SOFTFLOAT_STAMP)
   endif
 else
   $(error Unknown LEAF_FLOAT_TYPE=$(LEAF_FLOAT_TYPE))
@@ -1120,10 +1127,12 @@ init-softfloat:
 	rm -rf $(SOFTFLOAT_DIR)
 	git clone -q $(SOFTFLOAT_REPO) $(SOFTFLOAT_DIR)
 	git -C $(SOFTFLOAT_DIR) checkout -q $(SOFTFLOAT_COMMIT)
-	$(MAKE) -C $(dir $(SOFTFLOAT_LIB)) SPECIALIZE_TYPE=8086-SSE
+	$(MAKE) -C $(dir $(SOFTFLOAT_LIB)) SPECIALIZE_TYPE=8086-SSE SOFTFLOAT_OPTS="$(SOFTFLOAT_OPTS)"
+	touch $(SOFTFLOAT_STAMP)
 
-$(SOFTFLOAT_LIB):
-	@echo >&2 "error: f128 with SOFTFLOAT=1 needs SoftFloat. Run: make init-softfloat"; exit 1
+$(SOFTFLOAT_STAMP):
+	@echo >&2 "error: f128 with SOFTFLOAT=1 needs SoftFloat, built with thread-local state" \
+	          "(a lib/softfloat from before that is not). Run: make init-softfloat"; exit 1
 
 init-motobuddy: make-motobuddy
 	mkdir -p $(LIB_DIR) && rm -rf $(LIB_DIR)/MoToBuddy && mv MoToBuddy $(LIB_DIR)

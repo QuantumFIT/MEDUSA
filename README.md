@@ -46,7 +46,9 @@ make
 Results are bit-identical to f128 on Linux, probabilities (measurement,
 `--norm-csv`) included, except that (1/√2)^k is computed exactly rather than
 with `powf128` (last-digit differences under `--symbolic`). The epsilons cannot
-be overridden (`make LEAF_ABS_EPS=...` stops with an error). Linux needs none
+be overridden (`make LEAF_ABS_EPS=...` stops with an error). SoftFloat is built
+with per-thread state (for Sylvan's worker threads); a `lib/softfloat` built
+before that change stops the build with a hint to run `make init-softfloat` again. Linux needs none
 of this: there f128 uses the compiler's binary128 type; `make SOFTFLOAT=1`
 builds the SoftFloat variant there too, for comparison.
 
