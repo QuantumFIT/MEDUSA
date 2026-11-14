@@ -266,6 +266,14 @@ static void test_error_lines(void)
         { "after a symbolic loop", true,
           HDR "qubit[2] q;\nh q[0];\nfor int i in [1:3] {\nh q[1];\ncx q[1], q[0];\n}\nswap q[0], q[1];\n", 9 },
         { "loop never closed", false, HDR "qubit[2] q;\nfor int i in [1:3] {\nh q[0];\n", 6 },
+        /* A command that ends its line: reading it consumes the newline,
+         * which used to put the error on the next line. */
+        { "unknown command ending its line", false, HDR "qubit[1] q;\nswap\nh q[0];\n", 4 },
+        { "stray '}' ending its line", false, HDR "qubit[1] q;\n}\nh q[0];\n", 4 },
+        { "command ending its line, after a classic loop", false,
+          HDR "qubit[1] q;\nfor int i in [1:2] {\nh q[0];\n}\nswap\n", 7 },
+        { "command ending its line, after a symbolic loop", true,
+          HDR "qubit[2] q;\nh q[0];\nfor int i in [1:3] {\nh q[1];\ncx q[1], q[0];\n}\nswap\n", 9 },
     };
     TEST_SECTION("errors name their input line");
     for (size_t i = 0; i < sizeof(LINES) / sizeof(LINES[0]); i++) {
@@ -585,8 +593,9 @@ static ssize_t broken_read(void *cookie, char *out, size_t n)
 static void test_read_error(void)
 {
     /* Complete statements before the failure, so the parse loop simply ends:
-     * it used to return SIM_OK with the truncated circuit. The last case
-     * fails inside a loop, which used to read as a missing '}'. */
+     * it used to return SIM_OK with the truncated circuit. The third case
+     * fails inside a loop, which used to read as a missing '}', the last one
+     * inside an operand, which used to read as a syntax error. */
     static const struct {
         const char *text;
         bool symbolic;
@@ -594,6 +603,8 @@ static void test_read_error(void)
         { HDR "qubit[1] q;\nh q[0];\n", false },
         { HDR "qubit[2] q;\nh q[0];\ncx q[0], q[1];\n", true },
         { HDR "qubit[1] q;\nfor int i in [1:2] {\nh q[0];\n", false },
+        /* mid-operand: parse_num sees the end first, as a syntax error */
+        { HDR "qubit[1] q;\nh q[", false },
     };
     TEST_SECTION("read error on the input: SIM_ERR_STREAM, not a truncated circuit");
     for (size_t i = 0; i < sizeof(CASES_R) / sizeof(CASES_R[0]); i++) {
