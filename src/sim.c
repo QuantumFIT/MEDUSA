@@ -637,7 +637,8 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
                 if (iters == 0) {
                     /* Skip the body unread up to its '}'. Comments are skipped
                      * whole, so a '}' in one does not end it; any other '/' is
-                     * a division, as in rx(pi/2), not a broken comment. */
+                     * a division, as in rx(pi/2), not a broken comment; a '{'
+                     * is a nested loop, refused as everywhere else. */
                     while ((c = next_char(in, info)) != '}') {
                         if (c == '/' && (c = next_char(in, info)) == '/') {
                             while ((c = next_char(in, info)) != '\n' && c != EOF) {}
@@ -647,6 +648,11 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
                         }
                         if (c == '}') {
                             break;          /* a '/' right before the '}' */
+                        }
+                        if (c == '{') {
+                            /* As in a loop that runs: the inner '}' would end
+                             * the skip, and the rest of the outer body run. */
+                            FAIL(SIM_ERR_UNSUPPORTED, "Nested loops are not allowed, aborting.");
                         }
                     }
                     continue;

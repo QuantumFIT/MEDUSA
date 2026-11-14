@@ -166,6 +166,14 @@ static const error_case_t CASES[] = {
       SIM_ERR_SYNTAX, "there is an unfinished loop" },
     { "skipped loop ends after a '/'", false, HDR "qubit[2] q;\nfor int i in [1:1:0] {\nrx(pi/",
       SIM_ERR_SYNTAX, "there is an unfinished loop" },
+    /* The inner '}' used to end the skip: the rest of the outer body ran (x
+     * here), and without the outer '}' the run even succeeded. */
+    { "nested loop in a skipped loop", false,
+      HDR "qubit[1] q;\nfor int i in [1:0] {\nfor int j in [1:2] {\nh q[0];\n}\nx q[0];\n}\n",
+      SIM_ERR_UNSUPPORTED, "Nested loops are not allowed" },
+    { "nested loop in a skipped loop, outer '}' missing", false,
+      HDR "qubit[1] q;\nfor int i in [1:0] {\nfor int j in [1:2] {\nh q[0];\n}\nx q[0];\n",
+      SIM_ERR_UNSUPPORTED, "Nested loops are not allowed" },
 
     /* Symbolic: each of these fails with symb_init's state live. */
     { "symbolic: unfinished loop", true, HDR "qubit[2] q;\nh q[0];\nfor int i in [1:3] {\nh q[1];\n",
