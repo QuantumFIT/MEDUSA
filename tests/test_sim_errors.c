@@ -78,9 +78,6 @@ static const error_case_t CASES[] = {
       SIM_ERR_SYNTAX, "expected a one-line comment" },
     { "lone slash at end of file", false, HDR "qubit[2] q;\n/",
       SIM_ERR_SYNTAX, "expected a one-line comment" },
-    { "slash inside a skipped loop", false,
-      HDR "qubit[2] q;\nfor int i in [1:1:0] {\n/ h q[0];\n}\n",
-      SIM_ERR_SYNTAX, "expected a one-line comment" },
     { "loop step zero", false, HDR "qubit[2] q;\nfor int i in [1:0:4] {\nh q[0];\n}\n",
       SIM_ERR_SYNTAX, "step must be non-zero" },
     { "nested loop", false,
@@ -164,6 +161,10 @@ static const error_case_t CASES[] = {
     { "end of file before '{'", false, HDR "qubit[2] q;\nfor int i in [1:2]",
       SIM_ERR_SYNTAX, "at the start of a loop" },
     { "skipped loop never closed", false, HDR "qubit[2] q;\nfor int i in [1:1:0] {\nh q[0];\n",
+      SIM_ERR_SYNTAX, "there is an unfinished loop" },
+    { "skipped loop ends inside a comment", false, HDR "qubit[2] q;\nfor int i in [1:1:0] {\n// }",
+      SIM_ERR_SYNTAX, "there is an unfinished loop" },
+    { "skipped loop ends after a '/'", false, HDR "qubit[2] q;\nfor int i in [1:1:0] {\nrx(pi/",
       SIM_ERR_SYNTAX, "there is an unfinished loop" },
 
     /* Symbolic: each of these fails with symb_init's state live. */
@@ -470,7 +471,11 @@ static void test_gate_operands(void)
  *     in it must not happen;
  *   - the bit register declared first, and with a space before its ';';
  *   - whitespace inside the brackets of a number;
- *   - a comment and blank lines between a loop's range and its '{'. */
+ *   - a comment and blank lines between a loop's range and its '{';
+ *   - in the body of a loop that runs no iterations, which is skipped unread:
+ *     a division (rx(pi/2) - its '/' used to be taken for a broken comment),
+ *     a comment holding a '}' (which must not end the body), and a '/' right
+ *     before the closing '}'. */
 static void test_valid_edges(void)
 {
     static const char *QASM[] = {
@@ -480,6 +485,9 @@ static void test_valid_edges(void)
         HDR "qubit[2] q;\nx q[1];\nfor int i in [1:1:0] // empty\n\n{\nx q[0];\n}\n",
         HDR "bit[2] c ;\nqubit[2] q;\nx q[1];\n",
         HDR "qubit[ 2 ] q;\nx q[ 1 ];\n",
+        HDR "qubit[2] q;\nx q[1];\nfor int i in [1:0] {\nrx(pi/2) q[0];\n}\n",
+        HDR "qubit[2] q;\nx q[1];\nfor int i in [1:0] {\n// }\nx q[0];\n}\n",
+        HDR "qubit[2] q;\nx q[1];\nfor int i in [1:0] {\nx q[0]; /}\n",
     };
     TEST_SECTION("valid edge inputs: trailing comment, empty loop, bit register first");
     for (size_t i = 0; i < sizeof(QASM) / sizeof(QASM[0]); i++) {

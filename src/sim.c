@@ -635,14 +635,18 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
                     }
                 }
                 if (iters == 0) {
-                    // skip symbolic
+                    /* Skip the body unread up to its '}'. Comments are skipped
+                     * whole, so a '}' in one does not end it; any other '/' is
+                     * a division, as in rx(pi/2), not a broken comment. */
                     while ((c = next_char(in, info)) != '}') {
-                        int skipped = (c == EOF)? COMMENT_EOF : skip_one_line_comments(c, in, info);
-                        if (skipped == COMMENT_INVALID) {
-                            goto fail;
+                        if (c == '/' && (c = next_char(in, info)) == '/') {
+                            while ((c = next_char(in, info)) != '\n' && c != EOF) {}
                         }
-                        if (skipped == COMMENT_EOF) {
+                        if (c == EOF) {
                             FAIL(SIM_ERR_SYNTAX, "Invalid format - reached an unexpected end of file (there is an unfinished loop).");
+                        }
+                        if (c == '}') {
+                            break;          /* a '/' right before the '}' */
                         }
                     }
                     continue;
