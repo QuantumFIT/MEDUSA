@@ -540,6 +540,14 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
             // get_q_num() needs to see '[' (needed because of OpenQASM 3 new syntax)
             ungetc(c, in);
         }
+        else if (c == '\n') {
+            /* The command ended its line: leave the newline unread, so that
+             * an error about the command (an unknown one, a stray '}') names
+             * the command's line, not the next. It is read again, and counted
+             * once, as whitespace before the next command. */
+            ungetc(c, in);
+            info->line--;
+        }
 
         // Identify the command
         if (strcmp(cmd, "OPENQASM") == 0) {}
@@ -943,6 +951,12 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
     return info->status;
 
 fail:
+    /* A read that failed mid-statement looks like an early end of input to
+     * the parse helpers (a syntax error, say in parse_num). The stream error
+     * is the real cause; report that instead. */
+    if (ferror(in) && info->status != SIM_ERR_STREAM) {
+        sim_error(info, SIM_ERR_STREAM, "A read error occurred on the input stream.");
+    }
     /* Release what this run set up, so that the caller can go on (and run
      * another circuit) after an error, as a library has to. */
     if (is_loop && flags->opt_symb) {
