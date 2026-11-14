@@ -59,7 +59,7 @@ endif
 ifeq ($(BUILD), release)
   CFLAGS := -O2 -g
   ifeq ($(LTO), 1)
-    CFLAGS += -flto=auto -ffat-lto-objects
+    CFLAGS += -flto=auto
   endif
 else ifeq ($(BUILD), debug)
   CFLAGS := -O0 -g -fno-omit-frame-pointer
@@ -121,6 +121,32 @@ CC     := gcc
 CXX    := g++
 CLIBS  := -lgmp -lpthread -lm
 
+# Fat LTO objects carry ordinary code beside the IR, so an LTO=0 link can reuse
+# them. Only where the compiler accepts the flag: Apple clang rejects it, but
+# only alongside -flto, so the check has to pass both. CFLAGS also reaches the
+# C++ compiles of USE_CXX=1 (gates.c, sim_mosf.cpp), so then $(CXX) is checked
+# as well.
+ifeq ($(BUILD)$(LTO),release1)
+  FAT_LTO := $(shell $(CC) -flto=auto -ffat-lto-objects -x c -c /dev/null -o /dev/null 2>/dev/null \
+                     && { [ "$(USE_CXX)" != 1 ] \
+                          || $(CXX) -flto=auto -ffat-lto-objects -x c++ -c /dev/null -o /dev/null 2>/dev/null; } \
+                     && echo -ffat-lto-objects)
+  CFLAGS += $(FAT_LTO)
+  # GCC always accepts the flag, so there a failed check means the test compile
+  # itself failed (no LTO plugin, no writable temp dir, ...) rather than that the
+  # flag is unsupported. Say so: the objects are then LTO-only, and a later
+  # `make LTO=0` has to rebuild instead of relinking. GCC: defines __GNUC__
+  # but not __clang__ (which defines both).
+  # Only the top-level make warns; recursive ones see the same compilers.
+  ifeq ($(FAT_LTO)$(MAKELEVEL),0)
+    CC_IS_GCC := $(shell $(CC) -dM -E -x c /dev/null 2>/dev/null \
+                         | awk '$$2 == "__clang__" { c = 1 } $$2 == "__GNUC__" { g = 1 } END { if (g && !c) print 1 }')
+    ifeq ($(CC_IS_GCC),1)
+      $(warning -flto -ffat-lto-objects failed a test compile with $(CC)$(if $(filter 1,$(USE_CXX)), or $(CXX)); building without fat LTO objects, so a later "make LTO=0" rebuilds instead of relinking)
+    endif
+  endif
+endif
+
 # USE_CXX=1 compiles gates.c as C++ (enables mtbdd_traverse_to/mtbdd_swap path)
 # and also compiles sim_mosf.cpp (MOSF simulation support).
 # All other files are always compiled with gcc.
@@ -169,6 +195,10 @@ endif
 # libbuddy.a always includes mtbddop.cxx. C-linked buddy binaries still need
 # the C++ runtime (operator new/delete, std::function, __gxx_personality_v0).
 CLIBS += -lstdc++
+
+# GMP builds have no __float128 leaves, so they must not depend on libquadmath
+# (absent on macOS) just because the default LEAF_FLOAT_TYPE is f128.
+CLIBS_GMP := $(filter-out -lquadmath,$(CLIBS))
 
 # ==============================================================================
 # buddy_doubles paths
@@ -245,6 +275,7 @@ BSCRIPT_PATH       := benchmark-utils/scripts
         buddy_doubles_f32 buddy_doubles_f64 buddy_doubles_f80              \
         buddy_doubles_f128 buddy_doubles_all                               \
         test test-unit test-unit-htab test-unit-gmp test-cli test-mosf     \
+        test-build-config                                                  \
         test-unit-leaf-types                                               \
         test-circuits                                                      \
         test-benchmarks test-metamorphic                                   \
@@ -284,6 +315,7 @@ help:
 	@echo "  make test-unit-htab   unit tests for the hash table"
 	@echo "  make test-unit-gmp    unit tests for the GMP leaf primitive"
 	@echo "  make test-cli         CLI, parser diagnostics, long-number output"
+	@echo "  make test-build-config fat LTO, f128 without quadmath.h, GMP without libquadmath"
 	@echo "  make test-mosf        MOSF JSON input (needs USE_CXX=1, else skips)"
 	@echo "  make test-grover-sylvan  Grover matrix on Sylvan, every leaf type + GMP"
 	@echo "  make test-sylvan-all  test-sylvan + the slow metamorphic sweep"
@@ -352,7 +384,7 @@ sylvan_gmp: $(OBJS_SYLVAN_GMP) $(INTERFACE_OBJ_sylvan_gmp) \
 	$(CC) $(INC_DIRS_SYLVAN) $(CFLAGS) -o $(BIN_DIR)/MEDUSA_sylvan_gmp \
 	    $(OBJS_SYLVAN_GMP) $(INTERFACE_OBJ_sylvan_gmp) \
 	    $(LEAF_OBJ_sylvan_mpz) $(LEAF_OBJ_sylvan_algebraic) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS_GMP)
 
 sylvan_doubles: $(OBJS_SYLVAN_DOUBLES) $(INTERFACE_OBJ_sylvan_doubles) \
                 $(LEAF_OBJ_sylvan_double) $(LEAF_OBJ_sylvan_reim) | $(BIN_DIR)
@@ -443,8 +475,8 @@ TEST_STRESS_GMP_BIN  := $(BIN_DIR)/test_stress_gmp
 TEST_STRESS_GMP_OBJS := $(filter-out $(OBJ_DIR)/buddy_gmp/main.o, $(OBJS_BUDDY_GMP)) \
                         $(INTERFACE_OBJ_motobuddy) $(LEAF_OBJ_mpz) $(LEAF_OBJ_algebraic)
 
-test: test-unit test-unit-htab test-unit-gmp test-cli test-mosf test-circuits \
-      test-benchmarks test-metamorphic
+test: test-unit test-unit-htab test-unit-gmp test-build-config test-cli test-mosf \
+      test-circuits test-benchmarks test-metamorphic
 
 test-all: test test-sylvan
 
@@ -659,10 +691,16 @@ $(TEST_UNIT_GMP_BIN): $(TEST_UNIT_GMP_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_mpz.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_UNIT_GMP_SRC) $(TEST_STRESS_GMP_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_GMP)
 
 test-unit-gmp: buddy_gmp $(TEST_UNIT_GMP_BIN)
 	$(TEST_UNIT_GMP_BIN)
+
+# What this Makefile does with other compilers and C libraries (Apple clang's
+# fat-LTO refusal, a clang without quadmath.h, GMP links without libquadmath),
+# simulated on the CI's Linux/GCC. Inspects the GMP binaries, hence the deps.
+test-build-config: buddy_gmp $(TEST_UNIT_GMP_BIN)
+	bash $(TEST_DIR)/test_build_config.sh
 
 TEST_GROVER_SRC := $(TEST_DIR)/test_grover_matrix.c
 TEST_GROVER_BIN := $(BIN_DIR)/test_grover_$(FLOAT_SUFFIX)
@@ -684,7 +722,7 @@ $(TEST_GROVER_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_mpz.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_GROVER_SRC) $(TEST_STRESS_GMP_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_GMP)
 
 # ------------------------------------------------------------------------------
 # The same Grover matrix on Sylvan.
@@ -717,7 +755,7 @@ $(TEST_GROVER_SYLVAN_GMP_BIN): $(TEST_GROVER_SRC) $(TEST_HARNESS_H) $(TEST_SYLVA
 	    { echo >&2 "error: libsylvan/liblace not found. Run: make init-sylvan"; exit 1; }
 	$(CC) $(INC_DIRS_SYLVAN) -I $(TEST_DIR) $(CFLAGS) $(SYLVAN_GMP_CFLAGS) \
 	    -o $@ $(TEST_GROVER_SRC) $(TEST_SYLVAN_GMP_OBJS) \
-	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS)
+	    $(SYLVAN_LIB) $(LACE_LIB) $(CLIBS_GMP)
 
 SYLVAN_GROVER_LEAF_TYPES ?= 0 1 2 3
 
@@ -865,7 +903,7 @@ $(TEST_STRESS_GMP_BIN): $(TEST_STRESS_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_mpz.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_STRESS_SRC) $(TEST_STRESS_GMP_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_GMP)
 
 # ==============================================================================
 # buddy_gmp target
@@ -874,7 +912,7 @@ $(TEST_STRESS_GMP_BIN): $(TEST_STRESS_SRC) $(TEST_HARNESS_H) $(TEST_STRESS_GMP_O
 buddy_gmp: $(OBJS_BUDDY_GMP) $(INTERFACE_OBJ_motobuddy) \
            $(LEAF_OBJ_mpz) $(LEAF_OBJ_algebraic) \
            $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a | $(BIN_DIR)
-	$(LINKER) $(INC_DIRS_BUDDY_GMP) $(CFLAGS) -o $(BIN_DIR)/MEDUSA_buddy_gmp $^ $(CLIBS)
+	$(LINKER) $(INC_DIRS_BUDDY_GMP) $(CFLAGS) -o $(BIN_DIR)/MEDUSA_buddy_gmp $^ $(CLIBS_GMP)
 
 # ==============================================================================
 # buddy_doubles target (parameterized by LEAF_FLOAT_TYPE)

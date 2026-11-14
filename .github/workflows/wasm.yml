@@ -1,0 +1,116 @@
+name: wasm
+
+# MEDUSA built for WebAssembly with Emscripten - what the browser demo
+# (docs/demo.html) runs - and run under Node.js against the circuit smoke test,
+# so a change that breaks the Wasm build or its results shows up on the PR.
+#
+# Variants: f64 and GMP, the two backends the demo offers. f128 needs
+# libquadmath until #48; there, wasm32's 128-bit long double would serve.
+# GMP has no Wasm package, so it is cross-compiled once per GMP/Emscripten
+# version and cached. The binaries run under Node with NODERAWFS, i.e. on the
+# real file system, so the test scripts drive them like the native ones.
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+      - 'cmake/**'
+      - '.github/workflows/wasm.yml'
+  push:
+    branches: [main, devel]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EMSDK_VERSION: '6.0.13'
+  GMP_VERSION: '6.3.0'
+  WASM_PREFIX: ${{ github.workspace }}/wasm-prefix
+
+jobs:
+  wasm:
+    name: WebAssembly (Emscripten, Node.js)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Emscripten
+        uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984  # v16
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+          actions-cache-folder: emsdk-cache
+
+      - name: Show toolchain
+        run: |
+          emcc --version | head -1
+          node --version
+          cmake --version | head -1
+
+      - name: Cache GMP for Wasm
+        id: gmp-cache
+        uses: actions/cache@v4
+        with:
+          path: wasm-prefix
+          key: gmp-${{ env.GMP_VERSION }}-emsdk-${{ env.EMSDK_VERSION }}
+
+      # GMP's portable C code (no assembly), static only. Its build generates
+      # tables with programs that run on the build machine: CC_FOR_BUILD.
+      - name: Build GMP for Wasm
+        if: steps.gmp-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL "https://ftp.gnu.org/gnu/gmp/gmp-${GMP_VERSION}.tar.xz" | tar xJ
+          cd "gmp-${GMP_VERSION}"
+          emconfigure ./configure --host=none --disable-assembly \
+              --enable-static --disable-shared \
+              --prefix="${WASM_PREFIX}" CC_FOR_BUILD=gcc
+          emmake make -j"$(nproc)"
+          emmake make install
+
+      # Emscripten's toolchain file only searches its own sysroot, hence the
+      # explicit GMP paths. Node-only output on the real file system, with room
+      # for the deep recursion of the BDD operations and growing memory.
+      - name: Configure
+        run: |
+          emcmake cmake -B build/wasm -DCMAKE_BUILD_TYPE=Release \
+              -DMEDUSA_FLOAT_TYPES=f64 -DMEDUSA_GMP=ON \
+              -DMEDUSA_CXX_GATES=OFF -DMEDUSA_TESTS=OFF -DMEDUSA_LTO=OFF \
+              -DGMP_LIBRARY="${WASM_PREFIX}/lib/libgmp.a" \
+              -DGMP_INCLUDE_DIR="${WASM_PREFIX}/include" \
+              "-DCMAKE_EXE_LINKER_FLAGS=-sENVIRONMENT=node -sNODERAWFS=1 -sINITIAL_MEMORY=64MB -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=4GB -sSTACK_SIZE=16MB -sEXIT_RUNTIME=1"
+
+      - name: Build
+        run: cmake --build build/wasm -j"$(nproc)"
+
+      # Each binary behind a one-line wrapper, so MEDUSA_BIN works unchanged.
+      - name: Circuit smoke test under Node.js
+        run: |
+          status=0
+          for v in buddy_doubles_f64 buddy_gmp; do
+              js="${PWD}/build/wasm/bin/MEDUSA_${v}.js"
+              wrapper="${RUNNER_TEMP}/MEDUSA_${v}"
+              printf '#!/bin/sh\nexec node "%s" "$@"\n' "${js}" > "${wrapper}"
+              chmod +x "${wrapper}"
+              echo "::group::${v}"
+              MEDUSA_BIN="${wrapper}" bash tests/test_circuits.sh || status=1
+              echo "::endgroup::"
+          done
+          exit "${status}"
+
+      - name: Upload the Wasm binaries
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: medusa-wasm
+          path: |
+            build/wasm/bin/*.js
+            build/wasm/bin/*.wasm
+          if-no-files-found: ignore
