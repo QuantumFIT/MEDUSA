@@ -21,6 +21,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <limits.h>
+#include <errno.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <signal.h>
@@ -562,7 +563,84 @@ static void test_failing_seeks(void)
         free_sim_info(&info);
     }
 }
+
+/* A stream that delivers text and then fails to read: next_char sees EOF
+ * either way, but this is no end of input. Seekable (flaky_seek with no
+ * failing seek), as loops need. */
+static ssize_t broken_read(void *cookie, char *out, size_t n)
+{
+    flaky_t *m = cookie;
+    size_t k = m->len - m->pos;
+    if (k == 0) {
+        errno = EIO;
+        return -1;
+    }
+    if (k > n)
+        k = n;
+    memcpy(out, m->buf + m->pos, k);
+    m->pos += k;
+    return (ssize_t)k;
+}
+
+static void test_read_error(void)
+{
+    /* Complete statements before the failure, so the parse loop simply ends:
+     * it used to return SIM_OK with the truncated circuit. The last case
+     * fails inside a loop, which used to read as a missing '}'. */
+    static const struct {
+        const char *text;
+        bool symbolic;
+    } CASES_R[] = {
+        { HDR "qubit[1] q;\nh q[0];\n", false },
+        { HDR "qubit[2] q;\nh q[0];\ncx q[0], q[1];\n", true },
+        { HDR "qubit[1] q;\nfor int i in [1:2] {\nh q[0];\n", false },
+    };
+    TEST_SECTION("read error on the input: SIM_ERR_STREAM, not a truncated circuit");
+    for (size_t i = 0; i < sizeof(CASES_R) / sizeof(CASES_R[0]); i++) {
+        flaky_t m = { CASES_R[i].text, strlen(CASES_R[i].text), 0, 0, 0 };
+        FILE *f = fopencookie(&m, "r", (cookie_io_functions_t){ .read = broken_read, .seek = flaky_seek });
+        qBDD circ;
+        sim_info_t info;
+        sim_status_t got = run(f, CASES_R[i].symbolic, &circ, &info);
+        fclose(f);
+        char what[512];
+        snprintf(what, sizeof(what), "case %zu: status %d, error \"%s\"", i, (int)got, info.error);
+        TEST_ASSERT_MSG(got == SIM_ERR_STREAM, what);
+        TEST_ASSERT_MSG(strstr(info.error, "read error") != NULL, what);
+        TEST_ASSERT_MSG(qBDD_isFalse(circ), what);
+        free_sim_info(&info);
+    }
+}
 #endif
+
+/* The caller's handle need not be initialised: on every status other than
+ * SIM_OK, *circ holds no circuit (sim.h), including the paths that return
+ * before any circuit exists. */
+static void test_output_handle_reset(void)
+{
+    static const char *TEXTS[] = {
+        "",                                  /* SIM_NO_CIRCUIT */
+        HDR,                                 /* SIM_NO_CIRCUIT */
+        HDR "h q[0];\n",                     /* error before the declaration */
+        HDR "qubit[2] q;\nfoo q[0];\n",      /* error after it */
+    };
+    TEST_SECTION("output handle: no circuit on every non-SIM_OK status");
+    for (size_t i = 0; i < sizeof(TEXTS) / sizeof(TEXTS[0]); i++) {
+        FILE *f = qasm_stream(TEXTS[i]);
+        sim_flags_t flags = { .opt_symb = false, .opt_info = false };
+        sim_info_t info;
+        init_sim_info(&info);
+        qBDD circ;
+        memset(&circ, 0x5a, sizeof(circ));   /* what an uninitialised variable may hold */
+        sim_status_t got = sim_file(f, &circ, &flags, &info);
+        fclose(f);
+        char what[256];
+        snprintf(what, sizeof(what), "text %zu: status %d", i, (int)got);
+        TEST_ASSERT_MSG(got != SIM_OK, what);
+        TEST_ASSERT_MSG(qBDD_isFalse(circ), what);
+        free_sim_info(&info);
+    }
+}
 
 /* Loops rewind the stream, which a pipe cannot do. That is an error of its
  * own, distinct from a malformed circuit. */
@@ -644,7 +722,9 @@ int main(void)
     test_valid_edges();
 #ifdef __GLIBC__
     test_failing_seeks();
+    test_read_error();
 #endif
+    test_output_handle_reset();
     test_valid_after_errors();
 
     freePackage();
