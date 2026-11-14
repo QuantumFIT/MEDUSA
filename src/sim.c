@@ -489,6 +489,10 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
     assert(flags != NULL);
     assert(info != NULL);
 
+    /* No circuit until the qubit declaration builds one: every early return
+     * below leaves *circ as the contract in sim.h says, whatever the caller
+     * passed in. */
+    *circ = qBDD_false();
     info->status = SIM_OK;
     info->error[0] = '\0';
     info->line = 1;
@@ -911,6 +915,13 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
             }
         }
     } // while
+
+    /* next_char returns EOF for a failed read too. Ending the loop there is
+     * only right at the real end of the input; after a read error, what was
+     * read is a truncated circuit, not the circuit. */
+    if (ferror(in)) {
+        FAIL(SIM_ERR_STREAM, "A read error occurred on the input stream.");
+    }
 
     /* Falling out of the parse loop with a loop still open means the file
      * ended inside a `for` body. Before issue #13 this was silently accepted
