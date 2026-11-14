@@ -99,10 +99,16 @@ static inline float128_t leaf_s_pow2(long e) {
                    : LEAF_F128_BITS((uint64_t)1 << b, 0);
 }
 
-/* (1/sqrt 2)^k, exactly rounded: 2^-q, times 1/sqrt 2 when k is odd; for the
- * largest odd results 2^-q itself overflows, so 2^(-q-1) * sqrt 2 instead (the
- * same product). Out of range it overflows to +inf and underflows through the
- * subnormals to 0, as powf128 does. */
+/* (1/sqrt 2)^k with q = floor(k / 2): 2^-q exactly, times the rounded constant
+ * fl(1/sqrt 2) with one rounding when k is odd (for the largest odd results
+ * 2^-q itself overflows, so 2^(-q-1) * 2 fl(1/sqrt 2) instead - the same
+ * product). Where the result is normal, scaling by a power of two is exact,
+ * so this is the correctly rounded (1/sqrt 2)^k. For odd k with a subnormal
+ * result (k >= 32765) the constant is rounded twice and the result can be an
+ * ulp off the correctly rounded value (k = 32765: ...754a, not ...754b) -
+ * values ~1e-4932, far below the snap grid, so 0 in any simulation. Out of
+ * range it overflows to +inf and underflows through the subnormals to 0, as
+ * powf128 does. */
 static inline float128_t leaf_sqrt2inv_pow(long k) {
     long q = k / 2 - (k % 2 < 0);                       /* floor(k / 2), no overflow */
     if (k % 2 == 0) return leaf_s_pow2(-q);

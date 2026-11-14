@@ -26,7 +26,8 @@
 #                    build stops with the init-softfloat hint before compiling
 #                    anything, and the GMP build does not need SoftFloat
 #   softfloat-eps-override  LEAF_ABS_EPS / LEAF_REL_EPS with SoftFloat is an
-#                    #error, not silently ignored
+#                    #error in the header and an error in make (which would
+#                    otherwise only relink up-to-date objects), not ignored
 #   gmp-no-quadmath  the GMP links do not pass -lquadmath, which macOS does
 #                    not have (checked on the commands: a Linux linker with
 #                    --as-needed drops it from the binary either way), and the
@@ -260,6 +261,16 @@ for eps in -DLEAF_ABS_EPS=1e-40 -DLEAF_REL_EPS=1e-30; do
            > "${WORKDIR}/sf-eps.log" 2>&1 \
        || ! grep -q 'cannot be overridden in the SoftFloat' "${WORKDIR}/sf-eps.log"; then
         bad+=" ${eps}"
+    fi
+done
+# And through make, which must refuse before it looks at the objects: with
+# them up to date it would only relink, and the #error never runs.
+for eps in LEAF_ABS_EPS=1e-6 LEAF_REL_EPS=1e-20; do
+    rc=0
+    make --no-print-directory -n buddy_doubles LEAF_FLOAT_TYPE=3 SOFTFLOAT=1 "${eps}" \
+        > "${WORKDIR}/sf-eps-make.log" 2>&1 || rc=$?
+    if [[ "${rc}" -eq 0 ]] || ! grep -q 'cannot be overridden in the SoftFloat' "${WORKDIR}/sf-eps-make.log"; then
+        bad+=" make ${eps}"
     fi
 done
 if [[ -z "${bad}" ]]; then
