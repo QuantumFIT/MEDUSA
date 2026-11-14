@@ -77,7 +77,18 @@ for spec in f32:0 f64:1 f80:2 f128:3; do
             # built next to it - the same results as native, digit for digit.
             if [[ " ${MAKE_ARGS[*]} " == *" SOFTFLOAT=1 "* || "$(uname -s)" = Darwin ]]; then
                 step softfloat-unit make "${MAKE_ARGS[@]}" test-unit-softfloat
-                if [ "$(uname -s)" = Linux ]; then
+                # Native f128 needs __float128 with glibc's *f128 functions, or
+                # a 128-bit long double; elsewhere (musl, say) the header stops
+                # it with an #error, and there is nothing to compare against.
+                native_f128=0
+                printf '#include "leaf_primitive_double.h"\n' \
+                    | "${CC:-gcc}" -fsyntax-only -DLEAF_FLOAT_TYPE=3 \
+                          -I src/interface_implementations/leaf_primitives -x c - 2> /dev/null \
+                    && native_f128=1
+                if [ "$(uname -s)" = Linux ] && [ "${native_f128}" = 0 ]; then
+                    echo "native f128 cannot be built here: no SoftFloat comparison"
+                    skip build-f128-native; skip softfloat-vs-native
+                elif [ "$(uname -s)" = Linux ]; then
                     cp ./MEDUSA_buddy_doubles_f128 ./MEDUSA_softfloat_f128
                     if step build-f128-native make "${MAKE_ARGS[@]}" SOFTFLOAT=0 buddy_doubles LEAF_FLOAT_TYPE=3; then
                         step softfloat-vs-native bash tests/test_softfloat_vs_native.sh \

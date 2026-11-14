@@ -195,8 +195,12 @@ static void test_arith_vs_native(void) {
     TEST_ASSERT(bad == 0);
 }
 
+/* The contract (leaf_f128_soft.h): 2^-floor(k/2) times the rounded constant
+ * fl(1/sqrt 2) when k is odd, one rounding. That is the correctly rounded
+ * (1/sqrt 2)^k wherever the result is normal; for subnormal odd results it
+ * is this product, not the correctly rounded value. */
 static void test_pow_vs_native(void) {
-    TEST_SECTION("(1/sqrt 2)^k is 2^-floor(k/2) (times 1/sqrt 2) in native arithmetic");
+    TEST_SECTION("(1/sqrt 2)^k is 2^-floor(k/2) (times fl(1/sqrt 2)) in native arithmetic");
     const __float128 c = 0.707106781186547524400844362104849039q;
     int bad = 0;
     for (long k = -33000; k <= 33100; k++) {

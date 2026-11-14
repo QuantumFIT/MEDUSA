@@ -215,6 +215,11 @@ else ifeq ($(LEAF_FLOAT_TYPE), 2)
 else ifeq ($(LEAF_FLOAT_TYPE), 3)
   FLOAT_SUFFIX := f128
   ifeq ($(SOFTFLOAT), 1)
+    # leaf_f128_soft.h has an #error for this too, but only a compile sees it:
+    # with the objects up to date, make would just relink and ignore it.
+    ifneq ($(strip $(LEAF_ABS_EPS)$(LEAF_REL_EPS)),)
+      $(error LEAF_ABS_EPS / LEAF_REL_EPS cannot be overridden in the SoftFloat f128 build (SOFTFLOAT=1): its constants are fixed binary128 bit patterns)
+    endif
     CFLAGS += -DLEAF_F128_SOFTFLOAT -I $(SOFTFLOAT_DIR)/source/include
     # Only the float-leaf binaries link it (CLIBS_DOUBLES): a GMP build on
     # macOS needs no SoftFloat. F128_DEPS gates their object directories, so
