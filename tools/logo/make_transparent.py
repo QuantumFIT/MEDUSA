@@ -1,25 +1,32 @@
 """Transparent-background version of the MEDUSA logo.
 
-Near-white pixels (min channel >= 246) are background, including the white
-gaps between shapes; shapes stay fully opaque. Only a 2.5 px band along the
-shape edges gets fractional alpha (colour-to-alpha against white), which keeps
-the anti-aliasing: composited on white, the result matches the original.
+The original has a white background, and white is part of the drawing too:
+the anti-aliased edges and the soft glow where the tentacles fade into the
+background are colours mixed with white. Light pixels (all channels >= 215)
+are therefore turned into colour plus transparency (colour-to-alpha against
+white); the shapes' own colours (any channel <= 175) stay opaque, with a
+smooth blend in between. Near-white pixels (all channels >= 250) are
+background, including the white gaps between shapes.
+
+Every pixel keeps its look on white: composited on white, the result matches
+the original (within 5/255, in the near-white background). On a dark page the
+glow and the edges fade into it, instead of being cut off at a threshold into
+opaque near-white patches.
 
 usage: make_transparent.py logo.png out.png
 """
 import sys
 from PIL import Image
 import numpy as np
-from scipy import ndimage
 
 src, dst = sys.argv[1], sys.argv[2]
 im = np.asarray(Image.open(src).convert('RGB')).astype(float)
-bg = im.min(axis=2) >= 246
-dist = ndimage.distance_transform_edt(~bg)
-band = (dist > 0) & (dist <= 2.5)
-c2a = np.clip((np.max((255.0 - im) / 255.0, axis=2) - 0.012) / (1 - 0.012), 0, 1)
-a = np.where(bg, 0.0, 1.0)
-a[band] = c2a[band]
+mn = im.min(axis=2)
+c2a = np.max((255.0 - im) / 255.0, axis=2)          # colour-to-alpha against white
+w = np.clip((mn - 175.0) / (215.0 - 175.0), 0, 1)   # 0: a shape's colour, 1: light
+a = w * c2a + (1 - w)
+a[mn >= 250] = 0.0
 safe = np.maximum(a, 1e-6)[..., None]
-col = np.where(band[..., None], np.clip((im - 255.0 * (1 - safe)) / safe, 0, 255), im)
+col = np.clip(255.0 - (255.0 - im) / safe, 0, 255)  # col over white == the original
+col[a == 0] = 0
 Image.fromarray(np.dstack([col, a * 255]).round().astype(np.uint8), 'RGBA').save(dst, optimize=True)
