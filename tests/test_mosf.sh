@@ -164,6 +164,12 @@ expect_error() {
         summary_record "${label}" 1
         return
     fi
+    # The message alone is not enough: an error has to fail the run too.
+    if [[ "${rc}" -eq 0 ]]; then
+        echo "FAIL ${label}: exit 0 despite the error"
+        summary_record "${label}" 1
+        return
+    fi
     if ! grep -qi -- "${want}" "${log}"; then
         echo "FAIL ${label}: expected a diagnostic mentioning '${want}'"
         tail -3 "${log}" || true
