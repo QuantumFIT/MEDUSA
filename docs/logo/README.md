@@ -19,12 +19,15 @@
 2. copy the `tikzpicture`;
 3. scale it with `[scale=…]`. Its natural size is 806 × 1097 pt.
 
+**The transparent versions on a dark background.** White is part of the drawing: the anti-aliased edges and the soft glow where the tentacles meet the bell are colours mixed with white. `make_transparent.py` turns those light pixels into colour plus transparency, so on a dark page they fade into it. On white, the result looks exactly like the original.
+
 ## Regenerating
 
 The scripts are in `tools/logo/`. They need Pillow, NumPy and SciPy; `stack_trace.py` also needs scikit-image.
 
 ```console
 $ python3 tools/logo/make_transparent.py docs/logo/medusa-logo.png docs/logo/medusa-logo-transparent.png
+$ python3 tools/logo/make_web.py docs/logo/medusa-logo-transparent.png docs/logo/medusa-logo-web.png
 $ python3 tools/logo/stack_trace.py docs/logo/medusa-logo.png docs/logo/medusa-logo.svg
 $ python3 tools/logo/svg2tikz.py docs/logo/medusa-logo.svg docs/logo/medusa-logo.tex
 $ (cd docs/logo && pdflatex medusa-logo.tex)
