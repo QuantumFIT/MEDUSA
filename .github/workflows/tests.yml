@@ -16,12 +16,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The default product: MoToBuddy across every leaf type. This is the job
-  # worth making a required status check.
+  # Every job builds with CMake (CMakePresets.json) and runs one CTest label;
+  # tests/CMakeLists.txt maps the labels onto the suites. The job names are
+  # kept from the Makefile jobs these replace: the main-branch ruleset
+  # requires three of them by name.
+  #
+  # MEDUSA_TEST_TIMEOUT_MAX keeps every CTest timeout well inside the job's
+  # own limit, so a hanging test is reported by name instead of the job being
+  # cut off with no output. A job that does not need the C++ gate variants
+  # turns them off, which halves its build.
+
+  # The default product: MoToBuddy across every leaf type - the unit suite on
+  # each, the Grover matrix (classic, --symbolic and non-loop; the only
+  # per-PR coverage of src/gates_symb.c), and the CLI, circuit, benchmark and
+  # metamorphic suites. This is the job worth making a required status check.
   test:
     name: MoToBuddy (default product)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v7
@@ -42,36 +54,39 @@ jobs:
           cmake --version | head -1
           python3 --version
 
-      # Clones VeriFIT/MoToBuddy at the commit pinned in the Makefile
-      # (MOTOBUDDY_COMMIT) and builds libbuddy.a. Takes well under a minute, so
-      # the build is not cached - a stale cache would be worse than rebuilding.
-      - name: Build MoToBuddy
-        run: make init
+      # Both builds pin MoToBuddy, each in its own file, until the Makefile is
+      # gone; a bump that updates only one of them would test two different
+      # libraries (see #51).
+      - name: MoToBuddy pin is the same in the Makefile and CMakeLists.txt
+        run: |
+          make_pin=$(sed -n 's/^MOTOBUDDY_COMMIT *:= *\([0-9a-f]*\).*/\1/p' Makefile)
+          cmake_pin=$(sed -n 's/^set(MEDUSA_MOTOBUDDY_COMMIT *"\([0-9a-f]*\)".*/\1/p' CMakeLists.txt)
+          echo "Makefile: ${make_pin}"; echo "CMake:    ${cmake_pin}"
+          if [ -z "${make_pin}" ] || [ "${make_pin}" != "${cmake_pin}" ]; then
+            echo "::error::MoToBuddy pins differ between Makefile and CMakeLists.txt"
+            exit 1
+          fi
 
-      - name: Run test suite
-        run: make test
+      # MoToBuddy is fetched at the commit pinned in CMakeLists.txt.
+      - name: Configure
+        run: cmake --preset release -DMEDUSA_CXX_GATES=OFF -DMEDUSA_TEST_TIMEOUT_MAX=900
 
-      # The unit suite against every float leaf representation, not just the
-      # default f128. The terminal-dedup assertions already detected the long
-      # double padding bug, but nothing built them for f80, so it only ever
-      # showed up as an intermittent test-grover-f80 failure. See issues #6
-      # and #7.
-      - name: Run the unit suite across leaf types
-        run: make test-unit-leaf-types
+      - name: Build
+        run: cmake --build --preset release -j "$(nproc)"
 
-      # Grover amplification across f32/f64/f80/f128/gmp, each in classic,
-      # --symbolic and non-loop form. This is the only CI coverage of the
-      # symbolic gate path (src/gates_symb.c), and it costs ~11s.
-      - name: Run Grover matrix (all leaf types, incl. symbolic)
-        run: make test-grover
+      - name: Test (label pr)
+        run: ctest --test-dir build/release -L pr -j "$(nproc)" --output-on-failure
 
   # Sylvan is the optional comparison backend, not the shipped product, so it
   # gets its own job: a Sylvan-side regression should be visible without
-  # reddening the check that guards MoToBuddy.
+  # reddening the check that guards MoToBuddy. Replays the circuit and
+  # benchmark smokes on Sylvan, the semantics suite across leaf types, the
+  # Grover matrix, and cross-backend amplitude checks against MoToBuddy.
+  # Sylvan has no C++ gate path.
   test-sylvan:
     name: Sylvan (optional backend)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v7
@@ -82,34 +97,33 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
               libgmp-dev cmake g++ python3
 
-      - name: Build MoToBuddy
-        run: make init
+      # Fetches Sylvan v1.8.1 and Lace v1.4.1 as well (cmake/patch_sylvan.cmake).
+      - name: Configure
+        run: cmake --preset sylvan -DMEDUSA_CXX_GATES=OFF -DMEDUSA_TEST_TIMEOUT_MAX=900
 
-      # Shallow-clones Sylvan v1.8.1 and Lace v1.4.1 and builds them (~7s).
-      - name: Build Sylvan and Lace
-        run: make init-sylvan
+      - name: Build
+        run: cmake --build --preset sylvan -j "$(nproc)"
 
-      # Replays the circuit and benchmark smokes on Sylvan, then harder
-      # Grover/CCX cases and cross-backend amplitude checks against MoToBuddy.
-      - name: Run Sylvan test suite
-        run: make test-sylvan
+      - name: Test (label sylvan, without the nightly sweep)
+        run: ctest --preset sylvan -j "$(nproc)" --output-on-failure
 
   # gates.c and gates_symb.c carry #ifndef __cplusplus splits: seven gates
   # (x, cnot, toffoli, mcx, and the symbolic cnot/toffoli/mcx) have a second,
   # traversal-based implementation - mtbdd_with_traverse_to / mtbdd_make_swap -
-  # that is selected only when those files are compiled as C++. Nothing built
-  # that configuration, so those branches were never compiled, never run, and
-  # never even appeared in the coverage denominator.
+  # that is selected only when those files are compiled as C++. The _cxx
+  # variants build exactly that, and also sim_mosf.cpp, so this is the only job
+  # that exercises MOSF, the JSON input path (test_mosf.sh compares each
+  # tests/mosf/NAME.mosf against the OpenQASM circuit of the same name).
   #
-  # USE_CXX=1 also defines -DUSE_MOSF and builds sim_mosf.cpp, so this is the
-  # only job that exercises MOSF, the JSON input path. `make test USE_CXX=1`
-  # includes test-mosf, which compares each tests/mosf/NAME.mosf against the
-  # OpenQASM circuit of the same name. In the C jobs that suite skips itself,
-  # since the translation unit is not compiled there at all.
+  # The suite asserts absolute correctness (gate identities, and symbolic runs
+  # matching classic amplitude by amplitude), so passing it on both gate paths
+  # is what establishes that the two implementations agree. LP-Grover's loop
+  # body uses bare x and z, which no symbolic fixture does - so the Grover
+  # matrix is what covers gate_symb_x/gate_symb_z here.
   test-cxx:
     name: C++ gate implementations (USE_CXX=1)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v7
@@ -120,25 +134,19 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
               libgmp-dev cmake g++ python3
 
-      - name: Build MoToBuddy
-        run: make init
+      - name: Configure
+        run: cmake --preset release -DMEDUSA_TEST_TIMEOUT_MAX=900
 
-      # The suite asserts absolute correctness (gate identities, and symbolic
-      # runs matching classic amplitude by amplitude), so passing it under both
-      # USE_CXX=0 and USE_CXX=1 is what establishes that the two gate
-      # implementations agree.
-      - name: Run test suite against the C++ gate implementations
-        run: make test USE_CXX=1
+      - name: Build
+        run: cmake --build --preset release -j "$(nproc)"
 
-      # Mirrors the default-product job. Beyond exercising the C++ gates across
-      # every leaf type, LP-Grover's loop body uses bare x and z, which no
-      # symbolic fixture does - so this is what covers gate_symb_x/gate_symb_z.
-      - name: Run Grover matrix against the C++ gate implementations
-        run: make test-grover USE_CXX=1
+      - name: Test (label cxx)
+        run: ctest --test-dir build/release -L cxx -j "$(nproc)" --output-on-failure
 
-  # Memory hygiene. Neither of these ran anywhere before, and both are cheap:
-  # test-stress is ~5s, and the valgrind pass ~45s even though valgrind costs
-  # the usual ~66x, because the suites themselves are small.
+  # Memory hygiene: GC and terminal-table stress for the f128 and GMP leaf
+  # backends, and valgrind --leak-check=full over the unit, stress,
+  # symbolic-Grover, benchmark-semantics, metamorphic and parser-error runs.
+  # Reachable blocks are treated as errors, not just definitely-lost ones.
   #
   # Kept in the per-PR workflow rather than the nightly precisely because it is
   # cheap: a leak is much easier to place against the commit that introduced it
@@ -146,7 +154,7 @@ jobs:
   memory:
     name: Stress and leak checks
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v7
@@ -163,101 +171,20 @@ jobs:
           gcc --version | head -1
           valgrind --version
 
-      - name: Build MoToBuddy
-        run: make init
-
-      # GC and terminal-table stress for the f128 and GMP leaf backends.
-      - name: Run stress suite
-        run: make test-stress
-
-      # valgrind --leak-check=full over the unit, stress, symbolic-Grover,
-      # benchmark-semantics and metamorphic runs. Reachable blocks are treated
-      # as errors, not just definitely-lost ones.
-      - name: Run valgrind leak checks
-        run: make test-leaks
-
-  # The debug build type (-O0 -g, separate object tree). Nothing else in CI
-  # compiles at -O0 except the coverage job, and that one only runs the C
-  # suites; this keeps `make BUILD=debug` - what gdb and valgrind sessions
-  # use - building and passing the unit and circuit suites.
-  test-debug-build:
-    name: Debug build (BUILD=debug)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-              libgmp-dev cmake g++ python3
-
-      - name: Build MoToBuddy
-        run: make init
-
-      - name: Unit and circuit suites on the debug build
-        run: |
-          make test-unit BUILD=debug
-          make test-circuits BUILD=debug
-          make test-unit-gmp BUILD=debug
-
-  # The CMake build, alongside the Makefile until CI moves over to it. One
-  # configure builds every variant (MoToBuddy f32/f64/f80/f128/GMP, each with the
-  # C and the C++ gate path) and CTest runs the default-product, C++-gate and
-  # memory suites from that single build tree - the same checks as the
-  # "MoToBuddy", "C++ gate implementations" and "Stress and leak checks" jobs.
-  # MoToBuddy is fetched at the commit pinned in CMakeLists.txt.
-  cmake:
-    name: CMake build (all variants, ctest)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-              libgmp-dev cmake g++ python3 valgrind
-
-      - name: Show toolchain
-        run: |
-          gcc --version | head -1
-          cmake --version | head -1
-
-      # Both builds pin MoToBuddy, each in its own file; a bump that updates
-      # only one of them would test two different libraries (see #51).
-      - name: MoToBuddy pin is the same in the Makefile and CMakeLists.txt
-        run: |
-          make_pin=$(sed -n 's/^MOTOBUDDY_COMMIT *:= *\([0-9a-f]*\).*/\1/p' Makefile)
-          cmake_pin=$(sed -n 's/^set(MEDUSA_MOTOBUDDY_COMMIT *"\([0-9a-f]*\)".*/\1/p' CMakeLists.txt)
-          echo "Makefile: ${make_pin}"; echo "CMake:    ${cmake_pin}"
-          if [ -z "${make_pin}" ] || [ "${make_pin}" != "${cmake_pin}" ]; then
-            echo "::error::MoToBuddy pins differ between Makefile and CMakeLists.txt"
-            exit 1
-          fi
-
-      # MEDUSA_TEST_TIMEOUT_MAX keeps every CTest timeout well inside the job's
-      # 30 minutes, so a hanging test is reported by name instead of the job
-      # being cut off with no output.
       - name: Configure
-        run: cmake --preset release -DMEDUSA_TEST_TIMEOUT_MAX=900
+        run: cmake --preset release -DMEDUSA_CXX_GATES=OFF -DMEDUSA_TEST_TIMEOUT_MAX=900
 
       - name: Build
         run: cmake --build --preset release -j "$(nproc)"
 
-      - name: Test (pr, cxx, memory)
-        run: ctest --test-dir build/release -L 'pr|cxx|memory' -j "$(nproc)" --output-on-failure
+      - name: Test (label memory)
+        run: ctest --test-dir build/release -L memory -j "$(nproc)" --output-on-failure
 
-  # The optional Sylvan backend through CMake: the FetchContent wiring, the
-  # patch_sylvan.cmake step and the sylvan-labelled tests (the same checks as
-  # the "Sylvan" Makefile job). Separate from the job above so it adds no
-  # wall-clock time; C++ gates are off since Sylvan has no C++ path.
-  cmake-sylvan:
-    name: CMake build, Sylvan backend
+  # The debug build type (-O0 -g, no LTO). Nothing else in CI compiles at -O0
+  # except the coverage job; this keeps the build gdb and valgrind sessions use
+  # building and passing the unit and circuit suites.
+  test-debug-build:
+    name: Debug build
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -271,10 +198,12 @@ jobs:
               libgmp-dev cmake g++ python3
 
       - name: Configure
-        run: cmake --preset sylvan -DMEDUSA_CXX_GATES=OFF -DMEDUSA_TEST_TIMEOUT_MAX=900
+        run: cmake --preset debug -DMEDUSA_CXX_GATES=OFF -DMEDUSA_TEST_TIMEOUT_MAX=900
 
       - name: Build
-        run: cmake --build --preset sylvan -j "$(nproc)"
+        run: cmake --build --preset debug -j "$(nproc)"
 
-      - name: Test (sylvan)
-        run: ctest --preset sylvan -j "$(nproc)" --output-on-failure
+      - name: Unit and circuit suites on the debug build
+        run: >-
+          ctest --test-dir build/debug -j "$(nproc)" --output-on-failure
+          -R '^(unit_api_f128|unit_htab|unit_leaf_gmp|circuits)$'
