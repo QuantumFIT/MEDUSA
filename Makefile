@@ -451,7 +451,7 @@ TEST_META_SRC     := $(TEST_DIR)/test_metamorphic.c
 
 TEST_SIMERR_BIN   := $(BIN_DIR)/test_sim_errors
 TEST_SIMERR_SRC   := $(TEST_DIR)/test_sim_errors.c
-TEST_SIMAPI_BIN   := $(BIN_DIR)/test_sim_api
+TEST_SIMAPI_BIN   := $(BIN_DIR)/test_sim_api_$(FLOAT_SUFFIX)
 TEST_SIMAPI_SRC   := $(TEST_DIR)/test_sim_api.c
 
 # ------------------------------------------------------------------------------
@@ -683,9 +683,12 @@ $(TEST_SIMAPI_BIN): $(TEST_SIMAPI_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
 	    -o $@ $(TEST_SIMAPI_SRC) $(TEST_UNIT_OBJS) \
 	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS) $(LIBDL)
 
+# f128 and f32: the sampling's comparisons are where precision shows.
 test-sim-api:
-	$(MAKE) $(TEST_SIMAPI_BIN) LEAF_FLOAT_TYPE=3
-	$(TEST_SIMAPI_BIN)
+	$(MAKE) $(BIN_DIR)/test_sim_api_f128 LEAF_FLOAT_TYPE=3
+	$(BIN_DIR)/test_sim_api_f128
+	$(MAKE) $(BIN_DIR)/test_sim_api_f32 LEAF_FLOAT_TYPE=0
+	$(BIN_DIR)/test_sim_api_f32
 
 # ------------------------------------------------------------------------------
 # Unit tests for the GMP leaf primitive.
@@ -1169,7 +1172,7 @@ clean-artifacts:
 	       $(TEST_UNIT_BIN) $(TEST_UNIT_GMP_BIN) $(TEST_HTAB_BIN) \
 	       $(TEST_STRESS_F64_BIN) $(TEST_STRESS_F128_BIN) \
 	       $(TEST_STRESS_GMP_BIN) \
-	       $(TEST_SEM_BIN) $(TEST_META_BIN) $(TEST_SIMERR_BIN) $(TEST_SIMAPI_BIN) \
+	       $(TEST_SEM_BIN) $(TEST_META_BIN) $(TEST_SIMERR_BIN) $(BIN_DIR)/test_sim_api_* \
 	       $(BIN_DIR)/test_benchmark_semantics_sylvan_* \
 	       $(BIN_DIR)/test_grover_sylvan_* \
 	       $(BIN_DIR)/test_metamorphic_sylvan_* \

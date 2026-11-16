@@ -1033,7 +1033,11 @@ void measure_all(unsigned long samples, uint64_t seed, qBDD circ, int n,
 {
     assert(out != NULL);
     assert(n > 0);
-    prob_t random;
+    /* The draw stays a double: compared with p_qt_is_one in the wider of the
+     * two types, as C does. Converted to prob_t first, an f32 build would
+     * round draws above 1 - 2^-25 to 1.0f, and a qubit that is certainly 1
+     * would be sampled as 0. */
+    double random;
     prob_t p_qt_is_one;
     prob_t norm_coef;
     char curr_state[n+1];
@@ -1041,7 +1045,13 @@ void measure_all(unsigned long samples, uint64_t seed, qBDD circ, int n,
     int curr_ct;
     uint64_t rng = seed;
 
-    htab_t *state_table = htab_init(n*n*n-1);
+    /* n^3 - 1 buckets, as ever (the order the outcomes come out in follows
+     * it), but at least one - a single qubit gave 0, and the bucket index a
+     * division by zero - and at most 2^20, where n^3 would overflow. */
+    size_t buckets = (size_t)n * (size_t)n * (size_t)n - 1;
+    if (n <= 1) buckets = 1;
+    if (n > 101) buckets = (size_t)1 << 20;
+    htab_t *state_table = htab_init(buckets);
 
     for (unsigned long i=0; i < samples; i++) {
         norm_coef = 1;
@@ -1058,7 +1068,7 @@ void measure_all(unsigned long samples, uint64_t seed, qBDD circ, int n,
             p_qt_is_one = measure(&circ, j, curr_state, n) * norm_coef * norm_coef;
             assert(p_qt_is_one <= (1 + EPSILON) && p_qt_is_one >= (0 - EPSILON));
             p_qt_is_one = (p_qt_is_one >= 1)? 1 : ((p_qt_is_one <= 0)? 0 : p_qt_is_one); // round
-            random = (prob_t)uniform01(&rng);
+            random = uniform01(&rng);
             if (random < p_qt_is_one) {
                 curr_state[curr_ct] = '1';
                 assert(p_qt_is_one != 0);

@@ -109,16 +109,19 @@ check "cli-largest-seed"    0         "" \
 printf 'OPENQASM 3.0;\ninclude "stdgates.inc";\nbit[2] c;\nqubit[2] q;\nh q[0];\ncx q[0], q[1];\nc[0] = measure q[0];\nc[1] = measure q[1];\n' \
     > "${WORKDIR}/bell_measure.qasm"
 seed_run() { ( cd "${WORKDIR}" && timeout 60 "${BIN}" --file bell_measure.qasm -m --seed "$1" ); }
-s7a=$(seed_run 7 2>&1) || true
-s7b=$(seed_run 7 2>&1) || true
-s8=$(seed_run 8 2>&1) || true
-if [[ "${s7a}" == "${s7b}" && "${s7a}" != "${s8}" ]] \
+# Every run has to succeed: comparing the output of a failed one proves nothing.
+rc7a=0; rc7b=0; rc8=0
+s7a=$(seed_run 7 2>&1) || rc7a=$?
+s7b=$(seed_run 7 2>&1) || rc7b=$?
+s8=$(seed_run 8 2>&1) || rc8=$?
+if [[ "${rc7a}${rc7b}${rc8}" == 000 ]] \
+   && [[ "${s7a}" == "${s7b}" && "${s7a}" != "${s8}" ]] \
    && [[ "$(head -1 <<< "${s7a}")" == "Sampled results:" ]] \
    && ! grep -qv "^Sampled results:$\|^    '00'    [0-9]*$\|^    '11'    [0-9]*$" <<< "${s7a}"; then
     echo "OK   cli-seed"
     summary_record "cli-seed" 0
 else
-    echo "FAIL cli-seed: same seed must repeat, another differ, only '00'/'11' lines"
+    echo "FAIL cli-seed: exits ${rc7a}/${rc7b}/${rc8}; all must be 0, the same seed repeat, another differ, only '00'/'11' lines"
     printf '%s\n---\n%s\n' "${s7a}" "${s8}" | head -8
     summary_record "cli-seed" 1
 fi

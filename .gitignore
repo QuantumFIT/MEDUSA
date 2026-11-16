@@ -13,7 +13,7 @@ MEDUSA_*
 /test_metamorphic
 /test_metamorphic_sylvan_*
 /test_sim_errors
-/test_sim_api
+/test_sim_api_*
 /test_grover_sylvan_*
 /test_stress_f64
 /test_stress_f128

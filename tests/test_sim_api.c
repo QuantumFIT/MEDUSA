@@ -10,7 +10,9 @@
  *   give the same samples for the same seed (on any platform: the generator is
  *   MEDUSA's own), and print_samples must print them as the CLI always has.
  *
- * Everything runs in one package, as a library caller would.
+ * Everything runs in one package, as a library caller would. Built for f128
+ * and f32 (make test-sim-api runs both): the sampling's comparisons are where
+ * the leaf type's precision shows.
  */
 #include "test_harness.h"
 #include "sim.h"
@@ -234,6 +236,34 @@ static void test_string_stream_failure(void)
     free_sim_info(&info);
 }
 
+/* One measured qubit: the outcome table used to get n^3 - 1 = 0 buckets, and
+ * the first sample a division by zero (SIGFPE), whatever the leaf type. */
+static void test_measure_one_qubit(void)
+{
+    TEST_SECTION("measure_all: a single qubit");
+    static const char *Q1 = HDR "bit[1] c;\nqubit[1] q;\nh q[0];\nc[0] = measure q[0];\n";
+    sim_samples_t s;
+    int nq;
+    TEST_ASSERT(sample(Q1, 1000, 3, &s, &nq));
+    TEST_ASSERT(nq == 1 && count_of(&s, "0") + count_of(&s, "1") == 1000);
+    TEST_ASSERT(count_of(&s, "0") > 400 && count_of(&s, "1") > 400);
+    free_samples(&s);
+}
+
+/* Seed 63433462's first draw is 0.99999998926..., which f32 rounds to 1.0f.
+ * Compared as a prob_t, it was not below the probability 1 of q[0], so the
+ * qubit was sampled as 0 (and the assert that this cannot happen fired). */
+static void test_measure_draw_near_one(void)
+{
+    TEST_SECTION("measure_all: a draw just below 1 on a certain qubit");
+    static const char *X = HDR "bit[1] c;\nqubit[1] q;\nx q[0];\nc[0] = measure q[0];\n";
+    sim_samples_t s;
+    int nq;
+    TEST_ASSERT(sample(X, 1, 63433462, &s, &nq));
+    TEST_ASSERT(s.n == 1 && count_of(&s, "1") == 1);
+    free_samples(&s);
+}
+
 static void test_measure_no_samples(void)
 {
     TEST_SECTION("measure_all: zero samples, no outcomes");
@@ -338,6 +368,8 @@ int main(void)
     test_string_errors();
     test_measure_outcomes();
     test_measure_seed();
+    test_measure_one_qubit();
+    test_measure_draw_near_one();
     test_measure_no_samples();
     test_string_stream_failure();
     test_false_terminal_value();
