@@ -94,7 +94,7 @@ void htab_m_clear(htab_t *t)
 
 void htab_m_free(htab_t *t)
 {
-    htab_clear(t, htab_m_del_item);
+    htab_free(t, htab_m_del_item);
 }
 
 /**
