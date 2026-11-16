@@ -10,6 +10,7 @@ MEDUSA_*
 /test_unit_api
 /test_unit_leaf_gmp
 /test_unit_htab
+/test_unit_softfloat
 /test_metamorphic
 /test_metamorphic_sylvan_*
 /test_grover_sylvan_*
