@@ -6,6 +6,14 @@ median colour of the pixels in its own brightness band. The white gaps
 between the shapes are lighter than every threshold, so they stay out of all
 layers and come out as real gaps (transparent), overlaps included.
 
+The input is either the original (white background: the logo is every pixel
+not near-white) or, as for docs/logo/medusa-logo.svg, the transparent version
+from make_transparent.py: there the logo is every pixel at least half opaque,
+and the colours are the ones with the white taken out. So the outermost layer
+gets the shapes' own colours rather than their white-mixed edges, which would
+show as light outlines on a dark page, and the shapes make_transparent.py
+removes stay out.
+
 usage: stack_trace.py logo.png out.svg [levels [inner_sigma [inner_tol]]]
        (defaults 24 4 1.4, which is what docs/logo/medusa-logo.svg uses)
 """
@@ -19,9 +27,15 @@ src, dst = sys.argv[1], sys.argv[2]
 levels = int(sys.argv[3]) if len(sys.argv) > 3 else 24
 INNER_SIGMA = float(sys.argv[4]) if len(sys.argv) > 4 else 4.0
 INNER_TOL = float(sys.argv[5]) if len(sys.argv) > 5 else 1.4
-rgb = np.asarray(Image.open(src).convert('RGB')).astype(float)
+img = Image.open(src)
+if 'A' in img.getbands():
+    rgba = np.asarray(img.convert('RGBA')).astype(float)
+    rgb = rgba[..., :3]
+    logo = rgba[..., 3] >= 128
+else:
+    rgb = np.asarray(img.convert('RGB')).astype(float)
+    logo = rgb.min(axis=2) < 246
 L = rgb @ np.array([0.299, 0.587, 0.114])
-logo = rgb.min(axis=2) < 246
 H, W = logo.shape
 ys, xs = np.nonzero(logo)
 pad = 12
