@@ -122,6 +122,8 @@ LEAF_OBJ_algebraic           := $(OBJ_DIR)/leaf_algebraic_mpz.o
 CC     := gcc
 CXX    := g++
 CLIBS  := -lgmp -lpthread -lm
+# dlsym, for test_sim_api: in libdl before glibc 2.34, in libSystem on macOS.
+LIBDL  := $(if $(filter Linux,$(shell uname -s)),-ldl)
 
 # Fat LTO objects carry ordinary code beside the IR, so an LTO=0 link can reuse
 # them. Only where the compiler accepts the flag: Apple clang rejects it, but
@@ -675,11 +677,11 @@ test-sim-errors:
 $(TEST_SIMAPI_BIN): $(TEST_SIMAPI_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
                     $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
 	$(CC) $(INC_DIRS_BUDDY_DOUBLES) -I $(TEST_DIR) $(CFLAGS) \
-	    -DLEAF_BACKEND_DOUBLES -DLEAF_FLOAT_TYPE=$(LEAF_FLOAT_TYPE) \
+	    -DLEAF_BACKEND_DOUBLES -DLEAF_FLOAT_TYPE=$(LEAF_FLOAT_TYPE) -D_GNU_SOURCE \
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_SIMAPI_SRC) $(TEST_UNIT_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS) $(LIBDL)
 
 test-sim-api:
 	$(MAKE) $(TEST_SIMAPI_BIN) LEAF_FLOAT_TYPE=3

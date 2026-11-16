@@ -17,9 +17,33 @@
 #include "interface.h"
 #include "symb_utils.h"
 
+#include <dlfcn.h>
+#include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+/* sim_string's memory stream, failing on demand: this definition takes the
+ * place of the C library's in the link (sim.o resolves fmemopen to it), and
+ * otherwise hands over to the real one. That is the only way to reach the
+ * SIM_ERR_STREAM path, as a real fmemopen practically never fails. */
+static int fail_fmemopen;
+FILE *fmemopen(void *buf, size_t size, const char *mode)
+{
+    static FILE *(*real)(void *, size_t, const char *);
+    if (fail_fmemopen) {
+        errno = ENOMEM;
+        return NULL;
+    }
+    if (!real)
+        *(void **)&real = dlsym(RTLD_NEXT, "fmemopen");
+    return real(buf, size, mode);
+}
 
 #define HDR "OPENQASM 3.0;\ninclude \"stdgates.inc\";\n"
 
@@ -194,6 +218,96 @@ static void test_measure_seed(void)
     free_samples(&c);
 }
 
+static void test_string_stream_failure(void)
+{
+    TEST_SECTION("sim_string: a memory stream that cannot be opened is SIM_ERR_STREAM");
+    qBDD circ;
+    memset(&circ, 0x5a, sizeof(circ));
+    sim_info_t info;
+    init_sim_info(&info);
+    fail_fmemopen = 1;
+    sim_status_t got = sim_string(HDR "qubit[1] q;\nh q[0];\n", &circ, &CLASSIC, &info);
+    fail_fmemopen = 0;
+    TEST_ASSERT_MSG(got == SIM_ERR_STREAM && info.status == SIM_ERR_STREAM, info.error);
+    TEST_ASSERT_MSG(strstr(info.error, "Could not open the circuit string") != NULL, info.error);
+    TEST_ASSERT(qBDD_isFalse(circ));
+    free_sim_info(&info);
+}
+
+static void test_measure_no_samples(void)
+{
+    TEST_SECTION("measure_all: zero samples, no outcomes");
+    sim_samples_t s = { (sim_sample_t *)&s, 99 };   /* overwritten, not freed */
+    int nq;
+    TEST_ASSERT(sample(BELL, 0, 1, &s, &nq));
+    TEST_ASSERT(s.n == 0 && s.v == NULL);
+    free_samples(&s);
+}
+
+/* The false node holds no value: asking for one is answered, with a warning
+ * on stderr (not stdout, which belongs to the caller), not dereferenced. */
+static void test_false_terminal_value(void)
+{
+    TEST_SECTION("qBDD_getTerminalValue of the false node: no value");
+    LEAF_TYPE v = qBDD_getTerminalValue(qBDD_false());
+    TEST_ASSERT(v.pImpl == NULL);
+}
+
+/* A NULL argument (or no qubits) is a bug in the caller: an assert, as for
+ * sim_file. Each case runs in a child, which must die of SIGABRT. The child
+ * flushes the coverage counters before dying, which abort itself skips. */
+#ifdef MEDUSA_COVERAGE
+extern void __gcov_dump(void);
+#endif
+static void dump_coverage_and_abort(int sig)
+{
+#ifdef MEDUSA_COVERAGE
+    __gcov_dump();
+#endif
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+static void test_bad_arguments(void)
+{
+    TEST_SECTION("NULL arguments, no qubits: asserts");
+    for (int which = 0; which < 6; which++) {
+        fflush(NULL);
+        pid_t pid = fork();
+        if (pid < 0) {
+            perror("fork");
+            exit(2);
+        }
+        if (pid == 0) {
+            struct rlimit no_core = { 0, 0 };
+            setrlimit(RLIMIT_CORE, &no_core);
+            if (!freopen("/dev/null", "w", stderr))
+                _exit(3);
+            signal(SIGABRT, dump_coverage_and_abort);
+            qBDD circ = qBDD_false();
+            sim_info_t info;
+            init_sim_info(&info);
+            sim_samples_t s;
+            int bits[1] = { 0 };
+            const char *q = HDR "qubit[1] q;\n";
+            switch (which) {
+            case 0: sim_string(NULL, &circ, &CLASSIC, &info); break;
+            case 1: sim_string(q, NULL, &CLASSIC, &info); break;
+            case 2: sim_string(q, &circ, NULL, &info); break;
+            case 3: sim_string(q, &circ, &CLASSIC, NULL); break;
+            case 4: measure_all(1, 1, circ, 1, bits, NULL); break;
+            default: measure_all(1, 1, circ, 0, bits, &s); break;
+            }
+            _exit(0); /* reached only if the assert did not fire */
+        }
+        int status = 0;
+        waitpid(pid, &status, 0);
+        char what[64];
+        snprintf(what, sizeof(what), "case %d: wait status %d", which, status);
+        TEST_ASSERT_MSG(WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT, what);
+    }
+}
+
 static void test_print_samples(void)
 {
     TEST_SECTION("print_samples: the CLI's format");
@@ -224,6 +338,10 @@ int main(void)
     test_string_errors();
     test_measure_outcomes();
     test_measure_seed();
+    test_measure_no_samples();
+    test_string_stream_failure();
+    test_false_terminal_value();
+    test_bad_arguments();
     test_print_samples();
 
     freePackage();

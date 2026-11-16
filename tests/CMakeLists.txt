@@ -155,7 +155,11 @@ foreach(_gp IN LISTS _gate_paths)
   medusa_c_test(sim_errors${sfx} test_sim_errors${sfx} LABELS ${lbl})
 
   # make test-sim-api
-  medusa_harness(test_sim_api${sfx} test_sim_api.c buddy_doubles_f128${sfx})
+  # _GNU_SOURCE for RTLD_NEXT (the test stands in for fmemopen); dl for dlsym.
+  medusa_harness(test_sim_api${sfx} test_sim_api.c buddy_doubles_f128${sfx} _GNU_SOURCE)
+  if(TARGET test_sim_api${sfx})
+    target_link_libraries(test_sim_api${sfx} PRIVATE ${CMAKE_DL_LIBS})
+  endif()
   medusa_c_test(sim_api${sfx} test_sim_api${sfx} LABELS ${lbl})
 
   medusa_harness(test_unit_leaf_gmp${sfx} test_unit_leaf_gmp.c buddy_gmp${sfx})

@@ -96,6 +96,12 @@ check "cli-bad-seed"        nonzero   "Invalid seed" \
       "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" -m --seed 12x
 check "cli-negative-seed"   nonzero   "Invalid seed" \
       "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" -m --seed -1
+check "cli-empty-seed"      nonzero   "Invalid seed" \
+      "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" -m --seed ""
+check "cli-seed-too-large"  nonzero   "Invalid seed" \
+      "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" -m --seed 18446744073709551616
+check "cli-largest-seed"    0         "" \
+      "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" -m --seed 18446744073709551615
 
 # --seed: the samples depend on it and on nothing else (MEDUSA's own generator,
 # not rand()), in the format the CLI has always printed. A Bell pair gives

@@ -998,7 +998,8 @@ sim_status_t sim_string(const char *qasm, qBDD *circ, const sim_flags_t *flags, 
         return SIM_NO_CIRCUIT;
     }
     /* "r" never writes, so the cast away from const is safe. */
-    FILE *in = fmemopen((void *)qasm, strlen(qasm), "r");
+    size_t len = strlen(qasm);  // Flawfinder: ignore (qasm is a C string by contract)
+    FILE *in = fmemopen((void *)qasm, len, "r");
     if (in == NULL) {
         *circ = qBDD_false();
         info->line = 1;
@@ -1075,23 +1076,21 @@ void measure_all(unsigned long samples, uint64_t seed, qBDD circ, int n,
     /* The outcomes in the table's order, which is the order the CLI has
      * always printed them in. The keys are stored lowest bit first. */
     out->n = state_table->size;
-    out->v = my_malloc((out->n ? out->n : 1) * sizeof(sim_sample_t));
+    out->v = out->n ? my_malloc(out->n * sizeof(sim_sample_t)) : NULL;
     size_t k = 0;
     for (size_t b = 0; b < state_table->arr_size; b++) {
         for (htab_item_t *it = state_table->arr_ptr[b]; it != NULL; it = it->next) {
-            const char *key = (const char *)it->data.key;
-            size_t len = strlen(key);
-            char *bits = my_malloc(len + 1);
-            for (size_t c = 0; c < len; c++) {
-                bits[c] = key[len - 1 - c];
+            const char *key = (const char *)it->data.key;   /* n characters */
+            char *bits = my_malloc((size_t)n + 1);
+            for (int c = 0; c < n; c++) {
+                bits[c] = key[n - 1 - c];
             }
-            bits[len] = '\0';
+            bits[n] = '\0';
             out->v[k].bits = bits;
             out->v[k].count = it->data.value;
             k++;
         }
     }
-    assert(k == out->n);
     htab_m_free(state_table);
 }
 
