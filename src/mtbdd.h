@@ -31,8 +31,13 @@ typedef leaf_scalar_t prob_t;
 /* Arithmetic on prob_t. SoftFloat's float128_t (leaf_f128_soft.h) is a struct
  * without C operators, so code that computes with probabilities goes through
  * these; everywhere else they are the plain operators and conversions, and
- * compile to what the operators did. PROB_SQRT_D is a square root in double,
- * as measure_all has always taken it. */
+ * compile to what the operators did.
+ *
+ * PROB_MUL_SQRT_D(a, p) is a * sqrt(p) with the square root in double, as
+ * measure_all has always taken it: natively the product itself is in double
+ * too (for f32 the result is rounded once, on assignment, not first the root
+ * and then the product); on SoftFloat the root is converted exactly to
+ * binary128 and multiplied there, as the native f128 build does. */
 #ifdef LEAF_SCALAR_IS_SOFT
 #define PROB_ZERO           LEAF_ZERO
 #define PROB_ONE            LEAF_ONE
@@ -46,6 +51,7 @@ typedef leaf_scalar_t prob_t;
 #define PROB_FROM_U(u)      ui64_to_f128((uint64_t)(u))
 #define PROB_FROM_D(d)      leaf_s_from_d(d)
 #define PROB_TO_D(p)        leaf_s_to_d(p)
+#define PROB_MUL_SQRT_D(a, p) f128_mul((a), leaf_s_from_d(sqrt(leaf_s_to_d(p))))
 #else
 #define PROB_ZERO           ((prob_t)0)
 #define PROB_ONE            ((prob_t)1)
@@ -59,8 +65,8 @@ typedef leaf_scalar_t prob_t;
 #define PROB_FROM_U(u)      ((prob_t)(u))
 #define PROB_FROM_D(d)      ((prob_t)(d))
 #define PROB_TO_D(p)        ((double)(p))
+#define PROB_MUL_SQRT_D(a, p) ((a) * sqrt((double)(p)))
 #endif
-#define PROB_SQRT_D(p)      PROB_FROM_D(sqrt(PROB_TO_D(p)))
 
 // ==========================================
 // Measurement operations:
