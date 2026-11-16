@@ -5,6 +5,10 @@
 
 **MEDUSA** (**M**ulti-T**e**rminal Binary **D**ecision Diagram-based q**U**antum circuit **S**imul**A**tor) simulates quantum circuits written in OpenQASM. It represents the quantum state as a **multi-terminal binary decision diagram** (MTBDD), and it can **summarize loops symbolically**: a loop that repeats a block of gates thousands of times is simulated with a few passes over the block instead of one pass per iteration.
 
+## Try it in your browser
+
+[Open the interactive WebAssembly demo](demo.html) to compare loop summarization with plain execution, run benchmark circuits, and edit OpenQASM in the playground. The simulator runs locally in your browser with float64 or exact algebraic amplitudes; no installation is required.
+
 ## How it works
 
 The state of an *n*-qubit circuit is a vector of 2<sup>*n*</sup> complex amplitudes. MEDUSA stores it as an MTBDD: a decision diagram with one level per qubit and the amplitudes in its leaves. Identical sub-vectors are shared, so states with structure, such as basis states, uniform superpositions and the states of reversible and Grover-like circuits, stay small even for many qubits. Gates are applied as operations on the diagram.
