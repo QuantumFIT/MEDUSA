@@ -250,6 +250,28 @@ static void test_measure_one_qubit(void)
     free_samples(&s);
 }
 
+/* A wide register: the outcome table's n^3 - 1 buckets are capped at 2^20
+ * from 102 qubits on (n^3 overflowed an int past 1290). Every qubit is
+ * measured; q[101] is 1, the rest 0. */
+static void test_measure_wide_register(void)
+{
+    TEST_SECTION("measure_all: 102 qubits (capped outcome table)");
+    enum { W = 102 };
+    char qasm[64 + W * 32];
+    int len = snprintf(qasm, sizeof(qasm), HDR "bit[%d] c;\nqubit[%d] q;\nx q[%d];\n", W, W, W - 1);
+    for (int i = 0; i < W; i++)
+        len += snprintf(qasm + len, sizeof(qasm) - (size_t)len, "c[%d] = measure q[%d];\n", i, i);
+    char want[W + 1];
+    want[0] = '1';
+    memset(want + 1, '0', W - 1);
+    want[W] = '\0';
+    sim_samples_t s;
+    int nq;
+    TEST_ASSERT(sample(qasm, 20, 5, &s, &nq));
+    TEST_ASSERT(nq == W && s.n == 1 && count_of(&s, want) == 20);
+    free_samples(&s);
+}
+
 /* Seed 63433462's first draw is 0.99999998926..., which f32 rounds to 1.0f.
  * Compared as a prob_t, it was not below the probability 1 of q[0], so the
  * qubit was sampled as 0 (and the assert that this cannot happen fired). */
@@ -369,6 +391,7 @@ int main(void)
     test_measure_outcomes();
     test_measure_seed();
     test_measure_one_qubit();
+    test_measure_wide_register();
     test_measure_draw_near_one();
     test_measure_no_samples();
     test_string_stream_failure();
