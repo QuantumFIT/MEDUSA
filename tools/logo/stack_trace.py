@@ -18,6 +18,7 @@ usage: stack_trace.py logo.png out.svg [levels [inner_sigma [inner_tol]]]
        (defaults 24 4 1.4, which is what docs/logo/medusa-logo.svg uses)
 """
 import sys
+
 import numpy as np
 from PIL import Image
 from scipy import ndimage
@@ -103,7 +104,8 @@ def gradient_fill(band, gid):
     return f"url(#{gid})"
 
 
-hexc = lambda c: "#%02x%02x%02x" % tuple(int(round(v)) for v in np.clip(c, 0, 255))
+def hexc(c):
+    return "#" + "".join(f"{round(float(v)):02x}" for v in np.clip(c, 0, 255))
 layers = []
 for k in range(levels):
     hi, lo = qs[k], qs[k + 1]
@@ -124,5 +126,6 @@ svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{x0} {y0} {x1 - x0} {y
        + "<defs>\n" + "\n".join(defs) + "\n</defs>\n"
        + "\n".join(f'<path fill="{c}" fill-rule="evenodd" d="{d}"/>' for c, d in layers)
        + "\n</svg>\n")
-open(dst, "w").write(svg)
+with open(dst, "w") as f:
+    f.write(svg)
 print(f"{len(layers)} layers, viewBox {x0} {y0} {x1 - x0} {y1 - y0}, {len(svg) // 1024} KiB")

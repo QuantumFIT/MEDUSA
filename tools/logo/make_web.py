@@ -8,6 +8,7 @@ bleed into the edges.
 usage: make_web.py logo-transparent.png out.png
 """
 import sys
+
 from PIL import Image
 
 src, dst = sys.argv[1], sys.argv[2]

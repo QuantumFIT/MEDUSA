@@ -23,8 +23,9 @@ along them, where they blend into the tentacles' edges, goes too.
 usage: make_transparent.py logo.png out.png
 """
 import sys
-from PIL import Image
+
 import numpy as np
+from PIL import Image
 from scipy import ndimage
 
 GLOW_SEEDS = [(380, 590), (870, 600)]   # (x, y): left and right pale shape
@@ -44,7 +45,8 @@ light = (mn >= 120) & (mn < 250) & ~near_solid
 light[700:, :] = False
 seeds = np.zeros_like(light)
 for x, y in GLOW_SEEDS:
-    assert light[y, x], f"GLOW_SEEDS: ({x}, {y}) is not in a pale shape"
+    if not light[y, x]:
+        sys.exit(f"GLOW_SEEDS: ({x}, {y}) is not in a pale shape of {src}")
     seeds[y, x] = True
 glow = ndimage.binary_propagation(seeds, mask=light)
 glow |= ndimage.binary_dilation(glow, iterations=3) & (mn >= 150)
