@@ -3,7 +3,7 @@
 | File | What |
 |---|---|
 | `medusa-logo.png` | the original, 1254 × 1254, white background |
-| `medusa-logo-transparent.png` | the same with a transparent background |
+| `medusa-logo-transparent.png` | the same with a transparent background, without the pale shapes between the tentacles |
 | `medusa-logo-web.png` | transparent, 292 × 400, cropped to the logo (used by the website) |
 | `medusa-logo.svg` | vector version |
 | `medusa-logo.tex` | TikZ version, a standalone document |
@@ -19,7 +19,7 @@
 2. copy the `tikzpicture`;
 3. scale it with `[scale=…]`. Its natural size is 806 × 1097 pt.
 
-**The transparent versions on a dark background.** White is part of the drawing: the anti-aliased edges and the soft glow where the tentacles meet the bell are colours mixed with white. `make_transparent.py` turns those light pixels into colour plus transparency, so on a dark page they fade into it. On white, the result looks exactly like the original.
+**The transparent versions on a dark background.** White is part of the drawing: the anti-aliased edges are colours mixed with white. `make_transparent.py` turns those light pixels into colour plus transparency, so on a dark page they fade into it. It also removes the two pale blue shapes between the outer pairs of tentacles, just under the bell, which turned into light patches on a dark page. Apart from those two shapes, the transparent versions look exactly like the original on white.
 
 ## Regenerating
 
