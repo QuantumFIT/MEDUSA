@@ -1015,13 +1015,12 @@ void measure_all(unsigned long samples, FILE *output, qBDD circ, int n, int *bit
             if (PROB_LE(random, p_qt_is_one)) {
                 curr_state[curr_ct] = '1';
                 assert(!PROB_EQ(p_qt_is_one, PROB_ZERO));
-                norm_coef = PROB_MUL(norm_coef, PROB_SQRT_D(PROB_DIV(PROB_ONE, p_qt_is_one)));
+                norm_coef = PROB_MUL_SQRT_D(norm_coef, PROB_DIV(PROB_ONE, p_qt_is_one));
             }
             else {
                 curr_state[curr_ct] = '0';
                 assert(!PROB_EQ(p_qt_is_one, PROB_ONE));
-                norm_coef = PROB_MUL(norm_coef,
-                                     PROB_SQRT_D(PROB_DIV(PROB_ONE, PROB_SUB(PROB_ONE, p_qt_is_one))));
+                norm_coef = PROB_MUL_SQRT_D(norm_coef, PROB_DIV(PROB_ONE, PROB_SUB(PROB_ONE, p_qt_is_one)));
             }
         }
         htab_m_lookup_add(state_table, curr_state);
