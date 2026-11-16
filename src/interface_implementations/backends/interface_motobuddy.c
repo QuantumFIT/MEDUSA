@@ -106,7 +106,7 @@ LEAF_TYPE qBDD_getTerminalValue(qBDD a) {
     void* val = mtbdd_getTerminalValue(a);
     if (val == NULL) {
         /* false / freelist / collected leaf - do not dereference */
-        printf("Warning: qBDD_getTerminalValue called on node %d with NULL value\n", a);
+        fprintf(stderr, "Warning: qBDD_getTerminalValue called on node %d with NULL value\n", a);
         LEAF_TYPE empty = { .pImpl = NULL };
         return empty;
     }

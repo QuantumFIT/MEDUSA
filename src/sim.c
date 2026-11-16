@@ -25,7 +25,6 @@
 /// Constant for no other possible end character for 'parse_num()'
 #define NO_ALT_END -2
 /// Constant for index into classical bit register used for measurement results if the qubit shouldn't be measured
-#define Q_NOT_MEASURED -1
 /// Eps for checking if probability is > 0 & < 1
 #define EPSILON 0.001
 /// Size increment for time arrays resize in sim_info
@@ -982,17 +981,67 @@ fail:
     return info->status;
 }
 
-void measure_all(unsigned long samples, FILE *output, qBDD circ, int n, int *bits_to_measure)
+sim_status_t sim_string(const char *qasm, qBDD *circ, const sim_flags_t *flags, sim_info_t *info)
 {
+    assert(qasm != NULL);
+    assert(circ != NULL);
+    assert(flags != NULL);
+    assert(info != NULL);
+
+    /* fmemopen may refuse a zero-length buffer (POSIX leaves it open), and
+     * an empty string holds no circuit anyway. */
+    if (qasm[0] == '\0') {
+        *circ = qBDD_false();
+        info->status = SIM_NO_CIRCUIT;
+        info->error[0] = '\0';
+        info->line = 1;
+        return SIM_NO_CIRCUIT;
+    }
+    /* "r" never writes, so the cast away from const is safe. */
+    FILE *in = fmemopen((void *)qasm, strlen(qasm), "r");
+    if (in == NULL) {
+        *circ = qBDD_false();
+        info->line = 1;
+        sim_error(info, SIM_ERR_STREAM, "Could not open the circuit string as a stream (%s).",
+                  strerror(errno));
+        return SIM_ERR_STREAM;
+    }
+    sim_status_t status = sim_file(in, circ, flags, info);
+    fclose(in);
+    return status;
+}
+
+/* SplitMix64 (Steele, Lea, Flood 2014): a small generator of good quality,
+ * the same on every platform, unlike rand(). */
+static uint64_t splitmix64(uint64_t *state)
+{
+    uint64_t z = (*state += 0x9e3779b97f4a7c15ULL);
+    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+    return z ^ (z >> 31);
+}
+
+/// A uniform double in [0, 1): the top 53 bits of the next number.
+static double uniform01(uint64_t *state)
+{
+    return (double)(splitmix64(state) >> 11) * 0x1.0p-53;
+}
+
+void measure_all(unsigned long samples, uint64_t seed, qBDD circ, int n,
+                 const int *bits_to_measure, sim_samples_t *out)
+{
+    assert(out != NULL);
+    assert(n > 0);
     prob_t random;
     prob_t p_qt_is_one;
     prob_t norm_coef;
     char curr_state[n+1];
     curr_state[n] = '\0';
     int curr_ct;
+    uint64_t rng = seed;
 
     htab_t *state_table = htab_init(n*n*n-1);
-    
+
     for (unsigned long i=0; i < samples; i++) {
         norm_coef = 1;
         for (int j=0; j < n; j++) {
@@ -1008,8 +1057,8 @@ void measure_all(unsigned long samples, FILE *output, qBDD circ, int n, int *bit
             p_qt_is_one = measure(&circ, j, curr_state, n) * norm_coef * norm_coef;
             assert(p_qt_is_one <= (1 + EPSILON) && p_qt_is_one >= (0 - EPSILON));
             p_qt_is_one = (p_qt_is_one >= 1)? 1 : ((p_qt_is_one <= 0)? 0 : p_qt_is_one); // round
-            random = (prob_t)((double)rand() / RAND_MAX);
-            if (random <= p_qt_is_one) {
+            random = (prob_t)uniform01(&rng);
+            if (random < p_qt_is_one) {
                 curr_state[curr_ct] = '1';
                 assert(p_qt_is_one != 0);
                 norm_coef *= sqrt(1/p_qt_is_one);
@@ -1022,8 +1071,46 @@ void measure_all(unsigned long samples, FILE *output, qBDD circ, int n, int *bit
         }
         htab_m_lookup_add(state_table, curr_state);
     }
-    htab_m_print_all(state_table, output);
+
+    /* The outcomes in the table's order, which is the order the CLI has
+     * always printed them in. The keys are stored lowest bit first. */
+    out->n = state_table->size;
+    out->v = my_malloc((out->n ? out->n : 1) * sizeof(sim_sample_t));
+    size_t k = 0;
+    for (size_t b = 0; b < state_table->arr_size; b++) {
+        for (htab_item_t *it = state_table->arr_ptr[b]; it != NULL; it = it->next) {
+            const char *key = (const char *)it->data.key;
+            size_t len = strlen(key);
+            char *bits = my_malloc(len + 1);
+            for (size_t c = 0; c < len; c++) {
+                bits[c] = key[len - 1 - c];
+            }
+            bits[len] = '\0';
+            out->v[k].bits = bits;
+            out->v[k].count = it->data.value;
+            k++;
+        }
+    }
+    assert(k == out->n);
     htab_m_free(state_table);
+}
+
+void print_samples(FILE *output, const sim_samples_t *s)
+{
+    fprintf(output, "Sampled results:\n");
+    for (size_t k = 0; k < s->n; k++) {
+        fprintf(output, "    '%s'    %lu\n", s->v[k].bits, s->v[k].count);
+    }
+}
+
+void free_samples(sim_samples_t *s)
+{
+    for (size_t k = 0; k < s->n; k++) {
+        free(s->v[k].bits);
+    }
+    free(s->v);
+    s->v = NULL;
+    s->n = 0;
 }
 
 /* end of "sim.c" */

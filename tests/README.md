@@ -135,6 +135,15 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   `fopencookie` stream whose n-th seek fails (glibc only; skipped elsewhere).
   `test-leaks` runs it under valgrind. `test-cli` covers the same errors as the
   CLI prints them
+- `make test-sim-api` - the core as a library calls it (P0b, issue #73;
+  `tests/test_sim_api.c`). `sim_string` must agree with `sim_file` on the same
+  text, loops included (classic and symbolic, which rewind the stream), and
+  report errors the same way. `measure_all` must draw only the outcomes the
+  state allows, count every sample, and give the same samples for the same
+  seed; the counts for one seed are pinned, since the generator (SplitMix64)
+  is MEDUSA's own. `print_samples` must print the CLI's format. Running it
+  under valgrind found `htab_m_free` leaking the table it was meant to free
+  (it only emptied it), so every `--measure` run had leaked it
 - `make test-cli` - argument handling, parser diagnostics and the long-number
   output file (`tests/test_cli.sh`). Before it, `main.c` sat at 55.7% branch
   coverage and `sim.c` at 66.4%, because every other suite feeds the simulator

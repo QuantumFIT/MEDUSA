@@ -1,3 +1,5 @@
+#include <errno.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <getopt.h>
 #include <time.h>
@@ -31,6 +33,7 @@
  Options with a required argument:\n\
  --file,            -f          specify the input QASM file (default STDIN)\n\
  --nsamples,        -n          number of samples used for measurement (default 1024)\n\
+ --seed,                        seed for sampling the measurements (default 1)\n\
  --norm-csv,        -c          CSV path for norm tracking (default 'norm_track.csv'; requires -e)\n\
  \n\
  Options with an optional argument:\n\
@@ -76,6 +79,7 @@ int main(int argc, char *argv[])
     sim_flags_t flags = { .opt_symb = false,
                           .opt_info = false };
     unsigned long samples = 1024;
+    uint64_t seed = 1;
 
     char *norm_csv_path = NULL;
     bool norm_enabled  = false;
@@ -95,6 +99,7 @@ int main(int argc, char *argv[])
         {"norm-csv",   required_argument, 0, 'c'},
         {"tree-simulation", no_argument,  0, 't'},
         {"norm-error", no_argument,       0, 'e'},
+        {"seed",       required_argument, 0, 'S'},
 
         {0, 0, 0, 0}
     };
@@ -147,6 +152,15 @@ int main(int argc, char *argv[])
             case 't':
                 use_tree_sim = true;
                 break;
+            case 'S': {
+                errno = 0;
+                unsigned long long v = strtoull(optarg, &endptr, 10);
+                if (*optarg == '\0' || *optarg == '-' || *endptr != '\0' || errno == ERANGE) {
+                    error_exit("Invalid seed.\n");
+                }
+                seed = (uint64_t)v;
+                break;
+            }
 
             case '?':
                 exit(1); // error msg already printed by getopt_long
@@ -181,6 +195,7 @@ int main(int argc, char *argv[])
     bool sim_rejected = false; // sim_file refused the input (and has said why)
     if (use_tree_sim) {
     #ifdef USE_MOSF
+            printf("Parsing MOSF file and simulating...\n");
             sim_successful = sim_mosf_file(input, &circ, &flags, &info);
     #else
         fprintf(stderr, "MOSF support not compiled in (build with USE_CXX=1)\n");
@@ -200,7 +215,10 @@ int main(int argc, char *argv[])
         }
     }
     if (sim_successful && opt_measure && info.is_measure) {
-        measure_all(samples, measure_output, circ, info.n_qubits, info.bits_to_measure);
+        sim_samples_t drawn;
+        measure_all(samples, seed, circ, info.n_qubits, info.bits_to_measure, &drawn);
+        print_samples(measure_output, &drawn);
+        free_samples(&drawn);
     }
 
     clock_gettime(CLOCK_MONOTONIC, &t_finish); // End the timer

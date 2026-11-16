@@ -4,6 +4,8 @@
  */
 
 #include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <time.h>
 #include "mtbdd.h"
 
@@ -76,6 +78,16 @@ void free_sim_info(sim_info_t *i);
  */
 sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info);
 
+/**
+ * Simulates the OpenQASM circuit in the string qasm, as sim_file does for a
+ * stream (loops included: the string is read through a memory stream, which
+ * can be rewound). An empty string is SIM_NO_CIRCUIT; a memory stream that
+ * cannot be opened is SIM_ERR_STREAM.
+ *
+ * All four pointers must be non-NULL (asserted).
+ */
+sim_status_t sim_string(const char *qasm, qBDD *circ, const sim_flags_t *flags, sim_info_t *info);
+
 /// Outcome of sim_loop_count
 typedef enum sim_loop_count_result {
     SIM_LOOP_OK = 0,     /// *iters holds the count (0 for an empty range)
@@ -92,21 +104,43 @@ typedef enum sim_loop_count_result {
  */
 sim_loop_count_t sim_loop_count(long long start, long long step, long long end, uint64_t *iters);
 
+/// In sim_info_t.bits_to_measure: this qubit is not measured
+#define Q_NOT_MEASURED -1
+
+/// One outcome drawn by measure_all, and how often it was drawn
+typedef struct sim_sample {
+    char *bits;           /// The classical register, highest bit first ('0', '1'; 'x' for a bit nothing is measured into)
+    unsigned long count;  /// How many of the samples gave this outcome
+} sim_sample_t;
+
+/// The outcomes drawn by measure_all, each once, in no particular order
+typedef struct sim_samples {
+    sim_sample_t *v;      /// The outcomes
+    size_t n;             /// How many there are
+} sim_samples_t;
+
 /**
- * Measures all bits in the given array (compatible only with measurement at the end of the circuit)
- * 
- * @param samples the total number of samples
- * 
- * @param output stream for the output of results
- * 
- * @param circ MTBDD representation of the end circuit state
- * 
- * @param n number of qubits in the circuit
- * 
- * @param bits_to_measure array for storing the qubits that are to be measured
- * 
+ * Samples the measurement of the qubits listed in bits_to_measure (at the end
+ * of the circuit) and fills out with the outcomes and their counts. The
+ * random numbers come from MEDUSA's own generator, started from seed, so the
+ * same seed gives the same samples on every platform. Nothing is printed;
+ * print_samples does that. Release out with free_samples.
+ *
+ * @param samples number of samples to draw
+ * @param seed seed of the random number generator
+ * @param circ the final state
+ * @param n number of qubits (and classical bits)
+ * @param bits_to_measure for each qubit, the classical bit it is measured into, or Q_NOT_MEASURED
+ * @param out filled with the outcomes; its previous contents are not freed
  */
-void measure_all(unsigned long samples, FILE *output, qBDD circ, int n, int *bits_to_measure);
+void measure_all(unsigned long samples, uint64_t seed, qBDD circ, int n,
+                 const int *bits_to_measure, sim_samples_t *out);
+
+/** Prints s as the CLI does ("Sampled results:", then one outcome per line). */
+void print_samples(FILE *output, const sim_samples_t *s);
+
+/** Releases what measure_all put in s, and empties it. */
+void free_samples(sim_samples_t *s);
 
 /**
  * Calculates the time elapsed between two timestamps in seconds

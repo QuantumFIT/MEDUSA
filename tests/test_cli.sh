@@ -92,6 +92,30 @@ check "cli-missing-file"    nonzero   "Invalid input file" \
 check "cli-bad-nsamples"    nonzero   "number of samples" \
       "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" --nsamples 12x
 check "cli-file-needs-arg"  nonzero   ""        "${BIN}" --file
+check "cli-bad-seed"        nonzero   "Invalid seed" \
+      "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" -m --seed 12x
+check "cli-negative-seed"   nonzero   "Invalid seed" \
+      "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" -m --seed -1
+
+# --seed: the samples depend on it and on nothing else (MEDUSA's own generator,
+# not rand()), in the format the CLI has always printed. A Bell pair gives
+# only 00 and 11.
+printf 'OPENQASM 3.0;\ninclude "stdgates.inc";\nbit[2] c;\nqubit[2] q;\nh q[0];\ncx q[0], q[1];\nc[0] = measure q[0];\nc[1] = measure q[1];\n' \
+    > "${WORKDIR}/bell_measure.qasm"
+seed_run() { ( cd "${WORKDIR}" && timeout 60 "${BIN}" --file bell_measure.qasm -m --seed "$1" ); }
+s7a=$(seed_run 7 2>&1) || true
+s7b=$(seed_run 7 2>&1) || true
+s8=$(seed_run 8 2>&1) || true
+if [[ "${s7a}" == "${s7b}" && "${s7a}" != "${s8}" ]] \
+   && [[ "$(head -1 <<< "${s7a}")" == "Sampled results:" ]] \
+   && ! grep -qv "^Sampled results:$\|^    '00'    [0-9]*$\|^    '11'    [0-9]*$" <<< "${s7a}"; then
+    echo "OK   cli-seed"
+    summary_record "cli-seed" 0
+else
+    echo "FAIL cli-seed: same seed must repeat, another differ, only '00'/'11' lines"
+    printf '%s\n---\n%s\n' "${s7a}" "${s8}" | head -8
+    summary_record "cli-seed" 1
+fi
 
 # fopen succeeds on a directory in read mode and the first read simply fails,
 # so nothing is simulated. That used to exit 0 (issue #13); main now reports
