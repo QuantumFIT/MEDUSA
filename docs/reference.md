@@ -18,6 +18,7 @@ $ ./MEDUSA [options]
 | `--symbolic`, `-s` | | summarize `for` loops symbolically ([details](usage#loops-and-symbolic-simulation)) |
 | `--measure`, `-m` | file, optional | sample the measured qubits at the end of the circuit; print the counts, or write them to the file |
 | `--nsamples`, `-n` | number | number of samples for `--measure` (default 1024) |
+| `--seed` | number | seed for sampling with `--measure` (default 1); the same seed gives the same samples on every platform |
 | `--probability`, `-p` | | write \|amplitude\|² into `res.dot` instead of amplitudes |
 | `--info`, `-i` | | print the simulation time and peak memory use |
 | `--norm-error`, `-e` | | track the norm of the state after every gate |

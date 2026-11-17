@@ -15,7 +15,6 @@
 extern "C" bool sim_mosf_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t *info) {
     if (!in || !circ || !flags || !info) return false;
 
-    printf("Parsing MOSF file and simulating...\n");
     try {
         mosf::json j = mosf::json::parse(in);
         info->n_qubits = j.at("x_levels").get<int>();

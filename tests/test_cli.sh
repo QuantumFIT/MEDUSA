@@ -92,6 +92,69 @@ check "cli-missing-file"    nonzero   "Invalid input file" \
 check "cli-bad-nsamples"    nonzero   "number of samples" \
       "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" --nsamples 12x
 check "cli-file-needs-arg"  nonzero   ""        "${BIN}" --file
+check "cli-bad-seed"        nonzero   "Invalid seed" \
+      "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" -m --seed 12x
+check "cli-negative-seed"   nonzero   "Invalid seed" \
+      "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" -m --seed -1
+check "cli-empty-seed"      nonzero   "Invalid seed" \
+      "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" -m --seed ""
+check "cli-seed-too-large"  nonzero   "Invalid seed" \
+      "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" -m --seed 18446744073709551616
+check "cli-largest-seed"    0         "" \
+      "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" -m --seed 18446744073709551615
+
+# Output that cannot be written is an error, not a silent loss: a measurement
+# file in a directory that does not exist, and a res.dot that is a directory.
+check "cli-measure-file-unwritable" nonzero "Invalid output file" \
+      "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" \
+      -m "${WORKDIR}/no-such-dir/samples.txt"
+mkdir -p "${WORKDIR}/dotdir/res.dot"
+rc=0
+( cd "${WORKDIR}/dotdir" && timeout 60 "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" \
+      > "${WORKDIR}/dotdir.log" 2>&1 ) || rc=$?
+if [[ "${rc}" -eq 1 ]] && grep -q "Cannot open the output file" "${WORKDIR}/dotdir.log"; then
+    echo "OK   cli-res-dot-unwritable"
+    summary_record "cli-res-dot-unwritable" 0
+else
+    echo "FAIL cli-res-dot-unwritable: exit ${rc}, expected 1 and 'Cannot open the output file'"
+    summary_record "cli-res-dot-unwritable" 1
+fi
+
+# --norm-error without --norm-csv writes norm_track.csv in the working directory.
+mkdir -p "${WORKDIR}/normdefault"
+rc=0
+( cd "${WORKDIR}/normdefault" && timeout 60 "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" \
+      --norm-error > /dev/null 2>&1 ) || rc=$?
+if [[ "${rc}" -eq 0 ]] && grep -q '^gate_idx;gate_name;total_prob' "${WORKDIR}/normdefault/norm_track.csv" 2>/dev/null; then
+    echo "OK   cli-norm-csv-default"
+    summary_record "cli-norm-csv-default" 0
+else
+    echo "FAIL cli-norm-csv-default: exit ${rc}; expected norm_track.csv with the CSV header"
+    summary_record "cli-norm-csv-default" 1
+fi
+
+# --seed: the samples depend on it and on nothing else (MEDUSA's own generator,
+# not rand()), in the format the CLI has always printed. A Bell pair gives
+# only 00 and 11.
+printf 'OPENQASM 3.0;\ninclude "stdgates.inc";\nbit[2] c;\nqubit[2] q;\nh q[0];\ncx q[0], q[1];\nc[0] = measure q[0];\nc[1] = measure q[1];\n' \
+    > "${WORKDIR}/bell_measure.qasm"
+seed_run() { ( cd "${WORKDIR}" && timeout 60 "${BIN}" --file bell_measure.qasm -m --seed "$1" ); }
+# Every run has to succeed: comparing the output of a failed one proves nothing.
+rc7a=0; rc7b=0; rc8=0
+s7a=$(seed_run 7 2>&1) || rc7a=$?
+s7b=$(seed_run 7 2>&1) || rc7b=$?
+s8=$(seed_run 8 2>&1) || rc8=$?
+if [[ "${rc7a}${rc7b}${rc8}" == 000 ]] \
+   && [[ "${s7a}" == "${s7b}" && "${s7a}" != "${s8}" ]] \
+   && [[ "$(head -1 <<< "${s7a}")" == "Sampled results:" ]] \
+   && ! grep -qv "^Sampled results:$\|^    '00'    [0-9]*$\|^    '11'    [0-9]*$" <<< "${s7a}"; then
+    echo "OK   cli-seed"
+    summary_record "cli-seed" 0
+else
+    echo "FAIL cli-seed: exits ${rc7a}/${rc7b}/${rc8}; all must be 0, the same seed repeat, another differ, only '00'/'11' lines"
+    printf '%s\n---\n%s\n' "${s7a}" "${s8}" | head -8
+    summary_record "cli-seed" 1
+fi
 
 # fopen succeeds on a directory in read mode and the first read simply fails,
 # so nothing is simulated. That used to exit 0 (issue #13); main now reports

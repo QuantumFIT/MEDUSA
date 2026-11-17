@@ -26,7 +26,7 @@ NPROC="$(nproc 2>/dev/null || echo 4)"
 
 # Build only (do not run phony test-stress-f128, which executes the binary).
 make buddy_doubles_f128 test_unit_api LEAF_FLOAT_TYPE=3 -j"${NPROC}"
-make ./test_benchmark_semantics ./test_metamorphic ./test_sim_errors LEAF_FLOAT_TYPE=3 -j"${NPROC}"
+make ./test_benchmark_semantics ./test_metamorphic ./test_sim_errors ./test_sim_api_f128 LEAF_FLOAT_TYPE=3 -j"${NPROC}"
 rm -f test_stress_f128
 make ./test_stress_f128 STRESS_LEVEL=1 LEAF_FLOAT_TYPE=3 -j"${NPROC}"
 
@@ -52,6 +52,14 @@ if "${VG[@]}" ./test_sim_errors; then
     summary_record "valgrind test_sim_errors" 0
 else
     summary_record "valgrind test_sim_errors" 1
+fi
+
+# Circuits from a string (fmemopen) and the samples measure_all hands back.
+echo "=== valgrind test_sim_api_f128 ==="
+if "${VG[@]}" ./test_sim_api_f128; then
+    summary_record "valgrind test_sim_api" 0
+else
+    summary_record "valgrind test_sim_api" 1
 fi
 
 echo "=== valgrind test_stress_f128 (LEVEL=1 binary) ==="

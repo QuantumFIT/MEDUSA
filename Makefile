@@ -122,6 +122,8 @@ LEAF_OBJ_algebraic           := $(OBJ_DIR)/leaf_algebraic_mpz.o
 CC     := gcc
 CXX    := g++
 CLIBS  := -lgmp -lpthread -lm
+# dlsym, for test_sim_api: in libdl before glibc 2.34, in libSystem on macOS.
+LIBDL  := $(if $(filter Linux,$(shell uname -s)),-ldl)
 
 # Fat LTO objects carry ordinary code beside the IR, so an LTO=0 link can reuse
 # them. Only where the compiler accepts the flag: Apple clang rejects it, but
@@ -280,7 +282,7 @@ BSCRIPT_PATH       := benchmark-utils/scripts
         test-build-config                                                  \
         test-unit-leaf-types                                               \
         test-circuits                                                      \
-        test-benchmarks test-metamorphic test-sim-errors                   \
+        test-benchmarks test-metamorphic test-sim-errors test-sim-api      \
         coverage coverage-all coverage-cxx coverage-report                 \
         test-sylvan test-all test-sylvan-leaf-types                        \
         test-sylvan-metamorphic test-sylvan-all                            \
@@ -319,6 +321,7 @@ help:
 	@echo "  make test-cli         CLI, parser diagnostics, long-number output"
 	@echo "  make test-build-config fat LTO, f128 without quadmath.h, GMP without libquadmath"
 	@echo "  make test-sim-errors  sim_file returns (no exit) on invalid input"
+	@echo "  make test-sim-api     sim_string, and measure_all with a seed into a buffer"
 	@echo "  make test-mosf        MOSF JSON input (needs USE_CXX=1, else skips)"
 	@echo "  make test-grover-sylvan  Grover matrix on Sylvan, every leaf type + GMP"
 	@echo "  make test-sylvan-all  test-sylvan + the slow metamorphic sweep"
@@ -448,6 +451,8 @@ TEST_META_SRC     := $(TEST_DIR)/test_metamorphic.c
 
 TEST_SIMERR_BIN   := $(BIN_DIR)/test_sim_errors
 TEST_SIMERR_SRC   := $(TEST_DIR)/test_sim_errors.c
+TEST_SIMAPI_BIN   := $(BIN_DIR)/test_sim_api_$(FLOAT_SUFFIX)
+TEST_SIMAPI_SRC   := $(TEST_DIR)/test_sim_api.c
 
 # ------------------------------------------------------------------------------
 # Sylvan-linked variants of the two backend-agnostic C suites.
@@ -481,7 +486,7 @@ TEST_STRESS_GMP_BIN  := $(BIN_DIR)/test_stress_gmp
 TEST_STRESS_GMP_OBJS := $(filter-out $(OBJ_DIR)/buddy_gmp/main.o, $(OBJS_BUDDY_GMP)) \
                         $(INTERFACE_OBJ_motobuddy) $(LEAF_OBJ_mpz) $(LEAF_OBJ_algebraic)
 
-test: test-unit test-unit-htab test-unit-gmp test-build-config test-cli test-sim-errors test-mosf \
+test: test-unit test-unit-htab test-unit-gmp test-build-config test-cli test-sim-errors test-sim-api test-mosf \
       test-circuits test-benchmarks test-metamorphic
 
 test-all: test test-sylvan
@@ -667,6 +672,23 @@ $(TEST_SIMERR_BIN): $(TEST_SIMERR_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
 test-sim-errors:
 	$(MAKE) $(TEST_SIMERR_BIN) LEAF_FLOAT_TYPE=3
 	$(TEST_SIMERR_BIN)
+
+# The core as a library calls it: circuits from a string, seeded sampling.
+$(TEST_SIMAPI_BIN): $(TEST_SIMAPI_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
+                    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a
+	$(CC) $(INC_DIRS_BUDDY_DOUBLES) -I $(TEST_DIR) $(CFLAGS) \
+	    -DLEAF_BACKEND_DOUBLES -DLEAF_FLOAT_TYPE=$(LEAF_FLOAT_TYPE) -D_GNU_SOURCE \
+	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
+	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
+	    -o $@ $(TEST_SIMAPI_SRC) $(TEST_UNIT_OBJS) \
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS) $(LIBDL)
+
+# f128 and f32: the sampling's comparisons are where precision shows.
+test-sim-api:
+	$(MAKE) $(BIN_DIR)/test_sim_api_f128 LEAF_FLOAT_TYPE=3
+	$(BIN_DIR)/test_sim_api_f128
+	$(MAKE) $(BIN_DIR)/test_sim_api_f32 LEAF_FLOAT_TYPE=0
+	$(BIN_DIR)/test_sim_api_f32
 
 # ------------------------------------------------------------------------------
 # Unit tests for the GMP leaf primitive.
@@ -1150,7 +1172,7 @@ clean-artifacts:
 	       $(TEST_UNIT_BIN) $(TEST_UNIT_GMP_BIN) $(TEST_HTAB_BIN) \
 	       $(TEST_STRESS_F64_BIN) $(TEST_STRESS_F128_BIN) \
 	       $(TEST_STRESS_GMP_BIN) \
-	       $(TEST_SEM_BIN) $(TEST_META_BIN) $(TEST_SIMERR_BIN) \
+	       $(TEST_SEM_BIN) $(TEST_META_BIN) $(TEST_SIMERR_BIN) $(BIN_DIR)/test_sim_api_* \
 	       $(BIN_DIR)/test_benchmark_semantics_sylvan_* \
 	       $(BIN_DIR)/test_grover_sylvan_* \
 	       $(BIN_DIR)/test_metamorphic_sylvan_* \

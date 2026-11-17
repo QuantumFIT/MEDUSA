@@ -79,6 +79,8 @@ Sampled results:
 
 `--measure FILE` writes the samples to a file instead. Without `--measure`, `measure` statements have no effect, and `res.dot` holds the state before measurement.
 
+The samples come from MEDUSA's own random number generator, so a run gives the same samples on every platform. `--seed N` picks another sequence (the default is 1).
+
 ## Time, memory and numerical error
 
 - **`--info`** (`-i`) prints the simulation time and the peak memory use.
