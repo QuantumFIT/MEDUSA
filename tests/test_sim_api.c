@@ -18,6 +18,7 @@
 #include "sim.h"
 #include "interface.h"
 #include "symb_utils.h"
+#include "gates.h"
 
 #include <dlfcn.h>
 #include <errno.h>
@@ -360,6 +361,99 @@ static void test_bad_arguments(void)
     }
 }
 
+/* measure() against the exact probability, for every target qubit and every
+ * combination of the other qubits being unmeasured, 0 or 1: the sum of the
+ * basis-state probabilities that agree with it and have the target at 1. A
+ * path in the diagram skips variables; each skipped one that is unmeasured
+ * counts twice. That used to count the node's own variable too, and skipped
+ * variables beyond the path's end, so any unmeasured qubit before the target
+ * doubled the result (issue #75). */
+static void test_measure_exact(void)
+{
+    TEST_SECTION("measure: exact for every target and every partial assignment");
+    static const char *CIRCS[] = {
+        HDR "qubit[3] q;\nh q[0];\ncx q[0], q[2];\nx q[1];\n",
+        HDR "qubit[3] q;\nh q[0];\nh q[1];\ncx q[1], q[2];\nrx(0.3) q[2];\nry(1.1) q[0];\n",
+        HDR "qubit[4] q;\nh q[3];\ncx q[3], q[0];\nrx(0.9) q[1];\nry(0.4) q[2];\ncx q[2], q[1];\n",
+    };
+    /* within the leaf type's precision; a wrong count is off by a factor 2 */
+    const double tol = sizeof(prob_t) == sizeof(float) ? 1e-5 : 1e-12;
+    int bad = 0, checked = 0;
+    for (size_t c = 0; c < sizeof(CIRCS) / sizeof(CIRCS[0]); c++) {
+        qBDD circ;
+        sim_info_t info;
+        init_sim_info(&info);
+        if (sim_string(CIRCS[c], &circ, &CLASSIC, &info) != SIM_OK) {
+            TEST_ASSERT_MSG(0, info.error);
+            free_sim_info(&info);
+            continue;
+        }
+        int n = info.n_qubits, total = 1;
+        for (int i = 0; i < n; i++)
+            total *= 3;
+        for (int xt = 0; xt < n; xt++) {
+            for (int code = 0; code < total; code++) {
+                char state[8];
+                int k = code;
+                for (int i = 0; i < n; i++, k /= 3)
+                    state[i] = "x01"[k % 3];
+                state[n] = '\0';
+                if (state[xt] != 'x')
+                    continue;
+                double exact = 0.0;
+                for (int b = 0; b < (1 << n); b++) {
+                    char bits[8];
+                    bool ok = true;
+                    for (int i = 0; i < n; i++) {
+                        bits[i] = (b >> i) & 1 ? '1' : '0';
+                        if ((i == xt && bits[i] != '1') || (state[i] != 'x' && state[i] != bits[i]))
+                            ok = false;
+                    }
+                    bits[n] = '\0';
+                    if (ok)
+                        exact += basis_prob(circ, bits);
+                }
+                double got = (double)measure(&circ, (uint32_t)xt, state, n);
+                checked++;
+                if (got > exact + tol || got < exact - tol) {
+                    if (bad++ < 5)
+                        fprintf(stderr, "  circuit %zu, target q[%d], state %s: measure %g, exact %g\n",
+                                c, xt, state, got, exact);
+                }
+            }
+        }
+        deleteCircuit(&circ);
+        free_sim_info(&info);
+    }
+    TEST_ASSERT(checked == 2 * 3 * 9 + 4 * 27);   /* targets x assignments of the others */
+    TEST_ASSERT(bad == 0);
+}
+
+/* The cases from issue #75 through measure_all: a subset without q[0], and a
+ * Bell pair on q[0], q[2] read into c[0], c[1] with q[1] unmeasured. */
+static void test_measure_subsets(void)
+{
+    TEST_SECTION("measure_all: subsets without q[0], other classical bits");
+    sim_samples_t s;
+    int nq;
+    static const char *LAST = HDR "bit[3] c;\nqubit[3] q;\nx q[2];\nc[2] = measure q[2];\n";
+    TEST_ASSERT(sample(LAST, 100, 1, &s, &nq));
+    TEST_ASSERT(s.n == 1 && count_of(&s, "1xx") == 100);
+    free_samples(&s);
+    static const char *PAIR = HDR "bit[3] c;\nqubit[3] q;\nh q[0];\ncx q[0], q[2];\n"
+                              "c[0] = measure q[0];\nc[1] = measure q[2];\n";
+    TEST_ASSERT(sample(PAIR, 4000, 2, &s, &nq));
+    unsigned long c00 = count_of(&s, "x00"), c11 = count_of(&s, "x11");
+    TEST_ASSERT(s.n == 2 && c00 + c11 == 4000 && c00 > 1874 && c00 < 2126);
+    free_samples(&s);
+    /* q[0] into c[2], q[2] into c[0], q[1] unmeasured */
+    static const char *SWAP = HDR "bit[3] c;\nqubit[3] q;\nx q[0];\n"
+                              "c[2] = measure q[0];\nc[0] = measure q[2];\n";
+    TEST_ASSERT(sample(SWAP, 100, 3, &s, &nq));
+    TEST_ASSERT(s.n == 1 && count_of(&s, "1x0") == 100);
+    free_samples(&s);
+}
+
 static void test_print_samples(void)
 {
     TEST_SECTION("print_samples: the CLI's format");
@@ -393,6 +487,8 @@ int main(void)
     test_measure_one_qubit();
     test_measure_wide_register();
     test_measure_draw_near_one();
+    test_measure_exact();
+    test_measure_subsets();
     test_measure_no_samples();
     test_string_stream_failure();
     test_false_terminal_value();

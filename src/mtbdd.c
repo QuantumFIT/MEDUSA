@@ -40,30 +40,18 @@ qBDD mtbdd_b_xt_mul_i(qBDD t, qBDD b) {
 }
 
 
-long get_coef(uint32_t start, uint32_t end, uint32_t target, char *curr_state)
+double get_coef(uint32_t first, uint32_t end, uint32_t target, const char *qubit_state)
 {
-    long skip;
-    if (end > target && start < target) {
-        skip = 1 << (end - target - 1);
-        for (uint32_t i = start; i < target; i++) {
-            if (curr_state[i] == NOT_MEASURED_CHAR) {
-                skip *= 2;
-            }
+    /* Each skipped variable leads to the same leaf whatever its value. Both
+     * values count while it is unmeasured; only its outcome counts once it is
+     * measured, and only 1 for the target. */
+    double coef = 1.0;
+    for (uint32_t i = first; i < end; i++) {
+        if (i != target && qubit_state[i] == NOT_MEASURED_CHAR) {
+            coef *= 2.0;
         }
     }
-    else if (end <= target) {
-        // It is probable that some skipped qubits were measured
-        skip = 1;
-        for (uint32_t i = start; i < target; i++) {
-            if (curr_state[i] == NOT_MEASURED_CHAR) {
-                skip *= 2;
-            }
-        }
-    }
-    else {
-        skip = 1 << (end - start - 1); // -1 as the first skip is done by having both skip_low, skip_high
-    }
-    return skip;
+    return coef;
 }
 
 prob_t interface_prob_sum(qBDD t, uint32_t xt, char* curr_state, int n) {
@@ -90,7 +78,8 @@ prob_t interface_prob_sum(qBDD t, uint32_t xt, char* curr_state, int n) {
     else {
         var_high = qBDD_getVar(high);
     }
-    long skip_high = get_coef(var_a, var_high, xt, curr_state);
+    /* var_a itself is not skipped: the branches below sum over its values. */
+    double skip_high = get_coef(var_a + 1, var_high, xt, curr_state);
 
     qBDD low = qBDD_getLow(t);
     uint32_t var_low;
@@ -100,7 +89,7 @@ prob_t interface_prob_sum(qBDD t, uint32_t xt, char* curr_state, int n) {
     else {
         var_low = qBDD_getVar(low);
     }
-    long skip_low = get_coef(var_a, var_low, xt, curr_state);
+    double skip_low = get_coef(var_a + 1, var_low, xt, curr_state);
 
     // recursion
     if (var_a == xt || curr_state[var_a] == '1') {

@@ -34,18 +34,16 @@ typedef leaf_scalar_t prob_t;
 
 
 /**
- * Computes the skip coefficient value for measure
- * 
- * @param start index of the current node
- * 
- * @param end index of next node present
- * 
- * @param target target qubit index
- * 
- * @param curr_state current state vector (determined by previous measurements)
- * 
+ * The factor for the variables first .. end-1, which a path in the diagram
+ * skips: 2 for each one not yet measured (both of its values lead to the same
+ * leaf, and both count), 1 for a measured one and for the target.
+ *
+ * @param first the first skipped variable
+ * @param end the variable of the next node (or n for a terminal)
+ * @param target the qubit being measured, counted as 1
+ * @param qubit_state per qubit: '0', '1', or NOT_MEASURED_CHAR
  */
-long get_coef(uint32_t start, uint32_t end, uint32_t target, char *curr_state);
+double get_coef(uint32_t first, uint32_t end, uint32_t target, const char *qubit_state);
 
 /**
  * Computes the sum of all probabilities in the quantum state t.

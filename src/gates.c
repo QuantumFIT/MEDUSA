@@ -18,13 +18,8 @@ prob_t measure(qBDD *a, uint32_t xt, char *curr_state, int n)
     else {
         var_t = qBDD_getVar(*a);
     }
-    long skip_coef;
-    if (var_t == 0) {
-        skip_coef = 1;
-    }
-    else {
-        skip_coef = get_coef(0, var_t, xt, curr_state);
-    }
+    /* the variables above the root: 0 .. var_t-1 */
+    double skip_coef = get_coef(0, var_t, xt, curr_state);
     prob_t prob = interface_prob_sum(*a, xt, curr_state, n);
     prob *= skip_coef;
     

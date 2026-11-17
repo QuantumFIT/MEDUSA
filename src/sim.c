@@ -1040,8 +1040,13 @@ void measure_all(unsigned long samples, uint64_t seed, qBDD circ, int n,
     double random;
     prob_t p_qt_is_one;
     prob_t norm_coef;
+    /* curr_state is the classical register, as reported; qubit_state what
+     * measure reads: the outcomes so far per qubit. They differ whenever a
+     * qubit is measured into a bit of another index. */
     char curr_state[n+1];
+    char qubit_state[n+1];
     curr_state[n] = '\0';
+    qubit_state[n] = '\0';
     int curr_ct;
     uint64_t rng = seed;
 
@@ -1057,6 +1062,7 @@ void measure_all(unsigned long samples, uint64_t seed, qBDD circ, int n,
         norm_coef = 1;
         for (int j=0; j < n; j++) {
             curr_state[j] = NOT_MEASURED_CHAR;
+            qubit_state[j] = NOT_MEASURED_CHAR;
         }
 
         for (int j=0; j < n; j++) {
@@ -1065,17 +1071,19 @@ void measure_all(unsigned long samples, uint64_t seed, qBDD circ, int n,
                 continue;
             }
 
-            p_qt_is_one = measure(&circ, j, curr_state, n) * norm_coef * norm_coef;
+            p_qt_is_one = measure(&circ, j, qubit_state, n) * norm_coef * norm_coef;
             assert(p_qt_is_one <= (1 + EPSILON) && p_qt_is_one >= (0 - EPSILON));
             p_qt_is_one = (p_qt_is_one >= 1)? 1 : ((p_qt_is_one <= 0)? 0 : p_qt_is_one); // round
             random = uniform01(&rng);
             if (random < p_qt_is_one) {
                 curr_state[curr_ct] = '1';
+                qubit_state[j] = '1';
                 assert(p_qt_is_one != 0);
                 norm_coef *= sqrt(1/p_qt_is_one);
             }
             else {
                 curr_state[curr_ct] = '0';
+                qubit_state[j] = '0';
                 assert(p_qt_is_one != 1);
                 norm_coef *= sqrt(1/(1-p_qt_is_one));
             }

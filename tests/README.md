@@ -149,7 +149,9 @@ plain text when piped). Shared helpers: `tests/test_harness.h`, `tests/test_summ
   buckets (a division by zero on the first sample, in every build), and in
   f32 a draw just below 1 - with seed 63433462, the first - was rounded to
   1.0f and sampled a certain qubit as 0 (the f32 build aborts on it without
-  the fix)
+  the fix). `measure` itself is checked against the exact probability for
+  every target and every partial assignment of the other qubits (issue #75:
+  any unmeasured qubit before the target used to double it)
 - `make test-cli` - argument handling, parser diagnostics and the long-number
   output file (`tests/test_cli.sh`). Before it, `main.c` sat at 55.7% branch
   coverage and `sim.c` at 66.4%, because every other suite feeds the simulator
