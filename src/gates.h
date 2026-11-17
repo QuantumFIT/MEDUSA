@@ -28,10 +28,12 @@ qBDD interface_gate_x(size_t xt, qBDD low, qBDD high);
  * 
  * @param xt target qubit index
  * 
- * @param curr_state current state vector (determined by previous measurements)
+ * @param curr_state per qubit (not per classical bit): '0' or '1' for one
+ * measured before, NOT_MEASURED_CHAR otherwise
  * 
  * @param n number of qubits in the circuit
  * 
+ * @return P(qubit xt is 1, and every measured qubit has its outcome)
  */
 prob_t measure(qBDD *p_t, uint32_t xt, char *curr_state, int n);
 
