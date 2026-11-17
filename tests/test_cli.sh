@@ -103,6 +103,36 @@ check "cli-seed-too-large"  nonzero   "Invalid seed" \
 check "cli-largest-seed"    0         "" \
       "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" -m --seed 18446744073709551615
 
+# Output that cannot be written is an error, not a silent loss: a measurement
+# file in a directory that does not exist, and a res.dot that is a directory.
+check "cli-measure-file-unwritable" nonzero "Invalid output file" \
+      "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" \
+      -m "${WORKDIR}/no-such-dir/samples.txt"
+mkdir -p "${WORKDIR}/dotdir/res.dot"
+rc=0
+( cd "${WORKDIR}/dotdir" && timeout 60 "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" \
+      > "${WORKDIR}/dotdir.log" 2>&1 ) || rc=$?
+if [[ "${rc}" -eq 1 ]] && grep -q "Cannot open the output file" "${WORKDIR}/dotdir.log"; then
+    echo "OK   cli-res-dot-unwritable"
+    summary_record "cli-res-dot-unwritable" 0
+else
+    echo "FAIL cli-res-dot-unwritable: exit ${rc}, expected 1 and 'Cannot open the output file'"
+    summary_record "cli-res-dot-unwritable" 1
+fi
+
+# --norm-error without --norm-csv writes norm_track.csv in the working directory.
+mkdir -p "${WORKDIR}/normdefault"
+rc=0
+( cd "${WORKDIR}/normdefault" && timeout 60 "${BIN}" --file "${ROOT}/tests/qasm/metamorphic/identity_h2.qasm" \
+      --norm-error > /dev/null 2>&1 ) || rc=$?
+if [[ "${rc}" -eq 0 ]] && grep -q '^gate_idx;gate_name;total_prob' "${WORKDIR}/normdefault/norm_track.csv" 2>/dev/null; then
+    echo "OK   cli-norm-csv-default"
+    summary_record "cli-norm-csv-default" 0
+else
+    echo "FAIL cli-norm-csv-default: exit ${rc}; expected norm_track.csv with the CSV header"
+    summary_record "cli-norm-csv-default" 1
+fi
+
 # --seed: the samples depend on it and on nothing else (MEDUSA's own generator,
 # not rand()), in the format the CLI has always printed. A Bell pair gives
 # only 00 and 11.
