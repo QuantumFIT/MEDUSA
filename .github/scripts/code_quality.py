@@ -15,6 +15,8 @@ of those as new. The cost is that a second, identical finding in the same file
   code_quality.py cppcheck --out F                         static analysis
   code_quality.py shellcheck --out F                       shell scripts
   code_quality.py compare --name N BASE HEAD               new findings -> exit 1
+  code_quality.py base --event E [--pr-base SHA] [--before SHA]
+                                                           what to compare against
 
 Each collector runs in the current directory, which must be a MEDUSA checkout
 with MoToBuddy initialised (make init).
@@ -196,6 +198,20 @@ def collect_shellcheck(out):
     write(findings, out)
 
 
+NULL_SHA = "0" * 40
+
+
+def base_revision(event, pr_base, before):
+    """The commit a change is compared against: the pull request's base, the
+    branch's previous tip for a push, and devel otherwise - a manual run, or
+    a push that created the branch (GitHub reports an all-zero `before`)."""
+    if event == "pull_request" and pr_base:
+        return pr_base
+    if event == "push" and before and before != NULL_SHA:
+        return before
+    return "devel"
+
+
 def read(path):
     with open(path, encoding="utf-8") as f:
         return {tuple(line.rstrip("\n").split("\t")) for line in f if line.strip()}
@@ -244,6 +260,10 @@ def main():
     c.add_argument("--name", required=True)
     c.add_argument("base")
     c.add_argument("head")
+    b = sub.add_parser("base")
+    b.add_argument("--event", required=True)
+    b.add_argument("--pr-base", default="")
+    b.add_argument("--before", default="")
     a = p.parse_args()
     out = os.path.abspath(a.out) if hasattr(a, "out") else None
     if a.cmd == "warnings":
@@ -252,6 +272,8 @@ def main():
         collect_cppcheck(out)
     elif a.cmd == "shellcheck":
         collect_shellcheck(out)
+    elif a.cmd == "base":
+        print(base_revision(a.event, a.pr_base, a.before))
     else:
         sys.exit(compare(a.name, a.base, a.head))
 

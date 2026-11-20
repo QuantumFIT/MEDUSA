@@ -76,18 +76,12 @@ jobs:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           BEFORE: ${{ github.event.before }}
         run: |
-          case "${EVENT}" in
-            pull_request) base="${PR_BASE}" ;;
-            push) base="${BEFORE}" ;;
-            *) base="" ;;
-          esac
+          # The choice is the script's (base_revision), so it is unit-tested.
+          base=$(python3 head/.github/scripts/code_quality.py base \
+                     --event "${EVENT}" --pr-base "${PR_BASE}" --before "${BEFORE}")
           cd head
-          if [ -z "${base}" ] || [ "${base}" = 0000000000000000000000000000000000000000 ]; then
-            git fetch --no-tags --depth=1 origin devel
-            base=$(git rev-parse FETCH_HEAD)
-          else
-            git fetch --no-tags --depth=1 origin "${base}"
-          fi
+          git fetch --no-tags --depth=1 origin "${base}"
+          base=$(git rev-parse FETCH_HEAD)
           echo "Base: ${base}"
           git worktree add --detach ../base "${base}"
 
@@ -117,17 +111,30 @@ jobs:
       - name: Compare
         run: python3 head/.github/scripts/code_quality.py compare --name "${{ matrix.name }}" base.txt head.txt
 
+  # The comparison script itself: parsers, normalisation, the comparison,
+  # the collectors' refusal of failed tool runs, and the base it picks.
+  script-tests:
+    name: Script tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Unit tests of code_quality.py
+        run: python3 -m unittest -v tests/test_code_quality.py
+
   # One stable name to require in branch protection, whatever the matrix
   # becomes.
   result:
     name: Code quality
     if: ${{ !cancelled() }}
-    needs: check
+    needs: [check, script-tests]
     runs-on: ubuntu-latest
     steps:
       - name: All checks passed
         run: |
-          if [ "${{ needs.check.result }}" != "success" ]; then
-            echo "A code-quality check found new problems or failed to run: ${{ needs.check.result }}"
+          if [ "${{ needs.check.result }}" != "success" ] || [ "${{ needs.script-tests.result }}" != "success" ]; then
+            echo "A code-quality check found new problems or failed to run: ${{ needs.check.result }}; script tests: ${{ needs.script-tests.result }}"
             exit 1
           fi
