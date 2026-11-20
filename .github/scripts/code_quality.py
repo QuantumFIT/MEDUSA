@@ -48,9 +48,34 @@ BUILDS = {
     ],
 }
 
-# Builds whose compile commands cppcheck replays, one per leaf backend: the
-# same sources are compiled with different force-included (-include) headers.
-CPPCHECK_VARIANTS = ["buddy_doubles_f128", "buddy_gmp"]
+# Builds whose compile commands cppcheck replays (make arguments): one per leaf
+# backend, as the same sources are compiled with different force-included
+# (-include) headers, and the C++ build (USE_CXX=1), which compiles gates.c as
+# C++ and adds sim_mosf.cpp. Units that two builds compile alike are analysed
+# once.
+CPPCHECK_VARIANTS = [
+    ["buddy_doubles_f128"],
+    ["buddy_gmp"],
+    ["buddy_doubles_f128", "USE_CXX=1"],
+]
+
+# Where the findings of third-party code land, as paths norm_path returns.
+THIRD_PARTY = ("lib/",)
+
+C_COMPILERS = ("gcc", "cc", "clang")
+CXX_COMPILERS = ("g++", "c++", "clang++")
+CXX_SOURCES = (".cpp", ".cc", ".cxx")
+
+# cppcheck reports these when it gave up on a file (or never got past its
+# preprocessing), and still exits 0. The file is then not analysed at all, so
+# they stop the collection rather than becoming findings: as findings, the
+# same failure on the base would make them "existing" and the check would
+# pass on code nobody looked at. Real bugs of severity error (nullPointer,
+# arrayIndexOutOfBounds, ...) stay findings.
+CPPCHECK_ABORTS = {
+    "syntaxError", "preprocessorErrorDirective", "unknownMacro",
+    "internalAstError", "internalError", "cppcheckError",
+}
 
 GCC_WARNING = re.compile(r"^(?P<file>[^:\s][^:]*):\d+:\d+: warning: (?P<msg>.*?)(?: \[(?P<flag>-W[^\]]+)\])?$")
 CPPCHECK_LINE = re.compile(r"^(?P<file>[^:]+):\d+:(?P<sev>[a-z]+):(?P<id>[A-Za-z0-9_]+):(?P<msg>.*)$")
@@ -118,20 +143,31 @@ def collect_warnings(compiler, out):
     write(findings, out)
 
 
-def compile_commands(target):
-    """(source, -I/-D flags, -include headers) for every C file `make target` compiles."""
-    res = run(["make", "-Bn", target], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+def compile_commands(make_args):
+    """(source, language, -I/-D flags, -include headers) for every C and C++
+    unit that `make -Bn *make_args` compiles; language is "c" or "c++"."""
+    what = " ".join(make_args)
+    res = run(["make", "-Bn", *make_args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     # make can print some commands and then fail; analysing that partial list
     # would let the check pass on code it never saw.
     if res.returncode != 0:
-        sys.exit(f"make -Bn {target} failed ({res.returncode}):\n{res.stderr}")
+        sys.exit(f"make -Bn {what} failed ({res.returncode}):\n{res.stderr}")
     units = []
     for line in res.stdout.replace("\\\n", " ").splitlines():
         args = shlex.split(line) if " -c " in line else []
-        if not args or (args[0] not in ("gcc", "cc", "clang") and not args[0].endswith("gcc")):
+        if not args:
+            continue
+        cc = os.path.basename(args[0])
+        if cc in CXX_COMPILERS or cc.endswith("-g++"):
+            lang = "c++"
+        elif cc in C_COMPILERS or cc.endswith("-gcc"):
+            lang = "c"
+        else:
             continue
         src = args[args.index("-c") + 1]
-        if not src.endswith(".c"):
+        if src.endswith(CXX_SOURCES):
+            lang = "c++"
+        elif not src.endswith(".c"):
             continue
         flags, includes = [], []
         it = iter(args[1:])
@@ -142,40 +178,66 @@ def compile_commands(target):
                 flags.append(a)
             elif a == "-include":
                 includes.append(next(it))
-        units.append((src, flags, includes))
+            elif a == "-x":
+                lang = "c++" if next(it) == "c++" else lang
+        units.append((src, lang, flags, includes))
     return units
 
 
 def collect_cppcheck(out):
     findings = []
+    seen = set()
     with tempfile.TemporaryDirectory() as tmp:
-        for target in CPPCHECK_VARIANTS:
-            units = compile_commands(target)
+        # cppcheck does not read the system headers (missingIncludeSystem is
+        # suppressed), so the f128 leaf header's __has_include(<quadmath.h>)
+        # test fails and its #error stops every f128 unit. An empty stand-in
+        # lets the analysis through; quadmath's functions are then unknown to
+        # cppcheck, as every other library function it has no config for.
+        stubs = os.path.join(tmp, "stubs")
+        os.mkdir(stubs)
+        open(os.path.join(stubs, "quadmath.h"), "w", encoding="utf-8").close()
+        for make_args in CPPCHECK_VARIANTS:
+            units = compile_commands(make_args)
             if not units:
-                sys.exit(f"no compile commands found for {target}")
-            for src, flags, includes in units:
+                sys.exit(f"no compile commands found for {' '.join(make_args)}")
+            for src, lang, flags, includes in units:
+                key = (src, lang, tuple(flags), tuple(includes))
+                if key in seen:
+                    continue
+                seen.add(key)
                 # cppcheck honours only one --include, so the force-included
                 # headers go through one prelude.
                 prelude = os.path.join(tmp, "prelude.h")
                 with open(prelude, "w", encoding="utf-8") as f:
                     f.writelines(f'#include "{os.path.abspath(inc)}"\n' for inc in includes)
-                cmd = ["cppcheck", "-q", "--std=c11", "--enable=warning,portability,performance",
+                std = ["--language=c++", "--std=c++17"] if lang == "c++" else ["--language=c", "--std=c11"]
+                cmd = ["cppcheck", "-q", *std, "--enable=warning,portability,performance",
                        "--inline-suppr", "--suppress=missingIncludeSystem",
                        # cppcheck does not know the compiler's predefined macros.
                        "-D__SIZEOF_FLOAT128__=16", "-D__GNUC__=13",
                        f"--include={prelude}",
-                       "--template={file}:{line}:{severity}:{id}:{message}", *flags, src]
+                       "--template={file}:{line}:{severity}:{id}:{message}", *flags,
+                       # after the build's own -I, as the system headers come
+                       f"-I{stubs}", src]
                 res = run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-                # Without --error-exitcode, cppcheck exits 0 whatever it finds
-                # (an analysis stopped by a syntax error included), so anything
-                # else means it did not run to the end - and a partial report
-                # would make the comparison pass on findings it never saw.
+                # Without --error-exitcode, cppcheck exits 0 whatever it finds,
+                # so anything else means it did not run to the end - and a
+                # partial report would make the comparison pass on findings it
+                # never saw. The same goes for a file it gave up on.
                 if res.returncode != 0:
                     sys.exit(f"cppcheck failed on {src} ({res.returncode}):\n{res.stderr}")
                 for line in res.stderr.splitlines():
                     m = CPPCHECK_LINE.match(line)
-                    if m:
-                        findings.append((norm_path(m["file"]), f"{m['sev']}:{m['id']}", norm_msg(m["msg"])))
+                    if not m:
+                        continue
+                    if m["id"] in CPPCHECK_ABORTS:
+                        sys.exit(f"cppcheck could not analyse {src} ({lang}): {line}")
+                    path = norm_path(m["file"])
+                    # MoToBuddy and the headers it bundles (nlohmann/json) are
+                    # not this repository's code to fix.
+                    if path.startswith(THIRD_PARTY):
+                        continue
+                    findings.append((path, f"{m['sev']}:{m['id']}", norm_msg(m["msg"])))
     write(findings, out)
 
 

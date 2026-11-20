@@ -10,7 +10,10 @@ here, without the tools it drives: `run` - the only place it starts a process
 - the comparison: new findings fail (exit 1, one annotation each), fixed and
   existing ones do not, and the job summary gets the table;
 - the collectors refuse incomplete runs: a failed clean or build, `make -Bn`
-  failing, cppcheck stopping, shellcheck unable to read a file;
+  failing, cppcheck stopping or giving up on a file, shellcheck unable to
+  read a file;
+- cppcheck replays C and C++ compile commands, each unit once, in its own
+  language, and leaves third-party code out;
 - the base a change is compared against, for each event.
 
 Run from the repository root: python3 -m unittest -v tests/test_code_quality.py
@@ -183,17 +186,28 @@ class Collectors(InTempDir):
 
     def test_compile_commands_parsed(self):
         out = ("gcc -I src -Isrc/inc -D LEAF=3 -DX -include src/h.h -c src/sim.c -o obj/sim.o\n"
-               "g++ -c src/gates.cpp -o obj/gates.o\n"
+               "g++ -std=c++17 -DUSE_MOSF -c src/sim_mosf.cpp -o obj/sim_mosf.o\n"
+               "g++ -x c++ -std=c++17 -c src/gates.c -o obj/gates.o\n"
+               "clang -x c++ -c src/htab.c -o obj/htab.o\n"
+               "x86_64-linux-gnu-gcc \\\n  -c src/hash.c -o obj/hash.o\n"
                "gcc -c lib/a.s -o a.o\n"
+               "ar rcs lib.a -c x.c\n"
                "echo done\n")
         fake = FakeRun([(["make", "-Bn"], done(0, out))])
-        units = self.collect(cq.compile_commands, fake, "buddy_doubles_f128")
-        self.assertEqual(units, [("src/sim.c", ["-Isrc", "-Isrc/inc", "-DLEAF=3", "-DX"], ["src/h.h"])])
+        units = self.collect(cq.compile_commands, fake, ["buddy_doubles_f128", "USE_CXX=1"])
+        self.assertEqual(fake.calls, [["make", "-Bn", "buddy_doubles_f128", "USE_CXX=1"]])
+        self.assertEqual(units, [
+            ("src/sim.c", "c", ["-Isrc", "-Isrc/inc", "-DLEAF=3", "-DX"], ["src/h.h"]),
+            ("src/sim_mosf.cpp", "c++", ["-DUSE_MOSF"], []),
+            ("src/gates.c", "c++", [], []),
+            ("src/htab.c", "c++", [], []),
+            ("src/hash.c", "c", [], []),
+        ])
 
     def test_compile_commands_make_fails(self):
         fake = FakeRun([(["make", "-Bn"], done(2, "gcc -c src/a.c\n", "No rule to make target"))])
         with self.assertRaises(SystemExit) as e:
-            self.collect(cq.compile_commands, fake, "buddy_gmp")
+            self.collect(cq.compile_commands, fake, ["buddy_gmp"])
         self.assertIn("make -Bn buddy_gmp failed", str(e.exception.code))
 
     def test_cppcheck_stopped(self):
@@ -212,10 +226,55 @@ class Collectors(InTempDir):
 
     def test_cppcheck_findings(self):
         fake = FakeRun([(["make", "-Bn"], done(0, "gcc -c src/a.c -o a.o\n")),
-                        (["cppcheck"], done(0, "", "src/a.c:5:warning:nullPointer:Possible null\n"))])
+                        (["cppcheck"], done(0, "", "src/a.c:5:warning:nullPointer:Possible null\n"
+                                                   "src/a.c:9:error:arrayIndexOutOfBounds:Array 'a[2]' accessed at index 2\n"))])
         self.collect(cq.collect_cppcheck, fake, "c.txt")
-        # one per variant, the same finding: counted once
-        self.assertEqual(cq.read("c.txt"), {("src/a.c", "warning:nullPointer", "Possible null")})
+        # A real bug of severity error is a finding like any other.
+        self.assertEqual(cq.read("c.txt"), {("src/a.c", "warning:nullPointer", "Possible null"),
+                                            ("src/a.c", "error:arrayIndexOutOfBounds",
+                                             "Array 'a[2]' accessed at index 2")})
+
+    def test_cppcheck_same_unit_analysed_once(self):
+        # Every variant compiles the same unit alike: cppcheck runs once.
+        fake = FakeRun([(["make", "-Bn"], done(0, "gcc -c src/a.c -o a.o\n")),
+                        (["cppcheck"], done(0))])
+        self.collect(cq.collect_cppcheck, fake, "c.txt")
+        makes = [c for c in fake.calls if c[0] == "make"]
+        self.assertEqual(makes, [["make", "-Bn", *v] for v in cq.CPPCHECK_VARIANTS])
+        self.assertIn(["make", "-Bn", "buddy_doubles_f128", "USE_CXX=1"], makes)
+        self.assertEqual(len([c for c in fake.calls if c[0] == "cppcheck"]), 1)
+
+    def test_cppcheck_languages_and_stubs(self):
+        out = "gcc -c src/a.c -o a.o\ng++ -c src/b.cpp -o b.o\n"
+        fake = FakeRun([(["make", "-Bn"], done(0, out)), (["cppcheck"], done(0))])
+        self.collect(cq.collect_cppcheck, fake, "c.txt")
+        runs = {c[-1]: c for c in fake.calls if c[0] == "cppcheck"}
+        self.assertIn("--language=c", runs["src/a.c"])
+        self.assertIn("--std=c11", runs["src/a.c"])
+        self.assertIn("--language=c++", runs["src/b.cpp"])
+        self.assertIn("--std=c++17", runs["src/b.cpp"])
+        # the stand-in <quadmath.h> directory, after the build's own -I
+        stubs = [a for a in runs["src/a.c"] if a.startswith("-I") and a.endswith("stubs")]
+        self.assertEqual(len(stubs), 1)
+
+    def test_cppcheck_gave_up_on_a_file(self):
+        # cppcheck exits 0 although it stopped at the #error: no file
+        # analysed, so no findings to compare - the collection fails.
+        for aborted in ("preprocessorErrorDirective", "syntaxError", "unknownMacro", "internalAstError"):
+            with self.subTest(aborted):
+                fake = FakeRun([(["make", "-Bn"], done(0, "gcc -c src/a.c -o a.o\n")),
+                                (["cppcheck"], done(0, "", f"src/h.h:88:error:{aborted}:#error \"no\"\n"))])
+                with self.assertRaises(SystemExit) as e:
+                    self.collect(cq.collect_cppcheck, fake, "c.txt")
+                self.assertIn("could not analyse src/a.c", str(e.exception.code))
+                self.assertFalse(os.path.exists("c.txt"))
+
+    def test_cppcheck_third_party_dropped(self):
+        fake = FakeRun([(["make", "-Bn"], done(0, "g++ -c src/b.cpp -o b.o\n")),
+                        (["cppcheck"], done(0, "", "lib/MoToBuddy/build/include/nlohmann/json.hpp:1:warning:accessMoved:x\n"
+                                                   "src/b.cpp:2:warning:nullPointerOutOfMemory:y\n"))])
+        self.collect(cq.collect_cppcheck, fake, "c.txt")
+        self.assertEqual(cq.read("c.txt"), {("src/b.cpp", "warning:nullPointerOutOfMemory", "y")})
 
     def test_shellcheck_unreadable_file(self):
         fake = FakeRun([(["git"], done(0, "a.sh\0b.sh\0")),

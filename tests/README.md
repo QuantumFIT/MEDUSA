@@ -367,9 +367,11 @@ CUSTOM dedup free are in upstream MoToBuddy (`main`).
 Four checks, each run on the change *and* on the commit it is based on:
 compiler warnings with `-Wall -Wextra` (GCC: every leaf type, GMP and
 `USE_CXX=1`; clang: f32/f64/f80 and GMP, as clang cannot build f128 on `devel`
-yet), cppcheck (`--enable=warning,portability,performance`, f128 and GMP
-builds), and shellcheck (`-S warning`, every tracked `*.sh`). A check fails
-only on findings the change adds; the existing ones are listed in the job
+yet), cppcheck (`--enable=warning,portability,performance`, the f128, GMP
+and `USE_CXX=1` builds, so the C++ sources too; a file cppcheck gives up on
+fails the check, and third-party code under `lib/` is left out), and
+shellcheck (`-S warning`, every tracked `*.sh`). A check fails only on
+findings the change adds; the existing ones are listed in the job
 summary. Findings are compared by file, kind and message, not by line, so
 unrelated edits that move code do not count as new.
 
