@@ -88,7 +88,9 @@ def run(cmd, check=False, **kw):
 def collect_warnings(compiler, out):
     cc, cxx = ("gcc", "g++") if compiler == "gcc" else ("clang", "clang++")
     findings = []
-    run(["make", "clean-artifacts"], stdout=subprocess.DEVNULL)
+    # A failed clean would leave objects that the builds below reuse without
+    # compiling them again, and so without their warnings.
+    run(["make", "clean-artifacts"], check=True, stdout=subprocess.DEVNULL)
     for targets in BUILDS[compiler]:
         # --output-sync keeps each compiler's output in one piece: with -j,
         # interleaved diagnostics turn into lines no pattern can parse.
