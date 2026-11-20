@@ -75,6 +75,9 @@ CXX_SOURCES = (".cpp", ".cc", ".cxx")
 CPPCHECK_ABORTS = {
     "syntaxError", "preprocessorErrorDirective", "unknownMacro",
     "internalAstError", "internalError", "cppcheckError",
+    # internal limits (cppcheckLimit: the leak checker's recursion limit) and
+    # template instantiation failures end the file's analysis the same way
+    "cppcheckLimit", "instantiationError",
 }
 
 GCC_WARNING = re.compile(r"^(?P<file>[^:\s][^:]*):\d+:\d+: warning: (?P<msg>.*?)(?: \[(?P<flag>-W[^\]]+)\])?$")

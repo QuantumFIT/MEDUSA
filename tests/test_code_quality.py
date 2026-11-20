@@ -260,7 +260,7 @@ class Collectors(InTempDir):
     def test_cppcheck_gave_up_on_a_file(self):
         # cppcheck exits 0 although it stopped at the #error: no file
         # analysed, so no findings to compare - the collection fails.
-        for aborted in ("preprocessorErrorDirective", "syntaxError", "unknownMacro", "internalAstError"):
+        for aborted in sorted(cq.CPPCHECK_ABORTS):
             with self.subTest(aborted):
                 fake = FakeRun([(["make", "-Bn"], done(0, "gcc -c src/a.c -o a.o\n")),
                                 (["cppcheck"], done(0, "", f"src/h.h:88:error:{aborted}:#error \"no\"\n"))])
@@ -268,6 +268,20 @@ class Collectors(InTempDir):
                     self.collect(cq.collect_cppcheck, fake, "c.txt")
                 self.assertIn("could not analyse src/a.c", str(e.exception.code))
                 self.assertFalse(os.path.exists("c.txt"))
+
+    def test_cppcheck_aborts_listed(self):
+        # every ID that means cppcheck stopped analysing a file
+        self.assertEqual(cq.CPPCHECK_ABORTS, {
+            "syntaxError", "preprocessorErrorDirective", "unknownMacro", "internalAstError",
+            "internalError", "cppcheckError", "cppcheckLimit", "instantiationError"})
+
+    def test_cppcheck_abort_in_third_party_code_still_stops(self):
+        # the unit including it was not analysed, whoever's the header is
+        fake = FakeRun([(["make", "-Bn"], done(0, "g++ -c src/b.cpp -o b.o\n")),
+                        (["cppcheck"], done(0, "", "lib/MoToBuddy/build/include/nlohmann/json.hpp:1:error:cppcheckLimit:x\n"))])
+        with self.assertRaises(SystemExit) as e:
+            self.collect(cq.collect_cppcheck, fake, "c.txt")
+        self.assertIn("could not analyse src/b.cpp", str(e.exception.code))
 
     def test_cppcheck_third_party_dropped(self):
         fake = FakeRun([(["make", "-Bn"], done(0, "g++ -c src/b.cpp -o b.o\n")),
