@@ -374,3 +374,43 @@ mapping list, `rdata->ref`, and `free_sim_info`.
 
 Terminal-table teardown (`bdd_done` union-aware free + `mtbdd_IndexStackFree`) and
 CUSTOM dedup free are in upstream MoToBuddy (`main`).
+
+### Code quality (`.github/workflows/code-quality.yml`)
+
+Four checks, each run on the change *and* on the commit it is based on:
+compiler warnings with `-Wall -Wextra` (GCC: every leaf type, GMP and
+`USE_CXX=1`; clang: f32/f64/f80 and GMP, as clang cannot build f128 on `devel`
+yet), cppcheck (`--enable=warning,portability,performance`, the f128, GMP
+and `USE_CXX=1` builds, so the C++ sources too; a file cppcheck gives up on
+fails the check, and third-party code under `lib/` is left out), and
+shellcheck (`-S warning`, every tracked `*.sh`). A check fails only on
+findings the change adds; the existing ones are listed in the job
+summary. Findings are compared by file, kind and message, not by line, so
+unrelated edits that move code do not count as new.
+
+The same script runs locally (after `make init`; it rebuilds the object trees).
+Each collector writes its own file. Collect on the change and on the commit it
+is based on (e.g. in a `git worktree` of `devel`, with `lib` linked to this
+checkout's), then compare each check on its own:
+
+```
+cq=.github/scripts/code_quality.py
+# in the change's checkout, then again in the base's (as base-*.txt)
+python3 $cq warnings --compiler gcc --out head-gcc.txt
+python3 $cq cppcheck --out head-cppcheck.txt
+python3 $cq shellcheck --out head-shellcheck.txt
+# then, per check
+python3 $cq compare --name gcc base-gcc.txt head-gcc.txt
+python3 $cq compare --name cppcheck base-cppcheck.txt head-cppcheck.txt
+python3 $cq compare --name shellcheck base-shellcheck.txt head-shellcheck.txt
+```
+
+The script itself is unit-tested (`tests/test_code_quality.py`, the workflow's
+*Script tests* job; `python3 -m unittest -v tests/test_code_quality.py`),
+without the tools it drives: the parsers, the normalisation (findings do not
+depend on line numbers), the comparison (only new findings fail), the
+collectors' refusal of failed or partial tool runs, and the base each event
+compares against. Each of those is mutation-checked.
+
+A cppcheck false positive can be silenced at the line with
+`// cppcheck-suppress <id>`.
