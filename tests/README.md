@@ -380,18 +380,25 @@ it), so another occurrence of an existing finding does count as new.
 The same script runs locally (after `make init`; it rebuilds the object trees).
 Each collector writes its own file. Collect on the change and on the commit it
 is based on (e.g. in a `git worktree` of `devel`, with `lib` linked to this
-checkout's), then compare each check on its own:
+checkout's), then compare each check on its own. Both sides are collected with
+the change's script, as in CI: the base's may differ, or predate it.
 
 ```
-cq=.github/scripts/code_quality.py
-# in the change's checkout, then again in the base's (as base-*.txt)
-python3 $cq warnings --compiler gcc --out head-gcc.txt
-python3 $cq cppcheck --out head-cppcheck.txt
-python3 $cq shellcheck --out head-shellcheck.txt
+# in the change's checkout: its script, and a directory for the reports
+cq=$PWD/.github/scripts/code_quality.py
+out=$(mktemp -d)
+git worktree add --detach ../base devel && ln -s "$PWD/lib" ../base/lib
+python3 $cq warnings --compiler gcc --out $out/head-gcc.txt
+python3 $cq cppcheck --out $out/head-cppcheck.txt
+python3 $cq shellcheck --out $out/head-shellcheck.txt
+# the same script on the base
+(cd ../base && python3 $cq warnings --compiler gcc --out $out/base-gcc.txt \
+             && python3 $cq cppcheck --out $out/base-cppcheck.txt \
+             && python3 $cq shellcheck --out $out/base-shellcheck.txt)
 # then, per check
-python3 $cq compare --name gcc base-gcc.txt head-gcc.txt
-python3 $cq compare --name cppcheck base-cppcheck.txt head-cppcheck.txt
-python3 $cq compare --name shellcheck base-shellcheck.txt head-shellcheck.txt
+python3 $cq compare --name gcc $out/base-gcc.txt $out/head-gcc.txt
+python3 $cq compare --name cppcheck $out/base-cppcheck.txt $out/head-cppcheck.txt
+python3 $cq compare --name shellcheck $out/base-shellcheck.txt $out/head-shellcheck.txt
 ```
 
 The script itself is unit-tested (`tests/test_code_quality.py`, the workflow's

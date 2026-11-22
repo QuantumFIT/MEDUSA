@@ -12,7 +12,7 @@ here, without the tools it drives: `run` - the only place it starts a process
   job summary gets the table;
 - the collectors refuse incomplete runs: a failed clean or build, `make -Bn`
   failing, cppcheck stopping or giving up on a file, shellcheck unable to
-  read a file;
+  read or parse a file;
 - cppcheck replays C and C++ compile commands, each unit once, in its own
   language, and leaves third-party code out;
 - the base a change is compared against, for each event.
@@ -335,6 +335,29 @@ class Collectors(InTempDir):
         with self.assertRaises(SystemExit) as e:
             self.collect(cq.collect_shellcheck, fake, "s.txt")
         self.assertIn("shellcheck failed (2)", str(e.exception.code))
+
+    def test_shellcheck_unparsable_script(self):
+        # what shellcheck 0.11 prints for an `if` without `fi`, exit status 1
+        bad = ("bad.sh:2:1: error: Couldn't find 'fi' for this 'if'. [SC1046]\n"
+               "bad.sh:2:1: error: Couldn't parse this if expression. Fix to allow more checks. [SC1073]\n"
+               "bad.sh:4:1: error: Expected 'fi' matching previously mentioned 'if'. [SC1047]\n"
+               "bad.sh:4:1: error: Expected 'fi'. Fix any mentioned problems and try again. [SC1072]\n")
+        # either code alone stops the collection
+        without = lambda code: "\n".join(l for l in bad.splitlines() if code not in l)
+        for out in (bad, without("SC1073"), without("SC1072")):
+            with self.subTest(out=out):
+                fake = FakeRun([(["git", "ls-files"], done(0, "bad.sh\0")), (["shellcheck"], done(1, out))])
+                with self.assertRaises(SystemExit) as e:
+                    self.collect(cq.collect_shellcheck, fake, "s.txt")
+                self.assertIn("shellcheck could not parse bad.sh", str(e.exception.code))
+                self.assertFalse(os.path.exists("s.txt"))
+
+    def test_shellcheck_other_sc1_codes_are_findings(self):
+        # a syntax warning in a script that parses
+        out = "a.sh:3:9: warning: This \\c will be a regular 'c' in this context. [SC1001]\n"
+        fake = FakeRun([(["git", "ls-files"], done(0, "a.sh\0")), (["shellcheck"], done(1, out))])
+        self.collect(cq.collect_shellcheck, fake, "s.txt")
+        self.assertEqual(cq.read("s.txt"), {("a.sh", "SC1001", "This \\c will be a regular 'c' in this context."): 1})
 
     def test_shellcheck_findings_and_paths_with_spaces(self):
         fake = FakeRun([(["git"], done(0, "a.sh\0dir/with space.sh\0")),

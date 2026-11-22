@@ -11,8 +11,13 @@ name: Code quality
 
 on:
   # Every pull request, whatever its base, so that stacked PRs are checked
-  # against the PR below them.
+  # against the PR below them. `edited` too: retargeting a PR (a stacked one,
+  # once the PR below it merges) changes what it is compared against without
+  # a push. A title or description edit then reruns the check as well; the
+  # run is not skipped for those, as a skipped run would cancel (concurrency)
+  # and replace the result of one still in progress.
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main, devel]
   workflow_dispatch:

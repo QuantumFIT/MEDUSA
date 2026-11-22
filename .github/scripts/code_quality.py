@@ -83,6 +83,13 @@ CPPCHECK_ABORTS = {
     "cppcheckLimit", "instantiationError",
 }
 
+# shellcheck reports a script it cannot parse with these (SC1073: "Couldn't
+# parse this ...", SC1072: "... Fix any mentioned problems and try again"),
+# exits 1 as for any finding, and checks nothing else in that script. As
+# findings, the same failure on the base would hide every change to it. The
+# other SC1xxx (syntax warnings in a script that does parse) stay findings.
+SHELLCHECK_ABORTS = {"SC1072", "SC1073"}
+
 GCC_WARNING = re.compile(r"^(?P<file>[^:\s][^:]*):(?P<loc>\d+:\d+): warning: (?P<msg>.*?)(?: \[(?P<flag>-W[^\]]+)\])?$")
 CPPCHECK_LINE = re.compile(r"^(?P<file>[^:]+):(?P<loc>\d+:\d+):(?P<sev>[a-z]+):(?P<id>[A-Za-z0-9_]+):(?P<msg>.*)$")
 SHELLCHECK_LINE = re.compile(r"^(?P<file>[^:]+):(?P<loc>\d+:\d+): (?P<sev>[a-z]+): (?P<msg>.*) \[(?P<id>SC\d+)\]$")
@@ -268,8 +275,11 @@ def collect_shellcheck(out):
     findings = []
     for line in res.stdout.splitlines():
         m = SHELLCHECK_LINE.match(line)
-        if m:
-            findings.append((norm_path(m["file"]), m["loc"], m["id"], norm_msg(m["msg"])))
+        if not m:
+            continue
+        if m["id"] in SHELLCHECK_ABORTS:
+            sys.exit(f"shellcheck could not parse {m['file']}: {line}")
+        findings.append((norm_path(m["file"]), m["loc"], m["id"], norm_msg(m["msg"])))
     write(findings, out)
 
 
