@@ -377,8 +377,9 @@ unrelated edits that move code do not count as new; what is compared is how
 many times each occurs (one per source location, however many builds report
 it), so another occurrence of an existing finding does count as new.
 
-The same script runs locally (after `make init`; it rebuilds the object trees).
-Each collector writes its own file. The recipe below does what CI does. It
+The same script runs locally (after `make init`; it rebuilds the object trees),
+with the tools CI installs: GCC, clang, cppcheck and shellcheck. Each collector
+writes its own file. The recipe below does what CI does. It
 collects on the change and on its base: a new `git worktree` at `../base` of
 `devel` as just fetched from `origin`. Both sides use the change's script (the
 base's may differ, or predate it). This checkout's MoToBuddy is linked into
@@ -406,11 +407,12 @@ findings.
     if [ "$side" = head ]; then dir=$PWD; else dir=$base; fi
     (cd "$dir"
      python3 "$cq" warnings --compiler gcc --out "$out/$side-gcc.txt"
+     python3 "$cq" warnings --compiler clang --out "$out/$side-clang.txt"
      python3 "$cq" cppcheck --out "$out/$side-cppcheck.txt"
      python3 "$cq" shellcheck --out "$out/$side-shellcheck.txt")
   done
   rc=0
-  for check in gcc cppcheck shellcheck; do
+  for check in gcc clang cppcheck shellcheck; do
     python3 "$cq" compare --name "$check" "$out/base-$check.txt" "$out/head-$check.txt" || rc=1
   done
   echo "Reports in $out; remove the base with: git worktree remove $base"
