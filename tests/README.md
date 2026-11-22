@@ -378,27 +378,44 @@ many times each occurs (one per source location, however many builds report
 it), so another occurrence of an existing finding does count as new.
 
 The same script runs locally (after `make init`; it rebuilds the object trees).
-Each collector writes its own file. Collect on the change and on the commit it
-is based on (e.g. in a `git worktree` of `devel`, with `lib` linked to this
-checkout's), then compare each check on its own. Both sides are collected with
-the change's script, as in CI: the base's may differ, or predate it.
+Each collector writes its own file. The recipe below does what CI does. It
+collects on the change and on its base: a new `git worktree` at `../base` of
+`devel` as just fetched from `origin`. Both sides use the change's script (the
+base's may differ, or predate it). This checkout's MoToBuddy is linked into
+the base when both pin the same commit, and `make init` runs there otherwise.
+Each check is then compared on its own. The recipe runs in a subshell under
+`set -eu`, so any failure - `../base` already existing, a build or collector
+failing - stops it before a comparison is made. It exits 1 if a check has new
+findings.
 
 ```
-# in the change's checkout: its script, and a directory for the reports
-cq=$PWD/.github/scripts/code_quality.py
-out=$(mktemp -d)
-git worktree add --detach ../base devel && ln -s "$PWD/lib" ../base/lib
-python3 $cq warnings --compiler gcc --out $out/head-gcc.txt
-python3 $cq cppcheck --out $out/head-cppcheck.txt
-python3 $cq shellcheck --out $out/head-shellcheck.txt
-# the same script on the base
-(cd ../base && python3 $cq warnings --compiler gcc --out $out/base-gcc.txt \
-             && python3 $cq cppcheck --out $out/base-cppcheck.txt \
-             && python3 $cq shellcheck --out $out/base-shellcheck.txt)
-# then, per check
-python3 $cq compare --name gcc $out/base-gcc.txt $out/head-gcc.txt
-python3 $cq compare --name cppcheck $out/base-cppcheck.txt $out/head-cppcheck.txt
-python3 $cq compare --name shellcheck $out/base-shellcheck.txt $out/head-shellcheck.txt
+(
+  set -eu
+  cq="$PWD/.github/scripts/code_quality.py"    # the change's, for both sides
+  out=$(mktemp -d)                              # the reports
+  base="$(dirname "$PWD")/base"
+  git fetch origin devel                        # the current devel, not a stale local one
+  git worktree add --detach "$base" FETCH_HEAD  # fails if ../base exists
+  pin() { sed -n 's/^MOTOBUDDY_COMMIT[[:space:]]*[:?]*=[[:space:]]*//p' "$1/Makefile" | head -1; }
+  if [ "$(pin .)" = "$(pin "$base")" ]; then
+    ln -s "$PWD/lib" "$base/lib"
+  else
+    (cd "$base" && make init)
+  fi
+  for side in head base; do
+    if [ "$side" = head ]; then dir=$PWD; else dir=$base; fi
+    (cd "$dir"
+     python3 "$cq" warnings --compiler gcc --out "$out/$side-gcc.txt"
+     python3 "$cq" cppcheck --out "$out/$side-cppcheck.txt"
+     python3 "$cq" shellcheck --out "$out/$side-shellcheck.txt")
+  done
+  rc=0
+  for check in gcc cppcheck shellcheck; do
+    python3 "$cq" compare --name "$check" "$out/base-$check.txt" "$out/head-$check.txt" || rc=1
+  done
+  echo "Reports in $out; remove the base with: git worktree remove $base"
+  exit "$rc"
+)
 ```
 
 The script itself is unit-tested (`tests/test_code_quality.py`, the workflow's
