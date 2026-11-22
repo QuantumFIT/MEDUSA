@@ -379,15 +379,17 @@ it), so another occurrence of an existing finding does count as new.
 
 The same script runs locally (after `make init`; it rebuilds the object trees),
 with the tools CI installs: GCC, clang, cppcheck and shellcheck. Each collector
-writes its own file. The recipe below does what CI does. It
-collects on the change and on its base: a new `git worktree` at `../base` of
-`devel` as just fetched from `origin`. Both sides use the change's script (the
-base's may differ, or predate it). This checkout's MoToBuddy is linked into
-the base when both pin the same commit, and `make init` runs there otherwise.
-Each check is then compared on its own. The recipe runs in a subshell under
-`set -eu`, so any failure - `../base` already existing, a build or collector
-failing - stops it before a comparison is made. It exits 1 if a check has new
-findings.
+writes its own file. The recipe below does what CI does. It collects on the
+change and on its base: a new `git worktree` at `../base` of the PR's target
+branch as just fetched from `origin`. That is `devel`, or for a stacked PR the
+branch it targets, given as `BASE_BRANCH` (e.g. `export
+BASE_BRANCH=feat/f128-without-quadmath` before pasting the recipe). Both sides
+use the change's script (the base's may differ, or predate it). This
+checkout's MoToBuddy is linked into the base when both pin the same commit,
+and `make init` runs there otherwise. Each check is then compared on its own.
+The recipe runs in a subshell under `set -eu`, so any failure - an unknown
+`BASE_BRANCH`, `../base` already existing, a build or collector failing -
+stops it before a comparison is made. It exits 1 if a check has new findings.
 
 ```
 (
@@ -395,7 +397,7 @@ findings.
   cq="$PWD/.github/scripts/code_quality.py"    # the change's, for both sides
   out=$(mktemp -d)                              # the reports
   base="$(dirname "$PWD")/base"
-  git fetch origin devel                        # the current devel, not a stale local one
+  git fetch origin "${BASE_BRANCH:-devel}"      # the PR's target, as just fetched
   git worktree add --detach "$base" FETCH_HEAD  # fails if ../base exists
   pin() { sed -n 's/^MOTOBUDDY_COMMIT[[:space:]]*[:?]*=[[:space:]]*//p' "$1/Makefile" | head -1; }
   if [ "$(pin .)" = "$(pin "$base")" ]; then
