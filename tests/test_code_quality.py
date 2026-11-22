@@ -6,9 +6,10 @@ here, without the tools it drives: `run` - the only place it starts a process
 
 - the three parsers (compiler warnings, cppcheck, shellcheck);
 - normalisation: findings do not depend on line numbers, nor on how a path
-  is spelt, and duplicates count once;
-- the comparison: new findings fail (exit 1, one annotation each), fixed and
-  existing ones do not, and the job summary gets the table;
+  is spelt; each location counts once, however many builds report it;
+- the comparison: new findings, and more occurrences of an existing one, fail
+  (exit 1, one annotation each); fixed, fewer and moved ones do not, and the
+  job summary gets the table;
 - the collectors refuse incomplete runs: a failed clean or build, `make -Bn`
   failing, cppcheck stopping or giving up on a file, shellcheck unable to
   read a file;
@@ -75,20 +76,21 @@ class InTempDir(unittest.TestCase):
 class Parsers(unittest.TestCase):
     def test_gcc_warning(self):
         m = cq.GCC_WARNING.match("src/sim.c:120:5: warning: unused variable 'x' [-Wunused-variable]")
-        self.assertEqual((m["file"], m["msg"], m["flag"]), ("src/sim.c", "unused variable 'x'", "-Wunused-variable"))
+        self.assertEqual((m["file"], m["loc"], m["msg"], m["flag"]),
+                         ("src/sim.c", "120:5", "unused variable 'x'", "-Wunused-variable"))
         # without a flag, and not a note or an error
         self.assertIsNone(cq.GCC_WARNING.match("src/sim.c:1:1: warning: oops")["flag"])
         self.assertIsNone(cq.GCC_WARNING.match("src/sim.c:1:1: note: declared here"))
         self.assertIsNone(cq.GCC_WARNING.match("src/sim.c:1:1: error: expected ';'"))
 
     def test_cppcheck_line(self):
-        m = cq.CPPCHECK_LINE.match("src/htab.c:42:warning:nullPointer:Possible null pointer dereference: t")
-        self.assertEqual((m["file"], m["sev"], m["id"], m["msg"]),
-                         ("src/htab.c", "warning", "nullPointer", "Possible null pointer dereference: t"))
+        m = cq.CPPCHECK_LINE.match("src/htab.c:42:1:warning:nullPointer:Possible null pointer dereference: t")
+        self.assertEqual((m["file"], m["loc"], m["sev"], m["id"], m["msg"]),
+                         ("src/htab.c", "42:1", "warning", "nullPointer", "Possible null pointer dereference: t"))
 
     def test_shellcheck_line(self):
         m = cq.SHELLCHECK_LINE.match("tests/x.sh:7:3: warning: Quote this to prevent word splitting. [SC2046]")
-        self.assertEqual((m["file"], m["sev"], m["id"]), ("tests/x.sh", "warning", "SC2046"))
+        self.assertEqual((m["file"], m["loc"], m["sev"], m["id"]), ("tests/x.sh", "7:3", "warning", "SC2046"))
 
 
 class Normalisation(InTempDir):
@@ -108,18 +110,23 @@ class Normalisation(InTempDir):
         key = lambda m: (cq.norm_path(m["file"]), m["flag"], cq.norm_msg(m["msg"]))
         self.assertEqual(key(before), key(after))
 
-    def test_write_dedups_and_sorts(self):
-        f = [("b.c", "-Wx", "m"), ("a.c", "-Wy", "n"), ("b.c", "-Wx", "m")]
+    def test_write_counts_locations_and_sorts(self):
+        # b.c:3:1 twice (two builds report it): one occurrence; b.c:8:1 another
+        f = [("b.c", "3:1", "-Wx", "m"), ("a.c", "1:1", "-Wy", "n"),
+             ("b.c", "3:1", "-Wx", "m"), ("b.c", "8:1", "-Wx", "m")]
         self.quiet(cq.write, f, "out.txt")
         with open("out.txt", encoding="utf-8") as fh:
-            self.assertEqual(fh.read(), "a.c\t-Wy\tn\nb.c\t-Wx\tm\n")
-        self.assertEqual(cq.read("out.txt"), {("a.c", "-Wy", "n"), ("b.c", "-Wx", "m")})
+            self.assertEqual(fh.read(), "a.c\t-Wy\tn\t1\nb.c\t-Wx\tm\t2\n")
+        self.assertEqual(cq.read("out.txt"), {("a.c", "-Wy", "n"): 1, ("b.c", "-Wx", "m"): 2})
 
 
 class Compare(InTempDir):
     def files(self, base, head):
-        self.quiet(cq.write, base, "base.txt")
-        self.quiet(cq.write, head, "head.txt")
+        """base, head: (file, kind, message) per occurrence; each at a line
+        of its own, so a repeated finding is a second occurrence."""
+        at = lambda items: [(f, f"{i}:1", k, m) for i, (f, k, m) in enumerate(items, 1)]
+        self.quiet(cq.write, at(base), "base.txt")
+        self.quiet(cq.write, at(head), "head.txt")
 
     def run_compare(self):
         out = io.StringIO()
@@ -148,6 +155,34 @@ class Compare(InTempDir):
         self.assertIn("| fixed | 1 |", out)
         self.assertIn("Fixed by this change", out)
 
+    def test_another_occurrence_of_an_existing_finding_fails(self):
+        old = ("a.c", "-Wunused-variable", "unused variable 'x'")
+        self.files([old], [old, old])
+        rc, out = self.run_compare()
+        self.assertEqual(rc, 1)
+        self.assertIn("::error file=a.c,title=gcc: new -Wunused-variable::unused variable 'x' "
+                      "(1 more than on the base)", out)
+        self.assertIn("| **new** | **1** |", out)
+        self.assertIn("| this change | 2 |", out)
+        self.assertIn("a.c  -Wunused-variable  unused variable 'x'  (x2)", out)
+
+    def test_fewer_occurrences_are_fixed(self):
+        old = ("a.c", "-Wx", "m")
+        self.files([old, old, old], [old])
+        rc, out = self.run_compare()
+        self.assertEqual(rc, 0)
+        self.assertIn("| fixed | 2 |", out)
+        self.assertIn("| **new** | **0** |", out)
+        self.assertIn("| base | 3 |", out)
+
+    def test_moved_occurrences_are_not_new(self):
+        # the same two occurrences, both moved down by an edit above them
+        self.quiet(cq.write, [("a.c", "3:1", "-Wx", "m"), ("a.c", "9:1", "-Wx", "m")], "base.txt")
+        self.quiet(cq.write, [("a.c", "13:1", "-Wx", "m"), ("a.c", "19:1", "-Wx", "m")], "head.txt")
+        rc, out = self.run_compare()
+        self.assertEqual(rc, 0)
+        self.assertNotIn("::error", out)
+
     def test_nothing_on_either_side(self):
         self.files([], [])
         rc, out = self.run_compare()
@@ -156,7 +191,8 @@ class Compare(InTempDir):
 
 
 GOOD_BUILD = done(0, "src/sim.c:3:1: warning: unused variable 'x' [-Wunused-variable]\n"
-                     "src/sim.c:9:1: warning: unused variable 'x' [-Wunused-variable]\n")
+                     "src/sim.c:9:1: warning: unused variable 'x' [-Wunused-variable]\n"
+                     "src/sim.c:3:1: warning: unused variable 'x' [-Wunused-variable]\n")
 
 
 class Collectors(InTempDir):
@@ -164,10 +200,11 @@ class Collectors(InTempDir):
         with mock.patch.object(cq, "run", fake), contextlib.redirect_stdout(io.StringIO()):
             return fn(*args)
 
-    def test_warnings_collected_once_per_finding(self):
+    def test_warnings_counted_once_per_location(self):
+        # lines 3 and 9: two occurrences; line 3 again (another build): not a third
         fake = FakeRun([(["make", "clean-artifacts"], done()), (["make"], GOOD_BUILD)])
         self.collect(cq.collect_warnings, fake, "clang", "w.txt")
-        self.assertEqual(cq.read("w.txt"), {("src/sim.c", "-Wunused-variable", "unused variable 'x'")})
+        self.assertEqual(cq.read("w.txt"), {("src/sim.c", "-Wunused-variable", "unused variable 'x'"): 2})
         self.assertEqual(fake.calls[0], ["make", "clean-artifacts"])
 
     def test_warnings_failed_clean(self):
@@ -212,7 +249,7 @@ class Collectors(InTempDir):
 
     def test_cppcheck_stopped(self):
         fake = FakeRun([(["make", "-Bn"], done(0, "gcc -c src/a.c -o a.o\n")),
-                        (["cppcheck"], done(1, "", "src/a.c:1:error:syntaxError:..."))])
+                        (["cppcheck"], done(1, "", "src/a.c:1:1:error:syntaxError:..."))])
         with self.assertRaises(SystemExit) as e:
             self.collect(cq.collect_cppcheck, fake, "c.txt")
         self.assertIn("cppcheck failed on src/a.c", str(e.exception.code))
@@ -226,13 +263,13 @@ class Collectors(InTempDir):
 
     def test_cppcheck_findings(self):
         fake = FakeRun([(["make", "-Bn"], done(0, "gcc -c src/a.c -o a.o\n")),
-                        (["cppcheck"], done(0, "", "src/a.c:5:warning:nullPointer:Possible null\n"
-                                                   "src/a.c:9:error:arrayIndexOutOfBounds:Array 'a[2]' accessed at index 2\n"))])
+                        (["cppcheck"], done(0, "", "src/a.c:5:1:warning:nullPointer:Possible null\n"
+                                                   "src/a.c:9:1:error:arrayIndexOutOfBounds:Array 'a[2]' accessed at index 2\n"))])
         self.collect(cq.collect_cppcheck, fake, "c.txt")
         # A real bug of severity error is a finding like any other.
-        self.assertEqual(cq.read("c.txt"), {("src/a.c", "warning:nullPointer", "Possible null"),
+        self.assertEqual(cq.read("c.txt"), {("src/a.c", "warning:nullPointer", "Possible null"): 1,
                                             ("src/a.c", "error:arrayIndexOutOfBounds",
-                                             "Array 'a[2]' accessed at index 2")})
+                                             "Array 'a[2]' accessed at index 2"): 1})
 
     def test_cppcheck_same_unit_analysed_once(self):
         # Every variant compiles the same unit alike: cppcheck runs once.
@@ -253,6 +290,8 @@ class Collectors(InTempDir):
         self.assertIn("--std=c11", runs["src/a.c"])
         self.assertIn("--language=c++", runs["src/b.cpp"])
         self.assertIn("--std=c++17", runs["src/b.cpp"])
+        # with the column, so two findings on one line stay two
+        self.assertIn("--template={file}:{line}:{column}:{severity}:{id}:{message}", runs["src/a.c"])
         # the stand-in <quadmath.h> directory, after the build's own -I
         stubs = [a for a in runs["src/a.c"] if a.startswith("-I") and a.endswith("stubs")]
         self.assertEqual(len(stubs), 1)
@@ -263,7 +302,7 @@ class Collectors(InTempDir):
         for aborted in sorted(cq.CPPCHECK_ABORTS):
             with self.subTest(aborted):
                 fake = FakeRun([(["make", "-Bn"], done(0, "gcc -c src/a.c -o a.o\n")),
-                                (["cppcheck"], done(0, "", f"src/h.h:88:error:{aborted}:#error \"no\"\n"))])
+                                (["cppcheck"], done(0, "", f"src/h.h:88:1:error:{aborted}:#error \"no\"\n"))])
                 with self.assertRaises(SystemExit) as e:
                     self.collect(cq.collect_cppcheck, fake, "c.txt")
                 self.assertIn("could not analyse src/a.c", str(e.exception.code))
@@ -278,17 +317,17 @@ class Collectors(InTempDir):
     def test_cppcheck_abort_in_third_party_code_still_stops(self):
         # the unit including it was not analysed, whoever's the header is
         fake = FakeRun([(["make", "-Bn"], done(0, "g++ -c src/b.cpp -o b.o\n")),
-                        (["cppcheck"], done(0, "", "lib/MoToBuddy/build/include/nlohmann/json.hpp:1:error:cppcheckLimit:x\n"))])
+                        (["cppcheck"], done(0, "", "lib/MoToBuddy/build/include/nlohmann/json.hpp:1:1:error:cppcheckLimit:x\n"))])
         with self.assertRaises(SystemExit) as e:
             self.collect(cq.collect_cppcheck, fake, "c.txt")
         self.assertIn("could not analyse src/b.cpp", str(e.exception.code))
 
     def test_cppcheck_third_party_dropped(self):
         fake = FakeRun([(["make", "-Bn"], done(0, "g++ -c src/b.cpp -o b.o\n")),
-                        (["cppcheck"], done(0, "", "lib/MoToBuddy/build/include/nlohmann/json.hpp:1:warning:accessMoved:x\n"
-                                                   "src/b.cpp:2:warning:nullPointerOutOfMemory:y\n"))])
+                        (["cppcheck"], done(0, "", "lib/MoToBuddy/build/include/nlohmann/json.hpp:1:1:warning:accessMoved:x\n"
+                                                   "src/b.cpp:2:1:warning:nullPointerOutOfMemory:y\n"))])
         self.collect(cq.collect_cppcheck, fake, "c.txt")
-        self.assertEqual(cq.read("c.txt"), {("src/b.cpp", "warning:nullPointerOutOfMemory", "y")})
+        self.assertEqual(cq.read("c.txt"), {("src/b.cpp", "warning:nullPointerOutOfMemory", "y"): 1})
 
     def test_shellcheck_unreadable_file(self):
         fake = FakeRun([(["git"], done(0, "a.sh\0b.sh\0")),
@@ -302,7 +341,7 @@ class Collectors(InTempDir):
                         (["shellcheck"], done(1, "a.sh:3:1: warning: Quote this. [SC2086]\n"))])
         self.collect(cq.collect_shellcheck, fake, "s.txt")
         self.assertEqual(fake.calls[1][-2:], ["a.sh", "dir/with space.sh"])
-        self.assertEqual(cq.read("s.txt"), {("a.sh", "SC2086", "Quote this.")})
+        self.assertEqual(cq.read("s.txt"), {("a.sh", "SC2086", "Quote this."): 1})
 
 
 class BaseRevision(unittest.TestCase):

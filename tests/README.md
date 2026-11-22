@@ -373,7 +373,9 @@ fails the check, and third-party code under `lib/` is left out), and
 shellcheck (`-S warning`, every tracked `*.sh`). A check fails only on
 findings the change adds; the existing ones are listed in the job
 summary. Findings are compared by file, kind and message, not by line, so
-unrelated edits that move code do not count as new.
+unrelated edits that move code do not count as new; what is compared is how
+many times each occurs (one per source location, however many builds report
+it), so another occurrence of an existing finding does count as new.
 
 The same script runs locally (after `make init`; it rebuilds the object trees).
 Each collector writes its own file. Collect on the change and on the commit it

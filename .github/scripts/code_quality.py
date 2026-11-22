@@ -8,8 +8,11 @@ start and the backlog paid off separately.
 
 A finding is identified by file, kind and message, *not* by line: unrelated
 edits move every line below them, and a line-sensitive diff would report all
-of those as new. The cost is that a second, identical finding in the same file
-(the same unused variable name, say) is not seen as new.
+of those as new. What is compared is how often each finding occurs, so a
+second, identical finding in the same file (the same unused variable name in
+another function, say) is new. Occurrences are told apart by their location
+(line and column) within one collection, where builds and variants that report
+the same location count once.
 
   code_quality.py warnings --compiler gcc|clang --out F   compiler warnings
   code_quality.py cppcheck --out F                         static analysis
@@ -80,9 +83,9 @@ CPPCHECK_ABORTS = {
     "cppcheckLimit", "instantiationError",
 }
 
-GCC_WARNING = re.compile(r"^(?P<file>[^:\s][^:]*):\d+:\d+: warning: (?P<msg>.*?)(?: \[(?P<flag>-W[^\]]+)\])?$")
-CPPCHECK_LINE = re.compile(r"^(?P<file>[^:]+):\d+:(?P<sev>[a-z]+):(?P<id>[A-Za-z0-9_]+):(?P<msg>.*)$")
-SHELLCHECK_LINE = re.compile(r"^(?P<file>[^:]+):\d+:\d+: (?P<sev>[a-z]+): (?P<msg>.*) \[(?P<id>SC\d+)\]$")
+GCC_WARNING = re.compile(r"^(?P<file>[^:\s][^:]*):(?P<loc>\d+:\d+): warning: (?P<msg>.*?)(?: \[(?P<flag>-W[^\]]+)\])?$")
+CPPCHECK_LINE = re.compile(r"^(?P<file>[^:]+):(?P<loc>\d+:\d+):(?P<sev>[a-z]+):(?P<id>[A-Za-z0-9_]+):(?P<msg>.*)$")
+SHELLCHECK_LINE = re.compile(r"^(?P<file>[^:]+):(?P<loc>\d+:\d+): (?P<sev>[a-z]+): (?P<msg>.*) \[(?P<id>SC\d+)\]$")
 
 
 def norm_path(path):
@@ -97,9 +100,16 @@ def norm_msg(msg):
 
 
 def write(findings, out):
+    """findings: (file, location, kind, message) as collected, a location
+    reported more than once (by several builds) counting once. Written as
+    file, kind, message and the number of locations, without the locations
+    themselves, which any edit above them would change."""
+    counts = {}
+    for file, _loc, kind, msg in set(findings):
+        counts[(file, kind, msg)] = counts.get((file, kind, msg), 0) + 1
     with open(out, "w", encoding="utf-8") as f:
-        f.writelines("\t".join(item) + "\n" for item in sorted(set(findings)))
-    print(f"{len(set(findings))} distinct finding(s) -> {out}")
+        f.writelines("\t".join((*key, str(n))) + "\n" for key, n in sorted(counts.items()))
+    print(f"{len(counts)} distinct finding(s), {sum(counts.values())} occurrence(s) -> {out}")
 
 
 def run(cmd, check=False, **kw):
@@ -130,7 +140,7 @@ def collect_warnings(compiler, out):
         for line in res.stdout.splitlines():
             m = GCC_WARNING.match(line)
             if m:
-                findings.append((norm_path(m["file"]), m["flag"] or "-W", norm_msg(m["msg"])))
+                findings.append((norm_path(m["file"]), m["loc"], m["flag"] or "-W", norm_msg(m["msg"])))
         if res.returncode != 0:
             # A build that stops early would just report fewer warnings and so
             # look like an improvement. The errors come first: with make -k
@@ -219,7 +229,7 @@ def collect_cppcheck(out):
                        # cppcheck does not know the compiler's predefined macros.
                        "-D__SIZEOF_FLOAT128__=16", "-D__GNUC__=13",
                        f"--include={prelude}",
-                       "--template={file}:{line}:{severity}:{id}:{message}", *flags,
+                       "--template={file}:{line}:{column}:{severity}:{id}:{message}", *flags,
                        # after the build's own -I, as the system headers come
                        f"-I{stubs}", src]
                 res = run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
@@ -240,7 +250,7 @@ def collect_cppcheck(out):
                     # not this repository's code to fix.
                     if path.startswith(THIRD_PARTY):
                         continue
-                    findings.append((path, f"{m['sev']}:{m['id']}", norm_msg(m["msg"])))
+                    findings.append((path, m["loc"], f"{m['sev']}:{m['id']}", norm_msg(m["msg"])))
     write(findings, out)
 
 
@@ -259,7 +269,7 @@ def collect_shellcheck(out):
     for line in res.stdout.splitlines():
         m = SHELLCHECK_LINE.match(line)
         if m:
-            findings.append((norm_path(m["file"]), m["id"], norm_msg(m["msg"])))
+            findings.append((norm_path(m["file"]), m["loc"], m["id"], norm_msg(m["msg"])))
     write(findings, out)
 
 
@@ -278,28 +288,42 @@ def base_revision(event, pr_base, before):
 
 
 def read(path):
+    """{(file, kind, message): occurrences}"""
+    counts = {}
     with open(path, encoding="utf-8") as f:
-        return {tuple(line.rstrip("\n").split("\t")) for line in f if line.strip()}
+        for line in f:
+            if line.strip():
+                *key, n = line.rstrip("\n").split("\t")
+                counts[tuple(key)] = int(n)
+    return counts
+
+
+def show(items):
+    """One line per finding, its count when more than one."""
+    return ["  ".join(key) + (f"  (x{n})" if n > 1 else "") for key, n in items]
 
 
 def compare(name, base_path, head_path):
     base, head = read(base_path), read(head_path)
-    new, fixed = sorted(head - base), sorted(base - head)
+    # More occurrences than on the base are new, fewer are fixed.
+    new = sorted((k, n - base.get(k, 0)) for k, n in head.items() if n > base.get(k, 0))
+    fixed = sorted((k, n - head.get(k, 0)) for k, n in base.items() if n > head.get(k, 0))
+    total = lambda items: sum(n for _, n in items)
     lines = [f"### {name}", "",
              "| | findings |", "|---|---|",
-             f"| base | {len(base)} |", f"| this change | {len(head)} |",
-             f"| **new** | **{len(new)}** |", f"| fixed | {len(fixed)} |", ""]
+             f"| base | {total(base.items())} |", f"| this change | {total(head.items())} |",
+             f"| **new** | **{total(new)}** |", f"| fixed | {total(fixed)} |", ""]
     if new:
         lines += ["New findings (they fail the check):", "", "```"]
-        lines += ["  ".join(item) for item in new]
+        lines += show(new)
         lines += ["```", ""]
     if fixed:
         lines += ["<details><summary>Fixed by this change</summary>", "", "```"]
-        lines += ["  ".join(item) for item in fixed]
+        lines += show(fixed)
         lines += ["```", "</details>", ""]
     if head:
         lines += ["<details><summary>All findings in this change</summary>", "", "```"]
-        lines += ["  ".join(item) for item in sorted(head)]
+        lines += show(sorted(head.items()))
         lines += ["```", "</details>", ""]
     text = "\n".join(lines)
     print(text)
@@ -307,9 +331,10 @@ def compare(name, base_path, head_path):
     if summary:
         with open(summary, "a", encoding="utf-8") as f:
             f.write(text + "\n")
-    for file, kind, msg in new:
+    for (file, kind, msg), n in new:
         # GitHub annotation on the file (no line: findings are line-free).
-        print(f"::error file={file},title={name}: new {kind}::{msg}")
+        more = f" ({n} more than on the base)" if base.get((file, kind, msg)) else ""
+        print(f"::error file={file},title={name}: new {kind}::{msg}{more}")
     return 1 if new else 0
 
 
