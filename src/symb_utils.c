@@ -14,9 +14,9 @@ static uint64_t apply_mtbdd_symb_refine_id;
 /// Coefficient for resizing refine data's update array
 #define UPDATE_RESIZE_COEF 2
 
-//TODO: Change to FLINT memory limit, also make it adjustable as a program parameter
-/// Max allowed matrix power in evaluation
-#define POW_LIMIT (UWORD(1) << 25)
+//TODO: Make the memory budget adjustable as a program parameter
+/// Memory budget for repeated squaring in bytes (4 GiB)
+#define POW_MEM_BUDGET ((size_t)4 * 1024 * 1024 * 1024)
 
 // =================
 // Refine internal:
@@ -188,14 +188,59 @@ typedef struct pow_state {
     fmpz_mat_t mtx_p;
     /// Power of the current result of repeated squaring
     ulong pow;
+    /// Bytes used by the base matrix A (constant during the power)
+    size_t a_bytes;
+    /// Memory budget for the computation in bytes (soft limit)
+    size_t budget;
 } pow_state_t;
+
+/**
+ * Returns the number of bytes used by an fmpz entry (on top of the base word) with the given bit size.
+ * (0 if the value fits into the word, otherwise the mpz struct and its limbs)
+ */
+static inline size_t mpz_bytes(flint_bitcnt_t bits)
+{
+    if (bits <= SMALL_FMPZ_BITCOUNT_MAX)
+        return 0;
+    // header + ceil(bits/64) * limbs, instead of ceil() uses (bits + 63) / 64 to round up
+    return sizeof(__mpz_struct) + ((bits + FLINT_BITS - 1) / FLINT_BITS) * sizeof(mp_limb_t);
+}
+
+/**
+ * Returns an estimated byte size of an n x n matrix with nnz nonzero entries of the given bit size.
+ */
+static inline size_t mat_bytes_est(slong n, slong nnz, flint_bitcnt_t bits)
+{
+    return (size_t) n * n * sizeof(fmpz) + (size_t) nnz * mpz_bytes(bits);
+}
+
+/**
+ * Initializes the context for repeated squaring of A, including the memory budget.
+ * Matrices mtx_res and mtx_p must be cleared by the caller.
+ */
+static void pow_state_init(pow_state_t *ctx, const fmpz_mat_t A)
+{
+    slong n = fmpz_mat_nrows(A);
+
+    fmpz_mat_init(ctx->mtx_res, n, n);
+    fmpz_mat_init(ctx->mtx_p, n, n);
+    ctx->pow = 0;
+
+    // Memory used by A
+    ctx->a_bytes = n * n * sizeof(fmpz); // Zero entry size
+    for (slong i = 0; i < n; i++) {
+        for (slong j = 0; j < n; j++)
+            ctx->a_bytes += mpz_bytes(fmpz_bits(fmpz_mat_entry(A, i, j))); // Nonzero entry size
+    }
+
+    ctx->budget = POW_MEM_BUDGET;
+}
 
 /**
  * Initializes FMPZ matrix according to rdata symexp values for all variables
  */
 static void init_upd_matrix(fmpz_mat_t mtx, vars_t nvars, rdata_t *rdata)
 {
-    // 
     symexp_list_t *expr;
 
     fmpz_mat_zero(mtx);
@@ -236,6 +281,15 @@ static void update_map_from_vec(fmpz* state, vars_t nvars, coef_t* map)
  *
  * The next step computes mtx_res^2 (and possibly mtx_res^2 * A), so the entries roughly
  * double in size. This can lead to OOM for big integers.
+ * This is a soft limit (see also the remainder in rs_evaluate()).
+ *
+ * Estimates the peak memory of the next step from the current mtx_res (R). Entries of
+ * P = R^2 have at most 2 * max_bits(R) + ceil(log2(max row nnz of R)) bits (a product adds
+ * the bit sizes, a sum of m terms adds at most ceil(log2 m) carry bits). R' = P * A is
+ * estimated as the size of P, since A's small entries add only a few bits.
+ * Peak memory:
+ *  - next bit 0:  A + R + P  + temporaries of the squaring
+ *  - next bit 1:  A + P + R' + temporaries of the multiplication (R' overwrites R)
  *
  * @param ctx current state of repeated squaring computation
  *
@@ -243,21 +297,52 @@ static void update_map_from_vec(fmpz* state, vars_t nvars, coef_t* map)
  *
  * @return true if the next step may be performed
  */
-static inline bool pow_can_continue(const pow_state_t *ctx, ulong next_pow)
+static bool pow_can_continue(const pow_state_t *ctx, ulong next_pow)
 {
-    /**
-     * TODO: Get current FLINT memory usage during matrix power.
-     * Calculate as memory currently used by A, B, P + estimate P^2 < limit.
-     * Either use exact values (system calls, not every iteration) or estimate
-     * (e.g. based on fmpz_mat_max_bits(ctx->mtx_res)).
-     * 
-     * For estimate, good initial value for each matrix is probably:
-     *      number of elements of A * largest element of A
-     * using fmpz_bits(). This approach would need to additionally track B and P
-     * size estimates in the custom_mat_pow().
-    */
-    (void) ctx;
-    return (next_pow <= POW_LIMIT);
+    slong n = fmpz_mat_nrows(ctx->mtx_res);
+    slong nnz = 0;
+    slong max_row_nnz = 0;
+    flint_bitcnt_t max_bits = 0;
+    size_t r_bytes = (size_t) n * n * sizeof(fmpz);
+
+    // Scan R instead of precomputing the transitive closure of A: near the limit the
+    // nonzero pattern of A^pow has stopped changing, so nnz(R^2) ~ nnz(R)
+    for (slong i = 0; i < n; i++) {
+        slong row_nnz = 0;
+        for (slong j = 0; j < n; j++) {
+            const fmpz *e = fmpz_mat_entry(ctx->mtx_res, i, j);
+            if (fmpz_is_zero(e))
+                continue;
+
+            flint_bitcnt_t b = fmpz_bits(e);
+            row_nnz++;
+            if (b > max_bits) max_bits = b;
+            r_bytes += mpz_bytes(b);
+        }
+        nnz += row_nnz;
+        if (row_nnz > max_row_nnz) max_row_nnz = row_nnz;
+    }
+
+    // Predict max size of P's entry
+    flint_bitcnt_t carry_bits = (max_row_nnz <= 1) ? 0 : FLINT_BIT_COUNT(max_row_nnz - 1);
+    flint_bitcnt_t p_bits = 2 * max_bits + carry_bits;
+    size_t p_bytes = mat_bytes_est(n, nnz, p_bits);
+
+    // Temporaries: for large entries FLINT multiplies via FFT, which transforms all n^2
+    // entries (zeros included), so it needs ~n^2 entries of P's size regardless of sparsity
+    // Note: for small entries, this overestimates the real RSS (however, these are not near the limit)
+    size_t tmp_bytes = (size_t) n * n * mpz_bytes(p_bits);
+
+    size_t peak;
+    if (next_pow & UWORD(1)) {
+        // R' equals approx. P (A is small)
+        peak = ctx->a_bytes + 2 * p_bytes + tmp_bytes;
+    }
+    else {
+        peak = ctx->a_bytes + r_bytes + p_bytes + tmp_bytes;
+    }
+
+    return peak <= ctx->budget;
 }
 
 /**
@@ -330,47 +415,52 @@ static void custom_mat_pow(pow_state_t *ctx, const fmpz_mat_t A, ulong exp)
 static void rs_evaluate(fmpz *res, fmpz *state, fmpz_mat_t mtx_upd, ulong iters)
 {
     vars_t nvars = fmpz_mat_nrows(mtx_upd);
-
     // Create initial context for matrix power computation
     pow_state_t pow_ctx;
-    fmpz_mat_init(pow_ctx.mtx_res, nvars, nvars);
-    fmpz_mat_init(pow_ctx.mtx_p, nvars, nvars);
+    pow_state_init(&pow_ctx, mtx_upd);
 
     // Repeated squaring
     custom_mat_pow(&pow_ctx, mtx_upd, iters);
-
     // Scratch matrix for squaring not needed for linear part
     fmpz_mat_clear(pow_ctx.mtx_p);
 
+    // Check if finished within budget
     if (pow_ctx.pow == iters) {
         fmpz_mat_mul_fmpz_vec(res, pow_ctx.mtx_res, state, nvars);
-    }
-    // Not finished
-    else {
-        // iters = pow * n_mult + n_rem, n_rem < pow
-        ulong n_mult = iters / pow_ctx.pow;
-        ulong n_rem = iters % pow_ctx.pow;
-        fmpz *tmp_res = _fmpz_vec_init(nvars);
-
-        //TODO: Check whether it is safe in terms of memory to switch to RS here
-        // res = A^n_rem * state (first, while the vector is still small)
-        _fmpz_vec_set(res, state, nvars);
-        for (; n_rem > 0; n_rem--) {
-            fmpz_mat_mul_fmpz_vec(tmp_res, mtx_upd, res, nvars);
-            _fmpz_vec_swap(res, tmp_res, nvars);
-        }
-
-        // res = P^n_mult * res
-        for (; n_mult > 0; n_mult--) {
-            fmpz_mat_mul_fmpz_vec(tmp_res, pow_ctx.mtx_res, res, nvars);
-            _fmpz_vec_swap(res, tmp_res, nvars);
-        }
-
-        _fmpz_vec_clear(tmp_res, nvars);
+        fmpz_mat_clear(pow_ctx.mtx_res);
+        return;
     }
 
-    // Clean up remaining pow context
+    // Not finished: iters = pow * n_mult + n_rem, n_rem < pow
+    ulong n_mult = iters / pow_ctx.pow;
+    ulong n_rem = iters % pow_ctx.pow;
+    fmpz *tmp_res = _fmpz_vec_init(nvars);
+
+    // res' = mtx_res^n_mult * state (powers of A commute)
+    _fmpz_vec_set(res, state, nvars);
+    for (; n_mult > 0; n_mult--) {
+        fmpz_mat_mul_fmpz_vec(tmp_res, pow_ctx.mtx_res, res, nvars);
+        _fmpz_vec_swap(res, tmp_res, nvars);
+    }
+    // mtx_res is not needed anymore
     fmpz_mat_clear(pow_ctx.mtx_res);
+
+    // Remainder: res = A^n_rem * res'
+    // fmpz_mat_pow() has no limit and can peak up to ~1.33x the budget approved in custom_mat_pow()
+    // (its last step may multiply by A while mtx_res's did not). However, the result vectors are
+    // not covered by the budget either (soft limit).
+    if (n_rem > 0) {
+        fmpz_mat_t mtx_rem;
+        fmpz_mat_init(mtx_rem, nvars, nvars);
+        fmpz_mat_pow(mtx_rem, mtx_upd, n_rem);
+
+        fmpz_mat_mul_fmpz_vec(tmp_res, mtx_rem, res, nvars);
+        _fmpz_vec_swap(res, tmp_res, nvars);
+
+        fmpz_mat_clear(mtx_rem);
+    }
+
+    _fmpz_vec_clear(tmp_res, nvars);
 }
 
 // ========================================
