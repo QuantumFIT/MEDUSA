@@ -374,3 +374,78 @@ mapping list, `rdata->ref`, and `free_sim_info`.
 
 Terminal-table teardown (`bdd_done` union-aware free + `mtbdd_IndexStackFree`) and
 CUSTOM dedup free are in upstream MoToBuddy (`main`).
+
+### Code quality (`.github/workflows/code-quality.yml`)
+
+Four checks, each run on the change *and* on the commit it is based on:
+compiler warnings with `-Wall -Wextra` (GCC: every leaf type, GMP and
+`USE_CXX=1`; clang: f32/f64/f80 and GMP, as clang cannot build f128 on `devel`
+yet), cppcheck (`--enable=warning,portability,performance`, the f128, GMP
+and `USE_CXX=1` builds, so the C++ sources too; a file cppcheck gives up on
+fails the check, and third-party code under `lib/` is left out), and
+shellcheck (`-S warning`, every tracked `*.sh`). A check fails only on
+findings the change adds; the existing ones are listed in the job
+summary. Findings are compared by file, kind and message, not by line, so
+unrelated edits that move code do not count as new; what is compared is how
+many times each occurs (one per source location, however many builds report
+it), so another occurrence of an existing finding does count as new.
+
+The same script runs locally (after `make init`; it rebuilds the object trees),
+with the tools CI installs: GCC, clang, cppcheck and shellcheck. Each collector
+writes its own file. The recipe below does what CI does. It collects on the
+change and on its base: a new `git worktree` at `../base` of the PR's target
+branch as just fetched from `origin`. That is `devel`, or for a stacked PR the
+branch it targets, given as `BASE_BRANCH` (e.g. `export
+BASE_BRANCH=feat/f128-without-quadmath` before pasting the recipe); in a fork
+whose `origin` lacks the target or is behind it, set `BASE_REMOTE` (e.g.
+`upstream`) too. CI collects on the change merged into its target, while the
+recipe collects on the branch as it is, so merge or rebase the target into the
+branch first; otherwise a finding the target has since fixed shows as new.
+Both sides use the change's script (the base's may differ, or predate it). This
+checkout's MoToBuddy is linked into the base when both pin the same commit,
+and `make init` runs there otherwise. Each check is then compared on its own.
+The recipe runs in a subshell under `set -eu`, so any failure - an unknown
+`BASE_REMOTE` or `BASE_BRANCH`, `../base` already existing, a build or
+collector failing -
+stops it before a comparison is made. It exits 1 if a check has new findings.
+
+```
+(
+  set -eu
+  cq="$PWD/.github/scripts/code_quality.py"    # the change's, for both sides
+  out=$(mktemp -d)                              # the reports
+  base="$(dirname "$PWD")/base"
+  git fetch "${BASE_REMOTE:-origin}" "${BASE_BRANCH:-devel}"  # the PR's target
+  git worktree add --detach "$base" FETCH_HEAD  # fails if ../base exists
+  pin() { sed -n 's/^MOTOBUDDY_COMMIT[[:space:]]*[:?]*=[[:space:]]*//p' "$1/Makefile" | head -1; }
+  if [ "$(pin .)" = "$(pin "$base")" ]; then
+    ln -s "$PWD/lib" "$base/lib"
+  else
+    (cd "$base" && make init)
+  fi
+  for side in head base; do
+    if [ "$side" = head ]; then dir=$PWD; else dir=$base; fi
+    (cd "$dir"
+     python3 "$cq" warnings --compiler gcc --out "$out/$side-gcc.txt"
+     python3 "$cq" warnings --compiler clang --out "$out/$side-clang.txt"
+     python3 "$cq" cppcheck --out "$out/$side-cppcheck.txt"
+     python3 "$cq" shellcheck --out "$out/$side-shellcheck.txt")
+  done
+  rc=0
+  for check in gcc clang cppcheck shellcheck; do
+    python3 "$cq" compare --name "$check" "$out/base-$check.txt" "$out/head-$check.txt" || rc=1
+  done
+  echo "Reports in $out; remove the base with: git worktree remove $base"
+  exit "$rc"
+)
+```
+
+The script itself is unit-tested (`tests/test_code_quality.py`, the workflow's
+*Script tests* job; `python3 -m unittest -v tests/test_code_quality.py`),
+without the tools it drives: the parsers, the normalisation (findings do not
+depend on line numbers), the comparison (only new findings fail), the
+collectors' refusal of failed or partial tool runs, and the base each event
+compares against. Each of those is mutation-checked.
+
+A cppcheck false positive can be silenced at the line with
+`// cppcheck-suppress <id>`.
