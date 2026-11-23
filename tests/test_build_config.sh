@@ -11,9 +11,14 @@
 #                    as Apple clang does, still builds - without the flag and
 #                    without the warning meant for GCC
 #   fat-lto-warning  GCC whose test compile fails gets the warning, once
-#   f128-no-quadmath an f128 build where <quadmath.h> is missing (clang on
-#                    Linux, macOS) stops with the #error that names another
-#                    leaf type, not with "file not found"
+#   f128-no-quadmath f128 compiles where <quadmath.h> is missing (clang on
+#                    Linux, macOS): it no longer needs GCC's libquadmath
+#   f128-libc        f128 on a C library without glibc's *f128 functions
+#                    (musl, macOS x86_64, glibc < 2.26) stops with the #error
+#                    that says so, not at link time
+#   f128-no-binary128 f128 on a target with neither __float128 nor a 128-bit
+#                    long double (arm64 macOS) stops with its #error
+#   f128-no-quadmath-link the f128 links do not pass -lquadmath
 #   gmp-no-quadmath  the GMP links do not pass -lquadmath, which macOS does
 #                    not have (checked on the commands: a Linux linker with
 #                    --as-needed drops it from the binary either way), and the
@@ -125,7 +130,8 @@ fi
 
 # ---------------------------------------------------------------------------
 # f128 without <quadmath.h>: GCC's own include directory, minus quadmath*.h,
-# in place of the real one - what clang on Linux sees.
+# in place of the real one - what clang on Linux sees. f128 must compile there,
+# and stop with its own #error where the C library or the target lacks it.
 # ---------------------------------------------------------------------------
 if [[ "${GNU_GCC}" -eq 1 ]]; then
     GCC_INC="$(gcc -print-file-name=include)"
@@ -138,23 +144,61 @@ if [[ "${GNU_GCC}" -eq 1 ]]; then
     while read -r d; do
         [ "$d" = "${GCC_INC}" ] || SYS_INC+=(-isystem "$d")
     done < <(echo | gcc -E -Wp,-v -x c - 2>&1 | sed -n '/<...> search starts here/,/End of search/p' | grep '^ /' | sed 's/^ //')
-    if [ -f "${GCC_INC}/quadmath.h" ]; then
-        printf '#include "leaf_primitive_double.h"\n' > "${WORKDIR}/f128.c"
-        gcc -nostdinc -isystem "${NOQM}" "${SYS_INC[@]}" \
-            -I src/interface_implementations/leaf_primitives -DLEAF_FLOAT_TYPE=3 \
-            -fsyntax-only "${WORKDIR}/f128.c" > "${WORKDIR}/f128.log" 2>&1 || true
-        if grep -q 'needs GCC.s libquadmath' "${WORKDIR}/f128.log" \
-           && ! grep -q 'quadmath.h.*No such file' "${WORKDIR}/f128.log"; then
-            pass "f128-no-quadmath"
-        else
-            fail "f128-no-quadmath" "expected the libquadmath #error"
-            head -5 "${WORKDIR}/f128.log"
-        fi
+    LEAF_INC=(-I src/interface_implementations/leaf_primitives -DLEAF_FLOAT_TYPE=3)
+    F128_EXTRA=()
+    f128_compile() {  # name, prelude lines; compiles the leaf header after them (and F128_EXTRA flags)
+        local name="$1"; shift
+        printf '%s\n' "$@" '#include "leaf_primitive_double.h"' 'int main(void) { return 0; }' \
+            > "${WORKDIR}/${name}.c"
+        gcc -nostdinc -isystem "${NOQM}" "${SYS_INC[@]}" "${LEAF_INC[@]}" ${F128_EXTRA[@]+"${F128_EXTRA[@]}"} \
+            -fsyntax-only "${WORKDIR}/${name}.c" > "${WORKDIR}/${name}.log" 2>&1
+    }
+    if f128_compile f128-ok; then
+        pass "f128-no-quadmath"
     else
-        skip "f128-no-quadmath" "this GCC has no quadmath.h to take away"
+        fail "f128-no-quadmath" "the f128 header does not compile without quadmath.h"
+        head -5 "${WORKDIR}/f128-ok.log"
+    fi
+
+    # Where long double is binary128 (aarch64, riscv64, s390x Linux) f128 is
+    # long double: neither glibc's *f128 functions nor __float128 matter there.
+    LDBL_BINARY128=0
+    [ "$(gcc -dM -E -x c /dev/null | awk '$2 == "__LDBL_MANT_DIG__" { print $3 }')" = 113 ] \
+        && LDBL_BINARY128=1
+
+    # The C library check needs glibc's macros gone, after a libc header defined them.
+    if [[ "${LDBL_BINARY128}" -eq 1 ]]; then
+        skip "f128-libc" "long double is binary128 here"
+    elif ! f128_compile f128-libc '#include <stdio.h>' '#undef __GLIBC__' \
+       && grep -q 'glibc 2.26 or newer is needed' "${WORKDIR}/f128-libc.log"; then
+        pass "f128-libc"
+    else
+        fail "f128-libc" "expected the glibc #error"
+        head -5 "${WORKDIR}/f128-libc.log"
+    fi
+
+    # x86_64 without __float128: long double is 80-bit there, so no binary128 at all.
+    F128_EXTRA=(-U__SIZEOF_FLOAT128__)
+    if [[ "${LDBL_BINARY128}" -eq 1 ]]; then
+        skip "f128-no-binary128" "long double is binary128 here"
+    elif ! f128_compile f128-none \
+       && grep -q 'needs an IEEE binary128 type' "${WORKDIR}/f128-none.log"; then
+        pass "f128-no-binary128"
+    else
+        fail "f128-no-binary128" "expected the binary128 #error"
+        head -5 "${WORKDIR}/f128-none.log"
     fi
 else
-    skip "f128-no-quadmath" "gcc is not GNU GCC"
+    for t in f128-no-quadmath f128-libc f128-no-binary128; do skip "$t" "gcc is not GNU GCC"; done
+fi
+
+make --no-print-directory -n -B buddy_doubles_f128 2> /dev/null \
+    | sed -e ':a' -e '/\\$/N; s/\\\n//; ta' \
+    | grep -E -- '-o [^ ]*MEDUSA_buddy_doubles_f128( |$)' | grep -v -- ' -c ' > "${WORKDIR}/f128-links" || true
+if [[ "$(wc -l < "${WORKDIR}/f128-links")" -ge 1 ]] && ! grep -q -- '-lquadmath' "${WORKDIR}/f128-links"; then
+    pass "f128-no-quadmath-link"
+else
+    fail "f128-no-quadmath-link" "the f128 link passes -lquadmath (or was not found)"
 fi
 
 # ---------------------------------------------------------------------------

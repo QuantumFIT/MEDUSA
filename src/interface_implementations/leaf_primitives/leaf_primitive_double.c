@@ -7,6 +7,10 @@
 #include <string.h>
 #include <gmp.h>
 
+/* The hash copies LEAF_SCALAR_HASH_BYTES out of one scalar. */
+_Static_assert(LEAF_SCALAR_HASH_BYTES <= sizeof(leaf_scalar_t),
+               "LEAF_SCALAR_HASH_BYTES must not exceed the size of leaf_scalar_t");
+
 uint64_t hash_comb_generic(leaf_primitive_t data) {
     // Only the value-carrying bytes, never the padding: see the comment on
     // LEAF_SCALAR_HASH_BYTES. cmp_generic compares numerically, so hashing
@@ -45,8 +49,10 @@ void inv_sqrt2_pow_generic(leaf_primitive_t x, mpz_t k) {
 }
 
 void to_str_generic(leaf_primitive_t x, char *buf, size_t bufsize) {
-#if LEAF_FLOAT_TYPE == LEAF_TYPE_QUAD
-    quadmath_snprintf(buf, bufsize, "%.30Qg", x[0]);
+#if LEAF_FLOAT_TYPE == LEAF_TYPE_QUAD && defined(LEAF_QUAD_IS_LONG_DOUBLE)
+    snprintf(buf, bufsize, "%.30Lg", x[0]);
+#elif LEAF_FLOAT_TYPE == LEAF_TYPE_QUAD
+    strfromf128(buf, bufsize, "%.30g", x[0]);
 #else
     snprintf(buf, bufsize, "%.17Lg", (long double)x[0]);
 #endif
