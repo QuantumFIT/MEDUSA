@@ -703,7 +703,7 @@ $(TEST_SIMERR_BIN): $(TEST_SIMERR_SRC) $(TEST_HARNESS_H) $(TEST_UNIT_OBJS) \
 	    -include $(LEAF_PRIM_DIR)/leaf_primitive_double.h \
 	    -include $(BACKENDS_DIR)/interface_motobuddy.h \
 	    -o $@ $(TEST_SIMERR_SRC) $(TEST_UNIT_OBJS) \
-	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS)
+	    $(LIB_DIR)/MoToBuddy/build/src/libbuddy.a $(CLIBS_DOUBLES)
 
 test-sim-errors:
 	$(MAKE) $(TEST_SIMERR_BIN) LEAF_FLOAT_TYPE=3
