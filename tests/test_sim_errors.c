@@ -249,7 +249,7 @@ static double basis_prob(qBDD t, const char *bits)
         uint32_t v = (uint32_t)qBDD_getVar(t);
         t = (bits[v] == '1') ? qBDD_getHigh(t) : qBDD_getLow(t);
     }
-    return qBDD_isFalse(t) ? 0.0 : (double)qBDD_calculateProb(t);
+    return qBDD_isFalse(t) ? 0.0 : PROB_TO_D(qBDD_calculateProb(t));
 }
 
 /* info.line names the input line the error is on (from 1; HDR is lines 1-2).
@@ -722,7 +722,7 @@ static void test_valid_after_errors(void)
         TEST_ASSERT(info.n_qubits == 3);
         TEST_ASSERT(info.n_loops == 2);
         if (got == SIM_OK) {
-            TEST_ASSERT_NEAR(qBDD_total_prob(circ, 3), 1.0, 1e-6);
+            TEST_ASSERT_NEAR(PROB_TO_D(qBDD_total_prob(circ, 3)), 1.0, 1e-6);
             TEST_ASSERT_NEAR(basis_prob(circ, "011"), 0.5, 1e-6);
             TEST_ASSERT_NEAR(basis_prob(circ, "111"), 0.5, 1e-6);
             TEST_ASSERT_NEAR(basis_prob(circ, "000"), 0.0, 1e-6);

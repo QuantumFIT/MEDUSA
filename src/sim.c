@@ -715,7 +715,7 @@ sim_status_t sim_file(FILE *in, qBDD *circ, const sim_flags_t *flags, sim_info_t
 #ifdef MEDUSA_DEBUG
                         /* A full walk over the diagram, for the log only. */
                         {
-                            double tp = (double)qBDD_total_prob(*circ, info->n_qubits);
+                            double tp = PROB_TO_D(qBDD_total_prob(*circ, info->n_qubits));
                             MEDUSA_DBG(.cat = MEDUSA_DBG_NORM, .evt = "loop_done", .where = "sim_file",
                                        .use_bdd = 1, .bdd = (int)*circ,
                                        .ref = medusa_dbg_bdd_ref((int)*circ),
@@ -994,7 +994,7 @@ void measure_all(unsigned long samples, FILE *output, qBDD circ, int n, int *bit
     htab_t *state_table = htab_init(n*n*n-1);
     
     for (unsigned long i=0; i < samples; i++) {
-        norm_coef = 1;
+        norm_coef = PROB_ONE;
         for (int j=0; j < n; j++) {
             curr_state[j] = NOT_MEASURED_CHAR;
         }
@@ -1005,19 +1005,22 @@ void measure_all(unsigned long samples, FILE *output, qBDD circ, int n, int *bit
                 continue;
             }
 
-            p_qt_is_one = measure(&circ, j, curr_state, n) * norm_coef * norm_coef;
-            assert(p_qt_is_one <= (1 + EPSILON) && p_qt_is_one >= (0 - EPSILON));
-            p_qt_is_one = (p_qt_is_one >= 1)? 1 : ((p_qt_is_one <= 0)? 0 : p_qt_is_one); // round
-            random = (prob_t)((double)rand() / RAND_MAX);
-            if (random <= p_qt_is_one) {
+            p_qt_is_one = PROB_MUL(PROB_MUL(measure(&circ, j, curr_state, n), norm_coef), norm_coef);
+            assert(PROB_LE(p_qt_is_one, PROB_FROM_D(1 + EPSILON))
+                   && PROB_LE(PROB_FROM_D(0 - EPSILON), p_qt_is_one));
+            // round
+            if (PROB_LE(PROB_ONE, p_qt_is_one)) p_qt_is_one = PROB_ONE;
+            else if (PROB_LE(p_qt_is_one, PROB_ZERO)) p_qt_is_one = PROB_ZERO;
+            random = PROB_FROM_D((double)rand() / RAND_MAX);
+            if (PROB_LE(random, p_qt_is_one)) {
                 curr_state[curr_ct] = '1';
-                assert(p_qt_is_one != 0);
-                norm_coef *= sqrt(1/p_qt_is_one);
+                assert(!PROB_EQ(p_qt_is_one, PROB_ZERO));
+                norm_coef = PROB_MUL_SQRT_D(norm_coef, PROB_DIV(PROB_ONE, p_qt_is_one));
             }
             else {
                 curr_state[curr_ct] = '0';
-                assert(p_qt_is_one != 1);
-                norm_coef *= sqrt(1/(1-p_qt_is_one));
+                assert(!PROB_EQ(p_qt_is_one, PROB_ONE));
+                norm_coef = PROB_MUL_SQRT_D(norm_coef, PROB_DIV(PROB_ONE, PROB_SUB(PROB_ONE, p_qt_is_one)));
             }
         }
         htab_m_lookup_add(state_table, curr_state);
