@@ -383,12 +383,17 @@ writes its own file. The recipe below does what CI does. It collects on the
 change and on its base: a new `git worktree` at `../base` of the PR's target
 branch as just fetched from `origin`. That is `devel`, or for a stacked PR the
 branch it targets, given as `BASE_BRANCH` (e.g. `export
-BASE_BRANCH=feat/f128-without-quadmath` before pasting the recipe). Both sides
-use the change's script (the base's may differ, or predate it). This
+BASE_BRANCH=feat/f128-without-quadmath` before pasting the recipe); in a fork
+whose `origin` lacks the target or is behind it, set `BASE_REMOTE` (e.g.
+`upstream`) too. CI collects on the change merged into its target, while the
+recipe collects on the branch as it is, so merge or rebase the target into the
+branch first; otherwise a finding the target has since fixed shows as new.
+Both sides use the change's script (the base's may differ, or predate it). This
 checkout's MoToBuddy is linked into the base when both pin the same commit,
 and `make init` runs there otherwise. Each check is then compared on its own.
 The recipe runs in a subshell under `set -eu`, so any failure - an unknown
-`BASE_BRANCH`, `../base` already existing, a build or collector failing -
+`BASE_REMOTE` or `BASE_BRANCH`, `../base` already existing, a build or
+collector failing -
 stops it before a comparison is made. It exits 1 if a check has new findings.
 
 ```
@@ -397,7 +402,7 @@ stops it before a comparison is made. It exits 1 if a check has new findings.
   cq="$PWD/.github/scripts/code_quality.py"    # the change's, for both sides
   out=$(mktemp -d)                              # the reports
   base="$(dirname "$PWD")/base"
-  git fetch origin "${BASE_BRANCH:-devel}"      # the PR's target, as just fetched
+  git fetch "${BASE_REMOTE:-origin}" "${BASE_BRANCH:-devel}"  # the PR's target
   git worktree add --detach "$base" FETCH_HEAD  # fails if ../base exists
   pin() { sed -n 's/^MOTOBUDDY_COMMIT[[:space:]]*[:?]*=[[:space:]]*//p' "$1/Makefile" | head -1; }
   if [ "$(pin .)" = "$(pin "$base")" ]; then
